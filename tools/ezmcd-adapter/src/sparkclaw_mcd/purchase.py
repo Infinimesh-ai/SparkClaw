@@ -16,8 +16,9 @@ from ezmcd.service import Service, quote_authorization_fingerprint
 from ezmcd.storage import Store
 
 from .canonical import canonical, digest, fields, identifier, integer
-from .errors import require
+from .errors import require, UPSTREAM_ERRORS
 from .quotes import purchase_digest
+from .receipt import order_fields
 
 
 def review(scope, purchase, q):
@@ -152,29 +153,44 @@ def commit(ledger, scope, request, account, provider_factory):
             # that the old execution is safe to re-dispatch.
             return _status(ledger,store,key,provider_factory)
         store.quote_id = q["quote_id"]
-        client = provider_factory(store.account(scope["account_ref"]))
+        client = None
         try:
+            client = provider_factory(store.account(scope["account_ref"]))
             service = PurchaseService(store, lambda _: client)
             result = service.submit(scope["account_ref"], q["quote_id"], key)
-        except Exception:
-            # Even preflight failures keep the original command claimed. Abort
-            # may prove non-dispatch by checking the original attempt tables.
-            result = {"state":"UNKNOWN", "automatic_write_retry":False, "paid_verified":False}
+        except Exception as error:
+            with ledger._transaction() as conn:
+                not_dispatched = ledger.non_dispatch_proven(conn, scope_hash, member, purchase, epoch)
+            # Only known public codes may leave the native helper. Exception
+            # text can contain credentials or unvalidated official payloads.
+            code = error.code if isinstance(error, EzMcdError) and error.code in UPSTREAM_ERRORS else "preflight_failed"
+            result = {"state": "NOT_DISPATCHED" if not_dispatched else "UNKNOWN",
+                      "non_dispatch_proven": not_dispatched, "stop_reason": code,
+                      "automatic_write_retry": False, "paid_verified": False}
         finally:
             if callable(getattr(getattr(client, "http", None), "close", None)):
-                client.http.close()
+                try:
+                    client.http.close()
+                except Exception:
+                    # Closing a read transport cannot change the dispatch
+                    # evidence already recorded under the member lock.
+                    pass
         return _persist(ledger,store,key,result)
 
 
 def _persist(ledger, store, key, result):
-    terminal = result.get("state") == "PAID" and result.get("paid_verified") is True or result.get("state") == "CANCELLED"
     receipt = {"state":result.get("state","UNKNOWN"), "purchase_id":store.purchase, "handoff_epoch":store.epoch,
-               "terminal_verified":bool(terminal), "automatic_write_retry":False,
+               **order_fields(result), "automatic_write_retry":False,
+               "non_dispatch_proven": result.get("state") == "NOT_DISPATCHED" and result.get("non_dispatch_proven") is True,
+               "stop_reason": result.get("stop_reason") if result.get("stop_reason") in UPSTREAM_ERRORS else "",
                "result_json":json.dumps(result,ensure_ascii=False,separators=(",",":"))}
     with ledger._transaction() as conn:
         conn.execute("UPDATE mcd_commits SET state=?,receipt=? WHERE scope=? AND key=?",
                      (receipt["state"],canonical(receipt).decode(),store.scope_hash,key))
-        if terminal:
+        if receipt["non_dispatch_proven"]:
+            conn.execute("UPDATE mcd_preparations SET state='NOT_DISPATCHED' WHERE member=? AND purchase=? AND epoch=?",
+                         (store.member, store.purchase, store.epoch))
+        if receipt["terminal_verified"]:
             conn.execute("UPDATE mcd_preparations SET state=? WHERE member=? AND purchase=? AND epoch=?",
                          (receipt["state"],store.member,store.purchase,store.epoch))
             conn.execute("INSERT INTO mcd_purchases VALUES (?,?,1) ON CONFLICT(member,purchase) DO UPDATE SET closed=1",(store.member,store.purchase))
@@ -183,6 +199,11 @@ def _persist(ledger, store, key, result):
 
 def _status(ledger, store, key, provider_factory):
     with ledger.store.connect() as conn:
+        commit = conn.execute("SELECT state,receipt FROM mcd_commits WHERE scope=? AND key=?", (store.scope_hash,key)).fetchone()
+        if commit and commit["state"] == "NOT_DISPATCHED" and commit["receipt"]:
+            # A preflight rejection is durable. Status never reopens the old
+            # command or constructs a provider after a confirmed non-dispatch.
+            return json.loads(commit["receipt"])
         # The reserve->commit metadata gap is recovered from the original key.
         row=conn.execute("SELECT attempt FROM request_keys WHERE identity=? AND request_key=?",(store.member,key)).fetchone()
     if not row:

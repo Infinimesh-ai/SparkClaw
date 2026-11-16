@@ -18,8 +18,8 @@ const (
 	CapabilityCodingAgentManage     CapabilityID = "coding.agent_manage"
 )
 
-const CapabilityMCDRead CapabilityID = "dining.mcd_read"
-const WorkflowMCDRead WorkflowID = "dining.mcd_read"
+const CapabilityMCDOrder CapabilityID = "dining.mcd_order"
+const WorkflowMCDOrder WorkflowID = "dining.mcd_order"
 const ToolCapabilityMCDSelection = "dining.mcd.selection"
 
 type IntentDomain string
@@ -549,6 +549,7 @@ type WorkflowState struct {
 	ActiveNodeIDs []WorkflowNodeID                     `json:"active_node_ids"`
 	Nodes         map[WorkflowNodeID]WorkflowNodeState `json:"nodes"`
 	Browser       *BrowserWorkflowState                `json:"browser,omitempty"`
+	MCDOrder      *MCDOrderState                       `json:"mcd_order,omitempty"`
 }
 
 type ToolDirectoryMetadata struct {

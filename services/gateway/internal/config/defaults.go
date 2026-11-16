@@ -24,6 +24,7 @@ func Default() Config {
 		JingSiRuntime: JingSiRuntimeConfig{
 			Enabled: false, StateDir: "./data/jingsi-runtime-v1", MaxConcurrent: 4, RetentionDays: 30,
 		},
+		MCDSelection: MCDSelectionConfig{QualifiedEatTypes: []string{"locker-in"}},
 		Model: ModelConfig{
 			CapacityProfile:    "dgx-spark-dual-light-v1",
 			CapacityCatalog:    defaultModelCapacityCatalog,

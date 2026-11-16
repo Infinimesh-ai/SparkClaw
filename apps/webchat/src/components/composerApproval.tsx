@@ -83,7 +83,7 @@ export function ComposerApproval({ text, summary, details, unavailable, approveU
     {approveBlocked && <p className="composerApprovalStatus" id={`${id}-approve-unavailable`}>{approveBlocked}</p>}
     {error && <p className="compactError" role="alert">{error}</p>}
     <footer><button type="button" disabled={disabled || !selected || (selected === "approve" && Boolean(approveBlocked || !valid))} onClick={() => void submit()}>
-      {sending ? copy.submitting : lockedChoice ? copy.retry : inputForm && selected === "approve" ? copy.completeAndWrite.replace("{count}", String(inputForm.entries?.length ?? 0)) : copy.submit}
+      {sending ? copy.submitting : lockedChoice ? copy.retry : inputForm && selected === "approve" ? inputForm.submit_label || copy.completeAndWrite.replace("{count}", String(inputForm.entries?.length ?? 0)) : copy.submit}
     </button></footer>
   </section>;
 }

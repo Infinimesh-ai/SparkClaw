@@ -21,6 +21,12 @@
     "max_concurrent": 4,
     "retention_days": 30
   },
+  "mcd_selection": {
+    "enabled": false,
+    "cart_enabled": false,
+    "purchase_enabled": false,
+    "qualified_eat_types": ["locker-in"]
+  },
   "model": {
     "capacity_profile": "mock",
     "capacity_catalog": "model.profiles.json",

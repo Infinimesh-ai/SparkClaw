@@ -18,6 +18,7 @@ export type ApprovalInputField = {
 };
 export type ApprovalInputForm = {
   schema_version: number;
+  submit_label?: string;
   entries: Array<{
     id: string;
     label: string;
@@ -31,6 +32,15 @@ export function supportedApprovalForm(form: ApprovalInputForm) {
     !Array.isArray(form.entries) ||
     form.entries.length < 1 ||
     form.entries.length > 20
+  )
+    return false;
+  if (
+    form.submit_label !== undefined &&
+    form.submit_label !== "" &&
+    (typeof form.submit_label !== "string" ||
+      !form.submit_label.trim() ||
+      [...form.submit_label].length > 80 ||
+      /[\p{Cc}\p{Cs}\u2028\u2029]/u.test(form.submit_label))
   )
     return false;
   const seen = new Set<string>();

@@ -9,7 +9,6 @@ import json
 import signal
 import sys
 import time
-from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -17,7 +16,7 @@ from ezmcd.errors import EzMcdError
 
 from .canonical import canonical, fields, loads
 from .compatibility import qualify, member_digest
-from .errors import AdapterError, require
+from .errors import AdapterError, require, UPSTREAM_ERRORS
 from .ledger import PrepareLedger
 from .pickup_probe import export_pickup
 from .pickup_control import retire_pickup
@@ -31,7 +30,6 @@ OPERATIONS = {
     "selection": frozenset(("capabilities", "selection.read", "session.validate", "selection.session.read", "selection.session.cart", "selection.session.quote", "quote.export", "quote.pickup.export", "quote.pickup.retire")),
     "host": frozenset(("capabilities", "runtime.qualify", "checkout.prepare", "checkout.abort", "operation.status", "host.capture", "host.prepare", "host.abort", "host.status", "host.commit", "host.orders")),
 }
-UPSTREAM_ERRORS = frozenset(json.loads(Path(__file__).with_name("upstream-error-codes.json").read_text()))
 
 
 def dispatch(role, request, ledger_root=None, initialize=False, control_root=None, execution_root=None):
@@ -125,9 +123,17 @@ def dispatch(role, request, ledger_root=None, initialize=False, control_root=Non
         request = params["request"]
         if operation == "host.orders":
             from ezmcd.service import Service
+            from ezmcd.models import Policy
+            from .receipt import order_page
             fields(request, ("limit", "offset"))
             page = Service(original).orders(source["alias"], limit=request["limit"], offset=request["offset"])
-            return {"schema_version": 1, "result_json": json.dumps(page, ensure_ascii=False, separators=(",", ":"))}
+            return order_page(page, Policy.model_validate(account["policy"]).max_order_cents)
+        if operation == "host.status":
+            from .recovery import retire_status
+            fields(request, ("operation_key",))
+            retired = retire_status(ledger, scope, request["operation_key"])
+            if retired is not None:
+                return retired
         if operation == "host.commit" or operation == "host.status" and params.get("account_json"):
             from ezmcd.models import fingerprint
             from ezmcd.provider import McdProvider

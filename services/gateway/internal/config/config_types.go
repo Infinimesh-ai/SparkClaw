@@ -54,11 +54,12 @@ type Config struct {
 }
 
 type MCDSelectionConfig struct {
-	Enabled               bool   `json:"enabled"`
-	CartEnabled           bool   `json:"cart_enabled,omitempty"`
-	PurchaseEnabled       bool   `json:"purchase_enabled,omitempty"`
-	HelperPython          string `json:"helper_python,omitempty"`
-	RuntimeManifestSHA256 string `json:"runtime_manifest_sha256,omitempty"`
+	Enabled               bool     `json:"enabled"`
+	CartEnabled           bool     `json:"cart_enabled,omitempty"`
+	PurchaseEnabled       bool     `json:"purchase_enabled,omitempty"`
+	QualifiedEatTypes     []string `json:"qualified_eat_types"`
+	HelperPython          string   `json:"helper_python,omitempty"`
+	RuntimeManifestSHA256 string   `json:"runtime_manifest_sha256,omitempty"`
 }
 
 type JingSiLANConfig struct {

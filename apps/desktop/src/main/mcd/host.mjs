@@ -42,8 +42,13 @@ export class MCDHost {
           // the reverse call may arrive before the approval response itself.
           const approval = this.approvals?.(binding,scope.execution_id)?.find(a=>a.approval_id===body.approval_id);
           if (!approval || approval.tool !== 'mcd.purchase.commit' || approval.decision !== 'approve' || !['approved','decision_pending'].includes(approval.state) || !sha(approval.digest)) throw new Error();
+          if (!approval.arguments || typeof approval.arguments !== 'object' || Array.isArray(approval.arguments)) throw new Error();
+          // Keep runtime verifier metadata in the saved approval and its
+          // original digest; compare only the native purchase review fields.
+          const approvedReview = { ...approval.arguments };
+          delete approvedReview._verifier;
           const expires = typeof approval.expires_at==='number' ? approval.expires_at : Date.parse(approval.expires_at);
-          if (!Number.isSafeInteger(expires) || expires <= this.now() || expires > this.now()+900000 || !fields(body.review,['purchase_id','purchase_digest','amount_cents','currency','store_code','pickup_at','eat_type','payment_method','credential_revision','store_name','items','discount_names']) || !fields(approval.arguments,Object.keys(body.review)) || !isDeepStrictEqual(body.review,approval.arguments) || body.review.purchase_id!==body.purchase_id || body.review.credential_revision!==scope.credential_revision || body.review.payment_method!=='ARCHCARD' || body.review.currency!=='CNY') throw new Error();
+          if (!Number.isSafeInteger(expires) || expires <= this.now() || expires > this.now()+900000 || !fields(body.review,['purchase_id','purchase_digest','amount_cents','currency','store_code','pickup_at','eat_type','payment_method','credential_revision','store_name','items','discount_names']) || !fields(approvedReview,Object.keys(body.review)) || !isDeepStrictEqual(body.review,approvedReview) || body.review.purchase_id!==body.purchase_id || body.review.credential_revision!==scope.credential_revision || body.review.payment_method!=='ARCHCARD' || body.review.currency!=='CNY') throw new Error();
           input={operation_key:body.operation_key,purchase_id:body.purchase_id,handoff_epoch:body.handoff_epoch,authority:{approval_id:approval.approval_id,approval_digest:approval.digest,expires_at_ms:expires,review:body.review}};
         } else if (orders) {
           if(!fields(body,['scope','limit','offset']) || !Number.isSafeInteger(body.limit) || body.limit<1 || body.limit>20 || !Number.isSafeInteger(body.offset) || body.offset<0 || body.offset>10000)throw new Error();

@@ -48,11 +48,12 @@ func TestRealIntentFusionAlphaCalibration(t *testing.T) {
 	registeredCalibration := semanticrouting.DefaultCalibration()
 	t.Logf("graph=%s catalog=%s calibration=%s clarify_floor=%.4f candidates=%d mock=%t", graph.Revision(), catalog.Revision(), registeredCalibration.Revision, registeredCalibration.ClarifyFloor, len(eligible), cfg.Model.Mock)
 
-	tests := []struct {
+	type calibrationSample struct {
 		query     string
 		expected  string
 		confusion string
-	}{
+	}
+	tests := []calibrationSample{
 		{query: "一分钟后跟我说该吃饭了", expected: "schedule.manage#create"},
 		{query: "之前让我办的定时事项都有哪些", expected: "schedule.manage#read"},
 		{query: "把先前那个吃饭提示往后挪一小时", expected: "schedule.manage#edit"},
@@ -76,6 +77,13 @@ func TestRealIntentFusionAlphaCalibration(t *testing.T) {
 		{query: "比较杭州和上海今天的天气", expected: "browser.internet_search#search", confusion: "browser.weather#read"},
 		{query: "打开QQ邮箱的草稿箱", expected: "browser.interaction#interact", confusion: "browser.automation#open"},
 		{query: "明天下午三点我参加项目复盘", expected: "conversation.answer#answer", confusion: "schedule.manage#create"},
+	}
+	for _, sample := range loadMCDRoutingCorpus(t).Cases {
+		confusion := mcdOrderCandidateID
+		if sample.ExpectedCandidate == mcdOrderCandidateID {
+			confusion = "conversation.answer#answer"
+		}
+		tests = append(tests, calibrationSample{query: sample.Prompt, expected: sample.ExpectedCandidate, confusion: confusion})
 	}
 
 	type channelScores struct {

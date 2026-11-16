@@ -25,8 +25,12 @@ type cartResources struct {
 	revision        int64
 	handoff         *mcdintegration.Handoff
 	purchaseEnabled bool
+	statusEnabled   bool
+	refreshes       int
+	lastPurchase    *mcdintegration.Handoff
 	commitStarted   bool
 	review          map[string]any
+	preparedQuote   map[string]any
 	quoteInput      CartInput
 }
 
@@ -98,6 +102,7 @@ func (s *Selection) Cart(ctx context.Context, raw []byte, write bool) (map[strin
 	if write {
 		x.MaxRequests = 32
 	}
+	x.MaxRequests = cartRequestBudget(i, x.MaxRequests)
 	result, receipt, err := s.manager.Cart(ctx, s.principal, x, i.Operation, arguments, s.cart.root)
 	if err != nil {
 		return nil, errors.New("mcd_cart_requires_recovery")
@@ -133,7 +138,9 @@ func (s *Selection) quoteLocked(ctx context.Context, i CartInput) (map[string]an
 	s.cart.quoteInput = i
 	request, _ := json.Marshal(s.request(i))
 	s.cart.revision++
-	rawQuote, h, err := s.manager.Quote(ctx, s.principal, s.execution, mcdintegration.QuoteRequest{Request: request, PurchaseID: s.cart.purchase, QuoteRevision: s.cart.revision, SourceQuoteRef: i.SourceQuoteRef}, s.cart.root)
+	x := s.execution
+	x.MaxRequests = quoteRequestBudget(i.SourceQuoteRef)
+	rawQuote, h, err := s.manager.Quote(ctx, s.principal, x, mcdintegration.QuoteRequest{Request: request, PurchaseID: s.cart.purchase, QuoteRevision: s.cart.revision, SourceQuoteRef: i.SourceQuoteRef}, s.cart.root)
 	defer clear(rawQuote)
 	if h.Epoch > 0 {
 		s.cart.handoff = &h
@@ -163,7 +170,32 @@ func (s *Selection) quoteLocked(ctx context.Context, i CartInput) (map[string]an
 		}
 	}
 	s.cart.review = map[string]any{"purchase_id": h.PurchaseID, "purchase_digest": h.PurchaseDigest, "credential_revision": s.execution.CredentialRevision, "currency": "CNY", "payment_method": "ARCHCARD", "amount_cents": quote["amount_cents"], "store_code": quote["store_code"], "pickup_at": quote["pickup_at"], "eat_type": quote["eat_type"], "store_name": quote["store_name"], "items": quote["items"], "discount_names": quote["discount_names"]}
+	s.cart.preparedQuote = summary
 	return map[string]any{"provider": "mcd-cn", "state": "prepared", "quote": summary, "purchase_id": h.PurchaseID, "purchase_digest": h.PurchaseDigest, "expires_at_ms": envelope.ExpiresAtMS, "payment_method": "ARCHCARD", "currency": "CNY", "checkout_enabled": s.cart.purchaseEnabled, "approval_required": true}, nil
+}
+
+// AbortPreparation clears the quote lock only after both ledgers prove that
+// the originating Mac can no longer pay this preparation.
+func (s *Selection) AbortPreparation(ctx context.Context) (map[string]any, error) {
+	if s == nil || s.cart == nil || s.cart.host == nil {
+		return nil, errors.New("mcd_quote_host_unavailable")
+	}
+	s.cart.mu.Lock()
+	defer s.cart.mu.Unlock()
+	if s.cart.commitStarted {
+		return nil, errors.New("mcd_original_operation_requires_recovery")
+	}
+	if s.cart.handoff != nil {
+		h := *s.cart.handoff
+		scope := mcdintegration.QuoteScope{Identity: s.execution.Identity, CredentialRevision: s.execution.CredentialRevision, ExecutionID: s.execution.ExecutionID}
+		if err := s.manager.AbortHandoff(ctx, s.principal, s.execution, h, "quote_refresh", func(ctx context.Context) (map[string]any, error) {
+			return s.cart.host.Abort(ctx, scope, h.PurchaseID, h.Epoch, "quote_refresh")
+		}); err != nil {
+			return nil, err
+		}
+	}
+	s.cart.handoff, s.cart.review = nil, nil
+	return map[string]any{"state": "aborted_before_write", "non_dispatch_proven": true}, nil
 }
 
 // Close terminates undispatched preparation when a quote-only Workflow ends.

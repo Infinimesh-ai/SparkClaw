@@ -18,8 +18,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/clarification"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcddining"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcdintegration"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
@@ -89,21 +87,14 @@ func (s *Server) executeWorkbenchWorkflow(ctx context.Context, e execution.Envel
 		MaxDuration: execution.ExecutionBudget, MaxObservationBytes: 1 << 20, TextOnly: textOnly,
 		ReserveWorkspaceBytes: workspaceBudget.reserve, ReleaseWorkspaceBytes: workspaceBudget.release,
 	}
-	if !textOnly && s.mcdSelection != nil {
-		if authorization, ok := ctx.Value(executionAuthorizationKey{}).(executionAuthorization); ok && authorization.AllowMCDSelection {
-			resources.MCDSelection, _ = mcddining.NewSelection(ctx, s.mcdSelection, mcdintegration.Principal{DeploymentID: s.cfg.Gateway.DeploymentID, OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID}, e.RequestID)
-			if resources.MCDSelection == nil && authorization.AllowMCDPurchase {
-				resources.MCDSelection, _ = mcddining.NewRecoverySelection(ctx, s.mcdSelection, mcdintegration.Principal{DeploymentID: s.cfg.Gateway.DeploymentID, OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID}, e.RequestID)
-			}
-			if resources.MCDSelection != nil && budget.Reserve(4<<20) == nil {
-				resources.MCDSelection.WithCart(filepath.Join(root, "mcd-cart"), mcdHostRoute{&s.browserRoutes, mcdintegration.Principal{DeploymentID: s.cfg.Gateway.DeploymentID, OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: e.InstallationID}})
-				resources.MCDSelection.WithPurchase(authorization.AllowMCDPurchase)
-				defer func() {
-					cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-					defer cancel()
-					_ = resources.MCDSelection.Close(cleanup)
-				}()
-			}
+	if !textOnly {
+		resources.MCDSelection = s.executionMCDSelection(ctx, e, root, budget)
+		if resources.MCDSelection != nil {
+			defer func() {
+				cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+				defer cancel()
+				_ = resources.MCDSelection.Close(cleanup)
+			}()
 		}
 	}
 	if !textOnly {

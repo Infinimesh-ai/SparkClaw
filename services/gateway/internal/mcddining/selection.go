@@ -111,7 +111,9 @@ func (s *Selection) Read(ctx context.Context, raw []byte) (map[string]any, error
 	if err != nil {
 		return nil, err
 	}
-	result, err := s.manager.Read(ctx, s.principal, s.execution, input.Operation, encoded)
+	x := s.execution
+	x.MaxRequests = readRequestBudget(input, x.MaxRequests)
+	result, err := s.manager.Read(ctx, s.principal, x, input.Operation, encoded)
 	if err != nil {
 		return nil, errors.New("mcd_selection_unavailable")
 	}

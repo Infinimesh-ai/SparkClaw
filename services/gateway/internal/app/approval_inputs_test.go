@@ -71,3 +71,73 @@ func TestApprovalInputDigestsBindDraftAndExactValues(t *testing.T) {
 		t.Fatal("unbounded key accepted")
 	}
 }
+
+func TestApprovalInputFormSubmitLabelValidation(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		label string
+		valid bool
+	}{
+		{"omitted medicine label", "", true},
+		{"English order label", "Confirm order details", true},
+		{"Chinese order label", "确认点餐信息", true},
+		{"Unicode length boundary", strings.Repeat("确", 80), true},
+		{"too long", strings.Repeat("确", 81), false},
+		{"blank", " \u3000 ", false},
+		{"newline", "Confirm\norder", false},
+		{"tab", "Confirm\torder", false},
+		{"control", "Confirm\x7forder", false},
+		{"Unicode control", "Confirm\u0085order", false},
+		{"line separator", "Confirm\u2028order", false},
+		{"paragraph separator", "Confirm\u2029order", false},
+		{"invalid UTF-8", "Confirm\xfforder", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			form := inputFormFixture()
+			form.SubmitLabel = test.label
+			if err := ValidateApprovalInputForm(form); (err == nil) != test.valid {
+				t.Fatalf("valid = %v, error = %v", test.valid, err)
+			}
+		})
+	}
+}
+
+func TestApprovalInputFormDigestBindsSubmitLabel(t *testing.T) {
+	approval := Approval{ID: "a", RunID: "r", SessionID: "s", ToolCallID: "c", Tool: "notify.ask_approval", InputForm: inputFormFixture()}
+	legacy, err := json.Marshal(approval.InputForm)
+	if err != nil || strings.Contains(string(legacy), "submit_label") {
+		t.Fatalf("legacy form wire representation changed: %s, %v", legacy, err)
+	}
+	original, err := ApprovalFormDigest(approval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval.InputForm.SubmitLabel = "确认点餐信息"
+	labeled, err := ApprovalFormDigest(approval)
+	if err != nil || labeled == original {
+		t.Fatalf("adding a submit label must change the form digest: %v", err)
+	}
+	raw, err := json.Marshal(approval.InputForm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ApprovalInputForm
+	if err := json.Unmarshal(raw, &restored); err != nil || restored.SubmitLabel != approval.InputForm.SubmitLabel {
+		t.Fatalf("submit label was not preserved: %#v, %v", restored, err)
+	}
+	approval.InputForm = &restored
+	roundTrip, err := ApprovalFormDigest(approval)
+	if err != nil || roundTrip != labeled {
+		t.Fatalf("form digest changed on JSON round trip: %v", err)
+	}
+	approval.InputForm.SubmitLabel = "Confirm order details"
+	tampered, err := ApprovalFormDigest(approval)
+	if err != nil || tampered == labeled {
+		t.Fatalf("changing only the submit label must invalidate the bound digest: %v", err)
+	}
+	approval.InputForm.SubmitLabel = ""
+	removed, err := ApprovalFormDigest(approval)
+	if err != nil || removed != original || removed == labeled {
+		t.Fatalf("removing the submit label must restore only the legacy digest: %v", err)
+	}
+}

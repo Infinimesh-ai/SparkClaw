@@ -2,7 +2,7 @@
 
 > Language: 简体中文 | [English](../../docs/ezmcd-adapter-implementation.md)
 
-日期：2026-11-13。**本 worktree 已实现 P0–P4 的代码，真实产品发布验收尚未完成，三个启用开关均默认关闭。** 本轮实现没有新增真实订单或付款。参见[设计文档](ezmcd-split-integration-design.md)和[实现证据](../../docs/evidence/ezmcd-product-implementation-2026-11-13.json)。
+日期：2026-11-16。**本工作树源码已实现 P0–P4 及已确认的 R4 单一点餐 Workflow；真实产品发布验收尚未完成，三个启用开关均默认关闭。** 没有新增真实订单或付款；11 月 16 日源码尚未重新打包、安装或部署。参见[分端设计](ezmcd-split-integration-design.md)、[点餐 R4](mcd-ordering-workflow-refactor-design.md)及历史 [11 月 13 日实现证据](../../docs/evidence/ezmcd-product-implementation-2026-11-13.json)。
 
 ## 交接和真实证据
 
@@ -24,10 +24,23 @@
 | P1／P2 产品路由 | 3 个正向会话操作和 6 个反向本机操作完成 ISCP 注册、独立协商和显式资格控制。敏感消息绕开通用回执日志和对象体落盘；无 HTTP／MCP 回退。 |
 | P2 购物车／报价 | [mcddining](../../services/gateway/internal/mcddining)管理有界临时 Store、模型可见投影、购物车串行操作、发送前持久化围栏、完整报价传输与 Mac prepare／abort 回执；临时内容丢失不允许重放。 |
 | P3 钱包执行 | [purchase.py](../../tools/ezmcd-adapter/src/sparkclaw_mcd/purchase.py)在原 Mac 账本上复用上游服务及预算／预留／写入逻辑。[本机 host](../../apps/desktop/src/main/mcd/host.mjs)独立核对本机保存的不可修改审批；仅支持 `ARCHCARD`。 |
-| 工作流 | 只读、购物车、报价、购买、原操作查询五个叶子复用能力发现、Policy 和审批界面。Runtime 将购买参数绑定到完整报价审阅内容；模型不能选账号、传凭据、换账本或自行授权付款。 |
+| 工作流 | 唯一的 [dining.mcd_order](../../services/gateway/internal/agent/mcd_order_workflow.go) profile 在同一执行内确定性推进九个阶段，模型调用仅用于意图解析和官方候选排序。既有表单回答后恢复同一执行；`pay` 将完整不可变的报价审阅内容绑定到 `ARCHCARD` 审批。状态恢复独立于购物车／付款开关。旧五叶子 ID 被拒绝，浏览菜单／查询订单不会启动点餐；模型不能选账号、传凭据、换账本或自行授权付款。 |
 | P4 界面／运行时 | 在原「连接」目录接入 native 适配器，保留导航和其他服务，能力不可用时禁用操作。独立 Python 运行时构建、源代码契约、本机 manifest 固定、包审计和运维配置已实现。 |
 
 [工具清单](../../tools/ezmcd-adapter/src/sparkclaw_mcd/tool-inventory.json)覆盖固定上游的全部 38 个工具。helper 列出已实现操作不代表产品取得资格；selection 不具备下单、刷新账号或钱包 token 操作。本机 host 只能使用对应作用域的准备记录和原始持久化审批购买。
+
+## 11 月 16 日点餐工作流检查点
+
+已确认的 [R4 决策](mcd-ordering-workflow-refactor-design.md#10-已确认决策2026-11-16)已在源码实现：
+
+- 唯一的 `dining.mcd_order`（`draft`、`RequireQuery: true`）依次推进 `guard → intent → context → menu → offer → cart → quote → pay → settle`。通用阶段结果在同一执行中保存进度、候选快照和表单答案，原审批与连接组件、布局和交互保留。
+- 可选的 `ApprovalInputForm.submit_label` 通过校验并纳入表单摘要；点餐使用中英文确认文案，未提供时保留药箱原有行为。无法处理的定制备注要求明确确认官方选项，否则停止点餐。
+- 券价和普通价均计入已选组件／加料额外费用。按剩余次数分配优惠，保留所选餐品，在购物车写入前完成选择；校验失败时允许撤销并去券重报一次，每单最多两次报价。付款审阅展示固定的商品、优惠和金额，保持不可变，支付渠道仅 `ARCHCARD`。
+- `AllowMCDStatus` 要求已启用、已协商并取得资格的状态操作，独立于 `cart_enabled` 和 `purchase_enabled`。本机 `NOT_DISPATCHED` 必须有原账本证据；既有状态路径先持久化退休完全对应的未发出准备及未使用授权，后端才释放。此过程不构造 provider、不创建订单、不新增 ISCP 操作；证据缺失或不确定时继续阻止新单，不重试写入。
+- 评审修复按本次执行剩余的 128 次请求预留额度规划上游读取：必需流程放不下的订单在门店提问前停止；常用门店预检、更多搜索页、整份菜单兜底和优惠券读取只在仍能容纳必需剩余开销时执行；首次写购物车前再检查一次。默认取餐时段在写购物车前若已不足 3 分钟会重新读取，`cart` 节点只能读取 `pickup_slots`。付款审批后的报价刷新单独计数、最多 2 次，计划内的去券重报不再占用。优惠券按报价中绑定了券的行（`coupon_fingerprint`）核对，不再比对券标题与报价名称。`settle` 在约 11 秒内最多查询 3 次，已核验的 `PAID` 不再回复为未确认，已证明未发出的付款回复为未下单。没有未决订单时，状态查询只返回 Policy 单笔限额，不返回历史流水或之前的取餐码。
+- 既有 helper／接入能力清单完整保留，三个启用开关继续默认关闭；`qualified_eat_types` 默认 `["locker-in"]`。生成的源码契约已同步，运行时和安装包重建、安装与部署尚未进行。
+
+本检查点已确认：Python 适配器 63 项测试；WebChat 94 个文件、620 项测试及构建；桌面端 683 项通过、1 项跳过，包含三项本机 `_verifier` 回归测试。生成的源码契约检查和 Go build／vet 通过；agent／toolhub 的 MCD 与路由 race、mcddining／mcdintegration race 通过。两轮 Go 全量及物理临时目录重跑仅保留已知三组 gateway `/dev/shm` 内存工作区失败。工作树内过长临时目录超出 Unix socket 路径限制，`cmd/sparkclaw` 在较短的物理 `/private/tmp` 路径单独重跑通过；保留该环境失败记录，不计为产品回归。双语路由语料包含 44 条正负样例及确定性契约检查；真实模型校准未运行，语料覆盖不代表线上准确率。以上检查使用夹具，没有真实下单或付款；已安装产品／原 UI 与真实故障矩阵资格仍单独验收。
 
 ## 交易与恢复规则
 
@@ -41,7 +54,7 @@
 
 购买审批绑定 purchase digest、金额、币种、钱包通道、门店编号／名称、取餐时间／方式、完整商品、优惠名称、凭据版本。Gateway Policy 与原 Mac ClientStore 都必须持有审批。本机在调用上游前预留命令与授权，首次上游写入认领与授权消费保持同一事务。原会员锁和消费限制继续生效。重复键返回原尝试，不再次调用 submit 或 `pay_existing`；响应丢失、进程终止和不确定结果只能查询。只有已核验的终态 `PAID`／`CANCELLED` 才解除后端购买冻结。
 
-报价可在原执行时间及预算内最多刷新两次。Mac 先持久化未发送 epoch 的 `quote_refresh` 撤销；指定取餐需重新快照并获得新切换回执。复用审批要求包括 purchase digest 在内的全部审阅字段完全一致，降价也需要新审批；变化或过期的授权不会付款。
+报价可在原执行时间及预算内最多刷新两次；该次数与点餐 Workflow 计划内的去券重报分开计算。Mac 先持久化未发送 epoch 的 `quote_refresh` 撤销；指定取餐需重新快照并获得新切换回执。复用审批要求包括 purchase digest 在内的全部审阅字段完全一致，降价也需要新审批；变化或过期的授权不会付款。
 
 断开连接先停止正在运行的本机 helper，再移除本机秘密并记录撤销请求。离线撤销保持待处理，在重连之前发送。同账号重连保留账号身份和既有账本锚点，使用新连接 ID。登出、锁定和授权失效停止本机执行。撤销后可读取原回执和本机历史，但不恢复选餐／购买权限，本机历史也不能冒充最新官方核验。
 
@@ -65,7 +78,7 @@ SPARKCLAW_MCD_BUILD_PYTHON=/path/to/python3.11 npm run build:ezmcd-runtime
 npm run check:ezmcd-runtime
 ```
 
-构建器记录全部文件哈希、源码／依赖契约和 Python 基础元数据，移动目录后检查模块导入，再更新随客户端发布的 Mac manifest 固定值。运行时位于 ASAR 外，包审计核对固定值与完整文件集。已在 `apps/desktop/dist/` 成功构建未签名 macOS arm64 DMG／ZIP，哈希和包审计写入实现证据，尚未安装；生成物不进入 Git。未知架构／构建、文件变化、运行时缺失或契约不一致会禁用能力或令包校验失败。
+构建器记录全部文件哈希、源码／依赖契约和 Python 基础元数据，移动目录后检查模块导入，再更新随客户端发布的 Mac manifest 固定值。运行时位于 ASAR 外，包审计核对固定值与完整文件集。历史 11 月 13 日在 `apps/desktop/dist/` 构建的未签名 macOS arm64 DMG／ZIP，其哈希和包审计记录在当日证据中；当时尚未安装，也不包含 11 月 16 日重构。生成的源码契约现已同步，但本轮尚未重建运行时或安装包。生成物不进入 Git。未知架构／构建、文件变化、运行时缺失或契约不一致会禁用能力或令包校验失败。
 
 Linux x86_64 在目标平台运行 `scripts/package-ezmcd-runtime.py --build … --runtime-prefix … --output …`。将完整 bundle 安装到稳定目录，在 Gateway 中固定 manifest：
 
@@ -91,6 +104,6 @@ Linux x86_64 在目标平台运行 `scripts/package-ezmcd-runtime.py --build …
 
 [机器可读证据](../../docs/evidence/ezmcd-product-implementation-2026-11-13.json)记录命令、数量、manifest 和局限。覆盖 Python 账本／授权／崩溃／重复操作契约、跨语言规范化、本机到真实 Python 的准备与模拟付款／重启、加密 ISCP 夹具协商及恢复、Go race、桌面与前端回归、源码／运行时契约，以及原设置导航的可视检查。付款夹具替换外部 provider，无法访问官方服务。
 
-macOS Go 全量运行保留三个既有 `/dev/shm` 相关 gateway 失败；对应 Linux gateway 套件在 work2 运行。Node 26 前端测试使用 `NODE_OPTIONS=--no-experimental-webstorage`，由 jsdom 管理浏览器存储。初次前端失败、桌面计时失败及修正后的通过结果均保留，不改写失败证据。
+本轮 macOS Go 全量检查仍保留历史基线的三组 `/dev/shm` 相关 gateway 失败，临时路径重跑边界见上文。历史 Linux 证据单独保留，不代表本轮已完成配对产品发布。Node 26 前端测试使用 `NODE_OPTIONS=--no-experimental-webstorage`，由 jsdom 管理浏览器存储。历史初次前端失败、桌面计时失败及修正后的通过结果均保留，不改写失败证据。
 
 仍未取得资格：已安装产品 ISCP 的真实断连／重启／丢回执矩阵；普通报价及更广商品／自选套餐／优惠方法；新账号获取及跨天刷新；完整桌面安装包；以及单独授权、通过新工作流完成的真实付款。这些是发布门槛，不构成复用交接已付款订单的权限。具体新验收订单获明确授权前，付款保持禁用。本轮 worktree 实现无需验证码或用户额外操作。

@@ -8,6 +8,7 @@ import { LocalComposerApprovals } from "../desktop/localComposerApprovals";
 import { dictionaries } from "../i18n";
 import type { Approval } from "../api/types";
 import type { LocalTask } from "../desktop/clientStore";
+import { supportedApprovalForm, type ApprovalInputForm } from "./approvalInputForm";
 
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
@@ -127,10 +128,66 @@ it('collects missing batch fields once, preserves them offline, and freezes the 
 it('requires an explicit no-expiry choice and permits cancellation without filling fields', async () => {
   const decide=vi.fn();await act(async()=>root.render(<ComposerApproval text={dictionaries.en} summary="Medicine" details={null} inputForm={completion} onDecide={decide}/>));
   await choose('approve');expect(host.querySelector<HTMLButtonElement>('footer button')!.disabled).toBe(true);
+  expect(host.querySelector('footer button')!.textContent).toBe('Complete and write 2 entries');
   await act(async()=>host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   await submit();expect(decide).toHaveBeenCalledExactlyOnceWith('approve',{second:{expiry:'no_expiry'}});
   await act(async()=>root.render(<ComposerApproval key="cancel" text={dictionaries.en} summary="Medicine" details={null} inputForm={completion} onDecide={decide}/>));
   await choose('reject');await submit();expect(decide).toHaveBeenLastCalledWith('reject');
+});
+
+it.each([
+  { language: 'zh' as const, label: '确认点餐信息' },
+  { language: 'en' as const, label: 'Confirm order details' },
+])('uses the $language form submit label while retaining selection, validation and locked retries', async ({ language, label }) => {
+  const text = dictionaries[language];
+  const copy = text.approval.composer;
+  const decide = vi.fn().mockRejectedValueOnce(new Error('Receipt lost')).mockResolvedValue(undefined);
+  const form: ApprovalInputForm = { schema_version: 1, submit_label: label, entries: [{
+    id: 'store', label: 'Store', summary: 'Choose a store', fields: [{
+      name: 'store', label: 'Store', type: 'select', required: true, options: [{ value: 'store_1', label: 'First store' }],
+    }],
+  }] };
+  await act(async () => root.render(<ComposerApproval text={text} summary="Order" details={<p>Order details</p>}
+    inputForm={form} lockOnAttempt onDecide={decide} />));
+  expect(host.querySelector('footer button')!.textContent).toBe(copy.submit);
+  expect(host.querySelector('details summary')!.textContent).toBe(copy.viewDetails);
+  expect(host.querySelectorAll('input[type="radio"]')).toHaveLength(2);
+  await choose('reject');
+  expect(host.querySelector('footer button')!.textContent).toBe(copy.submit);
+  await choose('approve');
+  expect(host.querySelector('footer button')!.textContent).toBe(label);
+  expect(host.querySelector<HTMLButtonElement>('footer button')!.disabled).toBe(true);
+  const select = host.querySelector<HTMLSelectElement>('select')!;
+  await act(async () => { select.value = 'store_1'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(host.querySelector<HTMLButtonElement>('footer button')!.disabled).toBe(false);
+  expect(decide).not.toHaveBeenCalled();
+  await submit();
+  expect(decide).toHaveBeenCalledExactlyOnceWith('approve', { store: { store: 'store_1' } });
+  expect(host.querySelector('footer button')!.textContent).toBe(copy.retry);
+  expect(host.querySelector<HTMLFieldSetElement>('.approvalInputForm fieldset')!.disabled).toBe(true);
+  expect(host.querySelector<HTMLInputElement>('input[value="reject"]')!.disabled).toBe(true);
+  await submit();
+  expect(decide.mock.calls).toEqual([['approve', { store: { store: 'store_1' } }], ['approve', { store: { store: 'store_1' } }]]);
+  expect(host.querySelector('[role="status"]')!.textContent).toBe(copy.received);
+});
+
+it.each(['zh', 'en'] as const)('keeps the %s medicine-box button label when submit_label is empty', async (language) => {
+  await act(async () => root.render(<ComposerApproval text={dictionaries[language]} summary="Medicine" details={null}
+    inputForm={{ ...completion, submit_label: '' }} onDecide={vi.fn()} />));
+  await choose('approve');
+  expect(host.querySelector('footer button')!.textContent).toBe(dictionaries[language].approval.composer.completeAndWrite.replace('{count}', '2'));
+});
+
+it.each([' ', '确'.repeat(81), 'Confirm\norder', 'Confirm\torder', 'Confirm\u007forder', 'Confirm\u0085order', 'Confirm\u2028order', 'Confirm\u2029order', '\ud800', 12, null])(
+  'rejects an invalid form submit label: %j', (label) => {
+    expect(supportedApprovalForm({ ...completion, submit_label: label } as ApprovalInputForm)).toBe(false);
+  },
+);
+
+it('counts Unicode code points in submit labels', () => {
+  expect(supportedApprovalForm({ ...completion, submit_label: '确'.repeat(80) })).toBe(true);
+  expect(supportedApprovalForm({ ...completion, submit_label: '🍟'.repeat(80) })).toBe(true);
+  expect(supportedApprovalForm({ ...completion, submit_label: '🍟'.repeat(81) })).toBe(false);
 });
 it('retains the approval entry but disables unsupported completion form versions', async()=>{
  const decide=vi.fn();await act(async()=>root.render(<ComposerApproval text={dictionaries.en} summary="Medicine" details={null} inputForm={{...completion,schema_version:2}} onDecide={decide}/>));

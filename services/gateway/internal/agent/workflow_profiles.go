@@ -423,6 +423,9 @@ func (r Runtime) materializeActiveWorkflowTools(ctx context.Context, run app.Age
 	}
 	r.auditDirectorySearch(ctx, run, view)
 	if len(view.Entries) == 0 {
+		if disabled, ok := profile.(workflowUnavailableStageProfile); ok && disabled.AllowUnavailableTools() {
+			return nil, nil
+		}
 		return nil, errors.New("no registered tool satisfies the active workflow scope")
 	}
 	entryIDs, err := workflowDirectorySelection(run, state, view)

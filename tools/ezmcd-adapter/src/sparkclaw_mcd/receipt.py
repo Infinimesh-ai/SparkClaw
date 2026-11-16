@@ -13,6 +13,33 @@ from .errors import require, AdapterError
 MAX_RECEIPT_BYTES = 128 * 1024
 
 
+def order_fields(result):
+    """Project only the pinned Service's verified original order evidence.
+
+    service.py copies official order.pickupCode to pickup_code after validating
+    the original order, and create_order's orderId to order_id. It exposes no
+    separate order number. Empty strings mean absent, never a derived code.
+    """
+    paid = result.get("state") == "PAID" and result.get("paid_verified") is True
+
+    def text(value):
+        return value if type(value) is str and 0 < len(value) <= 128 and value.strip() and value.isprintable() else ""
+
+    return {"terminal_verified": paid or result.get("state") == "CANCELLED",
+            "pickup_code": text(result.get("pickup_code")) if paid else "",
+            "order_no": text(result.get("order_id")) if paid else ""}
+
+
+def order_page(page, max_order_cents):
+    """Keep the original journal snapshot explicit; this is not a live query."""
+    return {"schema_version": 1,
+            "orders": [{"attempt_id": row["attempt_id"], "state": row["state"],
+                        **order_fields(row), "automatic_write_retry": False} for row in page["orders"]],
+            **{key: page[key] for key in ("total", "offset", "limit", "has_more", "source", "live_status_checked")},
+            "policy": {"max_order_cents": max_order_cents},
+            "result_json": encode_official_json(page)}
+
+
 def _object(pairs):
     result = {}
     for key, value in pairs:

@@ -20,6 +20,16 @@ function parts(scope, expiry=160000) {
   const bytes=Buffer.from(JSON.stringify({scope,expires_at_ms:expiry,padding:'x'.repeat(20000)}));
   return Array.from({length:Math.ceil(bytes.length/8192)},(_,index)=>({digest:hash(bytes),size:bytes.length,count:Math.ceil(bytes.length/8192),index,expires_at_ms:expiry,data:bytes.subarray(index*8192,(index+1)*8192).toString('base64')}));
 }
+function purchaseHarness(verifier) {
+ const h=harness();h.saved().host_account={material_digest:'b'.repeat(64),account_json:'private-v5-runtime-canary'};
+ const review={purchase_id:'purchase',purchase_digest:'c'.repeat(64),amount_cents:1490,currency:'CNY',store_code:'3330613',store_name:'Fixture store',pickup_at:'2026-11-13T20:00:00+08:00',eat_type:'locker-in',payment_method:'ARCHCARD',credential_revision:1,items:[{name:'Fixture meal'}],discount_names:[]};
+ const approval={approval_id:'approval',digest:'d'.repeat(64),tool:'mcd.purchase.commit',arguments:structuredClone(review),decision:'approve',state:'decision_pending',expires_at:160000};
+ if(verifier!==undefined)approval.arguments._verifier=structuredClone(verifier);
+ const body={scope:h.scope,operation_key:'commit',purchase_id:'purchase',handoff_epoch:1,approval_id:'approval',review};
+ const lookups=[];
+ const host=h.create({approvals:(binding,execution)=>{lookups.push({binding:structuredClone(binding),execution});return binding.owner_id==='owner'&&execution==='execution'?[approval]:[];}});
+ return {...h,host,review,approval,body,lookups};
+}
 test('private quote chunks require exact original digest, complete body and current session',async()=>{
  const h=harness(),host=h.create(),chunks=parts(h.scope);
  for(const part of chunks.slice(0,-1)) {
@@ -38,11 +48,7 @@ test('private quote chunks require exact original digest, complete body and curr
 });
 
 test('purchase independently checks native immutable approval and seals local account only to host stdin',async()=>{
- const h=harness();h.saved().host_account={material_digest:'b'.repeat(64),account_json:'private-v5-runtime-canary'};
- const review={purchase_id:'purchase',purchase_digest:'c'.repeat(64),amount_cents:1490,currency:'CNY',store_code:'3330613',store_name:'Fixture store',pickup_at:'2026-11-13T20:00:00+08:00',eat_type:'locker-in',payment_method:'ARCHCARD',credential_revision:1,items:[{name:'Fixture meal'}],discount_names:[]};
- const approval={approval_id:'approval',digest:'d'.repeat(64),tool:'mcd.purchase.commit',arguments:structuredClone(review),decision:'approve',state:'decision_pending',expires_at:160000};
- const body={scope:h.scope,operation_key:'commit',purchase_id:'purchase',handoff_epoch:1,approval_id:'approval',review};
- const host=h.create({approvals:(binding,execution)=>{assert.equal(binding.owner_id,'owner');assert.equal(execution,'execution');return [approval];}});
+ const h=purchaseHarness(),{review,approval,body,host}=h;
  for(const mutate of [()=>{approval.decision='reject';},()=>{approval.state='pending';},()=>{approval.arguments.amount_cents=100;},()=>{approval.tool='mcd.cart.write';}]){
   const original=structuredClone(approval);mutate();assert.equal((await host.handleReverse(h.request('mcd.checkout.commit',body),h.peer())).status,503);Object.assign(approval,original);
  }
@@ -51,6 +57,51 @@ test('purchase independently checks native immutable approval and seals local ac
  assert.equal(h.calls[0].operation,'host.commit');assert.equal(h.calls[0].params.account_json,'private-v5-runtime-canary');
  assert.deepEqual(h.calls[0].params.request.authority.review,review);assert.equal(h.calls[0].params.request.authority.expires_at_ms,160000);
  h.advance(70000);assert.equal((await host.handleReverse(h.request('mcd.checkout.commit',body),h.peer())).status,503);assert.equal(h.calls.length,1);
+});
+
+test('native purchase strips only saved verifier metadata and preserves original approval digest',async()=>{
+ const h=purchaseHarness({verdict:'ask_user',reason:'Confirm the original purchase'});
+ const original=structuredClone(h.approval);
+ assert.equal((await h.host.handleReverse(h.request('mcd.checkout.commit',h.body),h.peer())).status,200);
+ assert.equal(h.calls.length,1);
+ assert.deepEqual(h.calls[0].params.request.authority.review,h.review);
+ assert.equal(h.calls[0].params.request.authority.approval_digest,original.digest);
+ assert.equal(Object.hasOwn(h.calls[0].params.request.authority.review,'_verifier'),false);
+ assert.deepEqual(h.approval,original);
+});
+
+test('saved verifier cannot hide extra arguments or changed native purchase content',async()=>{
+ const h=purchaseHarness({verdict:'ask_user'});
+ for(const mutate of [
+  ()=>{h.approval.arguments.unrecognized=true;},
+  ()=>{h.approval.arguments._verifier_other={verdict:'allow'};},
+  ()=>{h.approval.arguments.amount_cents=100;},
+  ()=>{h.approval.arguments.items[0].name='Different meal';},
+  ()=>{h.body.review.amount_cents=100;},
+  ()=>{h.body.review._verifier={verdict:'ask_user'};},
+  ()=>{h.approval.digest='invalid';},
+ ]) {
+  const approval=structuredClone(h.approval),body=structuredClone(h.body);
+  mutate();
+  assert.equal((await h.host.handleReverse(h.request('mcd.checkout.commit',h.body),h.peer())).status,503);
+  assert.equal(h.calls.length,0);
+  Object.assign(h.approval,approval);Object.assign(h.body,body);
+ }
+ assert.equal((await h.host.handleReverse(h.request('mcd.checkout.commit',h.body),h.peer())).status,200);
+ assert.equal(h.calls.length,1);
+});
+
+test('verifier approval remains bound to native member revision and originating execution',async()=>{
+ const h=purchaseHarness({verdict:'ask_user'});
+ for(const change of [{owner_id:'foreign'},{client_id:'foreign'},{member_digest:'e'.repeat(64)},{credential_revision:2},{execution_id:'other-execution'}]) {
+  const body={...h.body,scope:{...h.scope,...change}};
+  assert.equal((await h.host.handleReverse(h.request('mcd.checkout.commit',body),h.peer())).status,503);
+ }
+ assert.equal(h.calls.length,0);
+ assert.ok(h.lookups.some(lookup=>lookup.execution==='other-execution'));
+ assert.equal((await h.host.handleReverse(h.request('mcd.checkout.commit',h.body),h.peer())).status,200);
+ assert.equal(h.calls[0].params.binding.execution_id,'execution');
+ assert.equal(h.calls[0].params.request.authority.approval_digest,h.approval.digest);
 });
 
 test('locking host aborts active helper before disconnect can clear credentials',async()=>{

@@ -41,6 +41,7 @@ func (r *diningRunner) Quote(_ context.Context, _ mcdintegration.Envelope, x mcd
 type diningHost struct {
 	commits, aborts int
 	unknown         bool
+	orders          map[string]any
 }
 
 func (h *diningHost) Prepare(_ context.Context, raw json.RawMessage) (map[string]any, error) {
@@ -63,6 +64,9 @@ func (h *diningHost) Status(context.Context, mcdintegration.QuoteScope, string) 
 	return map[string]any{}, errors.New("offline")
 }
 func (h *diningHost) Orders(context.Context, mcdintegration.QuoteScope) (map[string]any, error) {
+	if h.orders != nil {
+		return h.orders, nil
+	}
 	return map[string]any{"orders": []any{}}, nil
 }
 func diningFixture(t *testing.T) (*Selection, *diningRunner, *diningHost) {
@@ -149,4 +153,58 @@ func TestQuoteRefreshReusesOnlyIdenticalContentAndOriginalPurchase(t *testing.T)
 			}
 		})
 	}
+}
+
+// A Workflow's planned no-coupon requote is a new plan quote. It must not use
+// the approved quote's own two expiry refreshes.
+func TestPlannedRequoteKeepsApprovedQuoteRefreshAllowance(t *testing.T) {
+	s, r, h := diningFixture(t)
+	if out, err := s.AbortPreparation(t.Context()); err != nil || out["non_dispatch_proven"] != true {
+		t.Fatal("planned requote abort", out, err)
+	}
+	if _, err := s.Quote(t.Context(), []byte(`{"operation":"checkout_quote","store_code":"3330613","pickup_at":"2026-11-14T20:00:00+08:00","eat_type":"locker-in","max_amount_cny":"20.00"}`)); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := s.PurchaseArguments()
+	s.cart.handoff.DeadlineMS = 0
+	if result, err := s.Commit(t.Context(), "approval", args); err != nil || result["state"] != "PAID" || r.quotes != 3 || h.commits != 1 {
+		t.Fatal("expired requoted plan could not refresh", result, err, r.quotes, h.commits)
+	}
+}
+
+func TestApprovedQuoteRefreshesStopAfterTwo(t *testing.T) {
+	s, r, h := diningFixture(t)
+	args, _ := s.PurchaseArguments()
+	s.cart.refreshes = maxApprovedQuoteRefreshes
+	s.cart.handoff.DeadlineMS = 0
+	if _, err := s.Commit(t.Context(), "approval", args); err == nil || err.Error() != "mcd_quote_refresh_limit_or_deadline" || r.quotes != 1 || h.commits != 0 || h.aborts != 0 {
+		t.Fatal("third refresh or commit was attempted", err, r.quotes, h.commits, h.aborts)
+	}
+}
+
+// Without a pending purchase the ordering Workflow needs only the Policy
+// ceiling; earlier journal rows and their pickup codes never leave the host.
+func TestStatusWithoutPendingPurchaseReturnsOnlyPolicy(t *testing.T) {
+	s, _, h := diningFixture(t)
+	if _, err := s.AbortPreparation(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	h.orders = map[string]any{"orders": []any{map[string]any{"state": "PAID", "pickup_code": "OLD-CODE", "order_no": "old-order"}}, "policy": map[string]any{"max_order_cents": 2000}, "result_json": `{"pickupCode":"OLD-CODE"}`}
+	s.WithStatus(true)
+	for name, read := range map[string]func() (map[string]any, error){"status": func() (map[string]any, error) { return s.PurchaseStatus(t.Context()) }, "policy": func() (map[string]any, error) { return s.OrderPolicy(t.Context()) }} {
+		out, err := read()
+		raw, _ := json.Marshal(out)
+		if err != nil || strings.Contains(string(raw), "OLD-CODE") || strings.Contains(string(raw), "old-order") || mcdPolicyCents(out) != 2000 || out["state"] != nil {
+			t.Fatalf("%s leaked journal or lost policy: %s %v", name, raw, err)
+		}
+	}
+	h.orders = map[string]any{"orders": []any{}}
+	if _, err := s.PurchaseStatus(t.Context()); err == nil || err.Error() != "mcd_status_unavailable_without_pending_purchase" {
+		t.Fatal("missing Policy was not reported as unavailable", err)
+	}
+}
+
+func mcdPolicyCents(out map[string]any) any {
+	policy, _ := out["policy"].(map[string]any)
+	return policy["max_order_cents"]
 }

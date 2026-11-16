@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -48,6 +49,7 @@ type ApprovalInputEntry struct {
 type ApprovalInputForm struct {
 	SchemaVersion int                  `json:"schema_version"`
 	Entries       []ApprovalInputEntry `json:"entries"`
+	SubmitLabel   string               `json:"submit_label,omitempty"`
 }
 type ApprovalInputValues map[string]map[string]any
 type ApprovalInputSubmission struct {
@@ -65,6 +67,16 @@ func ValidateApprovalInputForm(form *ApprovalInputForm) error {
 	raw, err := json.Marshal(form)
 	if err != nil || len(raw) > ApprovalInputMaxBytes || form.SchemaVersion != ApprovalInputSchemaVersion || len(form.Entries) == 0 || len(form.Entries) > 20 {
 		return errors.New("unsupported approval input form")
+	}
+	if label := form.SubmitLabel; label != "" {
+		if !utf8.ValidString(label) || strings.TrimSpace(label) == "" || utf8.RuneCountInString(label) > 80 {
+			return errors.New("invalid approval submit label")
+		}
+		for _, r := range label {
+			if unicode.IsControl(r) || r == '\u2028' || r == '\u2029' {
+				return errors.New("invalid approval submit label")
+			}
+		}
 	}
 	entries := map[string]bool{}
 	count := 0

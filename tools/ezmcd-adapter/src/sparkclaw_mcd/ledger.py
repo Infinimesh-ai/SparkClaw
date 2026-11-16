@@ -204,6 +204,36 @@ class PrepareLedger:
                 "wallet_sufficient": q["wallet_before_cents"] >= q["amount_cents"], "checkout_blockers": q["checkout_blockers"],
                 "order_created": False, "payment_attempted": False}
 
+    def non_dispatch_proven(self, conn, scope_hash, member, purchase, epoch):
+        """Called under the original member lock and a journal transaction.
+
+        A reservation remains query-only even without a write claim: its budget
+        and original attempt must never be erased to permit a replacement.
+        Check original tables too, including the reserve/commit metadata gap.
+        """
+        row = conn.execute("SELECT * FROM mcd_preparations WHERE member=? AND purchase=? AND epoch=?",
+                           (member, purchase, epoch)).fetchone()
+        if row and (row["scope"] != scope_hash or row["write_claim"]
+                    or row["state"] not in ("prepared", "NOT_DISPATCHED", "aborted_before_write")):
+            return False
+        authority = conn.execute("SELECT state,attempt FROM mcd_authorities WHERE member=? AND purchase=?",
+                                 (member, purchase)).fetchone()
+        if authority and (authority["state"] == "consumed" or authority["attempt"] is not None):
+            return False
+        if row and row["quote"] and conn.execute(
+                "SELECT 1 FROM attempts WHERE identity=? AND json_extract(data,'$.quote_id')=?",
+                (member, row["quote"])).fetchone():
+            return False
+        commits = conn.execute("SELECT key,attempt FROM mcd_commits WHERE scope=? AND purchase=? AND epoch=?",
+                               (scope_hash, purchase, epoch)).fetchall()
+        for commit in commits:
+            if (commit["attempt"] is not None or conn.execute(
+                    "SELECT 1 FROM request_keys WHERE identity=? AND request_key=?", (member, commit["key"])).fetchone()
+                    or conn.execute("SELECT 1 FROM attempts WHERE identity=? AND request_key=?",
+                                    (member, commit["key"])).fetchone()):
+                return False
+        return True
+
     def abort(self, scope, key, purchase, epoch, reason):
         scope_hash = self._scope(scope)
         identifier(key); identifier(purchase); integer(epoch)
@@ -216,11 +246,7 @@ class PrepareLedger:
                 return old
             row = conn.execute("SELECT * FROM mcd_preparations WHERE member=? AND purchase=? AND epoch=?", (member, purchase, epoch)).fetchone()
             require(row is None or row["scope"] == scope_hash, "quote_scope_mismatch")
-            claimed = row and (row["write_claim"] or row["state"] not in ("prepared", "aborted_before_write"))
-            # The upstream attempt table is independent corroborating evidence.
-            if row and row["quote"]:
-                claimed = claimed or conn.execute("SELECT 1 FROM attempts WHERE identity=? AND json_extract(data,'$.quote_id')=?",
-                                                   (member, row["quote"])).fetchone()
+            claimed = not self.non_dispatch_proven(conn, scope_hash, member, purchase, epoch)
             state = "reconciliation_required" if claimed else "aborted_before_write"
             if not claimed:
                 conn.execute("UPDATE mcd_authorities SET state=? WHERE member=? AND purchase=? AND state='reserved'",
@@ -233,6 +259,7 @@ class PrepareLedger:
                     conn.execute("INSERT INTO mcd_preparations VALUES (?,?,?,NULL,?,NULL,NULL,?,0)", (member, purchase, epoch, scope_hash, state))
                 conn.execute("INSERT INTO mcd_members VALUES (?,?) ON CONFLICT(member) DO UPDATE SET epoch=max(epoch,excluded.epoch)", (member, epoch))
             receipt = {"state": state, "purchase_id": purchase, "handoff_epoch": epoch,
+                       "non_dispatch_proven": not claimed,
                        "reason": reason, "official_order_canceled": False, "refund_attempted": False}
             return self._record(conn, scope_hash, key, input_digest, receipt)
 

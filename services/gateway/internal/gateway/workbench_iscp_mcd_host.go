@@ -81,17 +81,21 @@ func (h mcdHostRoute) Abort(ctx context.Context, scope mcdintegration.QuoteScope
 		return nil, errors.New("mcd_abort_requires_original_status")
 	}
 	var r struct {
-		State      string `json:"state"`
-		PurchaseID string `json:"purchase_id"`
-		Epoch      int64  `json:"handoff_epoch"`
-		Reason     string `json:"reason"`
-		Canceled   bool   `json:"official_order_canceled"`
-		Refund     bool   `json:"refund_attempted"`
+		State             string `json:"state"`
+		PurchaseID        string `json:"purchase_id"`
+		Epoch             int64  `json:"handoff_epoch"`
+		Reason            string `json:"reason"`
+		Canceled          bool   `json:"official_order_canceled"`
+		Refund            bool   `json:"refund_attempted"`
+		NonDispatchProven bool   `json:"non_dispatch_proven"`
 	}
 	if domainDecode(response.Body, &r) != nil || r.Canceled || r.Refund {
 		return nil, errors.New("mcd_abort_invalid_receipt")
 	}
-	return map[string]any{"state": r.State, "purchase_id": r.PurchaseID, "handoff_epoch": r.Epoch, "reason": r.Reason, "official_order_canceled": false, "refund_attempted": false}, nil
+	if r.NonDispatchProven && r.State != "aborted_before_write" {
+		return nil, errors.New("mcd_abort_invalid_receipt")
+	}
+	return map[string]any{"state": r.State, "purchase_id": r.PurchaseID, "handoff_epoch": r.Epoch, "reason": r.Reason, "official_order_canceled": false, "refund_attempted": false, "non_dispatch_proven": r.NonDispatchProven}, nil
 }
 func jsonNumber(n int64) string { raw, _ := json.Marshal(n); return string(raw) }
 
@@ -132,13 +136,9 @@ func (h mcdHostRoute) Orders(ctx context.Context, scope mcdintegration.QuoteScop
 	if err != nil {
 		return nil, err
 	}
-	encoded, ok := receipt["result_json"].(string)
-	if !ok || len(encoded) > 40<<10 {
+	if _, ok := receipt["orders"].([]any); !ok {
 		return nil, errors.New("mcd_orders_receipt_invalid")
 	}
-	var result map[string]any
-	if json.Unmarshal([]byte(encoded), &result) != nil {
-		return nil, errors.New("mcd_orders_receipt_invalid")
-	}
-	return result, nil
+	delete(receipt, "result_json")
+	return receipt, nil
 }

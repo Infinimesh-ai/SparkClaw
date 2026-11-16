@@ -1930,6 +1930,12 @@ func approvalSummary(name string, args map[string]any) string {
 }
 
 func (r Runtime) approvalSummaryForPlan(ctx context.Context, runID, name string, args map[string]any) string {
+	if name == "mcd.purchase.commit" {
+		run, ok, err := r.store.GetRun(ctx, runID)
+		if err == nil && ok && run.Workflow != nil && run.Workflow.Plan.ProfileID == app.WorkflowMCDOrder && run.Workflow.MCDOrder != nil {
+			return mcdPaymentSummary(args, run.Workflow.MCDOrder.Quote)
+		}
+	}
 	if name != "browser.type" && name != "browser.select" {
 		return approvalSummary(name, args)
 	}

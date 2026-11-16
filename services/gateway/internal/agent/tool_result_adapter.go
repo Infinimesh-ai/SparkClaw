@@ -52,6 +52,9 @@ type toolResultAdapterInput struct {
 }
 
 func adaptToolResult(input toolResultAdapterInput) string {
+	if strings.HasPrefix(input.Call.Tool, "mcd.") {
+		return "McDonald's runtime operation: " + string(input.Call.Status)
+	}
 	maxBytes := input.MaxBytes
 	if maxBytes <= 0 {
 		maxBytes = defaultToolResultMessageMaxBytes

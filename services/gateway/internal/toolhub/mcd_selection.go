@@ -20,10 +20,18 @@ func mcdReadDefinition() app.ToolDefinition {
 	return app.ToolDefinition{Name: "mcd.selection.read", Description: "Read the connected McDonald's account's restaurants, pickup options, menus, benefits or cart. Use original product/coupon identifiers from returned evidence. Checkout context requires the user's exact store, future pickup time, supported pickup method and amount ceiling. Coordinates are decimal strings. This tool cannot change a cart, create an order or pay.", InputSchema: strictObjectSchema([]string{"operation"}, properties), Risk: app.RiskRead, Idempotent: true, OutputSchema: objectValueSchema(), TimeoutMS: 90000, Sandbox: "forbidden", Audit: "always"}
 }
 func mcdReadRegistration() toolRegistration {
-	return workflowRegistration(toolRegistration{enabled: func(c config.Config) bool { return c.MCDSelection.Enabled }, run: ctxArgs((*ToolHub).mcdRead)}, app.ToolCapabilityMCDSelection, nil, app.OutcomeAdapterGeneric,
-		"Read the authorized McDonald's selection session.", "Use only for the dining.mcd_read Workflow and exact owner-provided context.", "Never infer an account, store, pickup time, price, product identity, consent or payment authority.", app.ToolEffectExternalRead)
+	return workflowRegistration(toolRegistration{enabled: func(c config.Config) bool { return c.MCDSelection.Enabled }, run: ctxArgsSessionRun((*ToolHub).mcdRead)}, app.ToolCapabilityMCDSelection, nil, app.OutcomeAdapterGeneric,
+		"Read the authorized McDonald's selection session.", "Use only for the dining.mcd_order Workflow and exact owner-provided context.", "Never infer an account, store, pickup time, price, product identity, consent or payment authority.", app.ToolEffectExternalRead)
 }
-func (h *ToolHub) mcdRead(ctx context.Context, args map[string]any) (Result, error) {
+func (h *ToolHub) mcdRead(ctx context.Context, args map[string]any, session, run string) (Result, error) {
+	active, err := h.requireMCDWorkflow(ctx, session, run, "context", "menu", "offer", "cart")
+	if err != nil {
+		return Result{}, err
+	}
+	// The cart node may only re-read pickup slots for a stale default time.
+	if active.Workflow.ActiveNodeIDs[0] == "cart" && args["operation"] != "pickup_slots" {
+		return Result{}, errors.New("mcd_order_workflow_required")
+	}
 	if h.resources == nil || h.resources.MCDSelection == nil {
 		return Result{}, errors.New("mcd_selection_unavailable")
 	}

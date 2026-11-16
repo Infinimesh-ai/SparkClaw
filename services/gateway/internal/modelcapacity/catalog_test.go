@@ -24,8 +24,8 @@ func TestOperationRegistryIsCompleteAndUnique(t *testing.T) {
 			}
 		}
 	}
-	if len(seen) != 23 {
-		t.Fatalf("registered operations = %d, want 23", len(seen))
+	if len(seen) != 25 {
+		t.Fatalf("registered operations = %d, want 25", len(seen))
 	}
 	if !seen[OperationEmailAnalysis] || !seen[OperationPPTXVisualAssessment] || !seen[OperationPPTXVisualRepairPlan] {
 		t.Fatal("PPTX visual operations are not registered")
@@ -35,6 +35,11 @@ func TestOperationRegistryIsCompleteAndUnique(t *testing.T) {
 	}
 	if spec, err := Spec(OperationMedicineParse); err != nil || spec.OutputClass != OutputCompactStructured || len(spec.AllowedLanes) != 1 || spec.AllowedLanes[0] != LaneFast {
 		t.Fatalf("medicine text reading must be a fast-lane structured operation: %#v %v", spec, err)
+	}
+	for _, op := range []Operation{OperationMCDOrderIntent, OperationMCDOrderRank} {
+		if spec, err := Spec(op); err != nil || spec.OutputClass != OutputWorkflowStructured || len(spec.AllowedLanes) != 1 || spec.AllowedLanes[0] != LaneFast {
+			t.Fatalf("ordering model step must be fast-lane structured: %#v %v", spec, err)
+		}
 	}
 }
 

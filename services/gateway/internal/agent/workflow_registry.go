@@ -66,6 +66,12 @@ type workflowRuntimeStageProfile interface {
 	RunStage(context.Context, Runtime, app.AgentRun, workflowStageContext, []app.ToolDefinition, []workflowObservation, *workflowRunBudget) workflowExecutionResult
 }
 
+// Some runtime-owned entry stages deliberately render a disabled capability
+// without model calls when no execution tools can be materialized.
+type workflowUnavailableStageProfile interface {
+	AllowUnavailableTools() bool
+}
+
 type workflowDirectStageProfile interface {
 	DirectStage(*app.WorkflowState) bool
 	DirectStageArguments(*app.WorkflowState) map[string]any
@@ -229,11 +235,7 @@ func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegi
 
 func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 	return newWorkflowProfileRegistry(
-		mcdReadProfile{},
-		mcdCartProfile{},
-		mcdCartProfile{quote: true},
-		mcdCartProfile{purchase: true},
-		mcdStatusProfile{},
+		mcdOrderProfile{},
 		aiChatProfile{provider: "chatgpt"},
 		aiChatProfile{provider: "claude"},
 		aiChatProfile{provider: "gemini"},

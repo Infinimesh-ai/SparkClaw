@@ -23,6 +23,9 @@ const (
 )
 
 type workflowExecutionResult struct {
+	// Runtime stages can aggregate several bounded operations into one node
+	// outcome. Individual calls remain persisted and budgeted, not transitions.
+	StageOutcome        *app.ToolOutcome
 	Chat                modelrouter.ChatResult
 	ToolCalls           []app.ToolCall
 	Approvals           []app.Approval

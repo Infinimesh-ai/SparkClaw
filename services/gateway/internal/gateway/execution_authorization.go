@@ -19,6 +19,7 @@ type executionAuthorization struct {
 	AllowMCDSelection bool
 	AllowMCDPrepare   bool
 	AllowMCDPurchase  bool
+	AllowMCDStatus    bool
 }
 
 func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionInfo) executionAuthorization {
@@ -30,7 +31,11 @@ func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionIn
 	if session.CheckAuthorization == nil {
 		return a
 	}
-	a.AllowMCDSelection = s.mcdSelection != nil && slices.Contains(session.NegotiatedOperations, iscpworkbench.OperationMCDSessionProvision) && slices.Contains(session.QualifiedOperations, iscpworkbench.OperationMCDSessionProvision)
+	a.AllowMCDStatus = s.cfg.MCDSelection.Enabled && s.mcdSelection != nil
+	for _, op := range []string{iscpworkbench.OperationMCDOperationStatus, iscpworkbench.OperationMCDOrdersQuery} {
+		a.AllowMCDStatus = a.AllowMCDStatus && slices.Contains(session.NegotiatedOperations, op) && slices.Contains(session.QualifiedOperations, op)
+	}
+	a.AllowMCDSelection = s.cfg.MCDSelection.Enabled && s.mcdSelection != nil && slices.Contains(session.NegotiatedOperations, iscpworkbench.OperationMCDSessionProvision) && slices.Contains(session.QualifiedOperations, iscpworkbench.OperationMCDSessionProvision)
 	a.AllowMCDPrepare = a.AllowMCDSelection && s.cfg.MCDSelection.CartEnabled
 	for _, op := range []string{iscpworkbench.OperationMCDCheckoutPrepare, iscpworkbench.OperationMCDCheckoutAbort, iscpworkbench.OperationMCDOperationStatus} {
 		a.AllowMCDPrepare = a.AllowMCDPrepare && slices.Contains(session.NegotiatedOperations, op) && slices.Contains(session.QualifiedOperations, op)
@@ -44,6 +49,12 @@ func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionIn
 		return a
 	}
 	for _, definition := range s.tools.Definitions() {
+		if definition.Name == "mcd.purchase.status" {
+			if a.AllowMCDStatus {
+				a.AllowedTools = append(a.AllowedTools, definition.Name)
+			}
+			continue
+		}
 		if strings.HasPrefix(definition.Name, "mcd.purchase.") && !a.AllowMCDPurchase {
 			continue
 		}

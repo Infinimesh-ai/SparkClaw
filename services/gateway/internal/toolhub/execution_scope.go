@@ -151,3 +151,5 @@ func (h *ToolHub) ReleaseWorkspaceBytes(path string) {
 		h.resources.ReleaseWorkspaceBytes(path)
 	}
 }
+
+func (h *ToolHub) ExecutionTextOnly() bool { return h.resources != nil && h.resources.TextOnly }

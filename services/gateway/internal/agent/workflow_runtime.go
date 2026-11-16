@@ -319,9 +319,6 @@ func workflowArgumentAllowed(binding app.ArgumentBinding, node app.WorkflowNode,
 }
 
 func (r Runtime) bindWorkflowToolArguments(ctx context.Context, runID string, plan toolPlan) (map[string]any, error) {
-	if plan.Name == "mcd.purchase.commit" {
-		return r.tools.MCDPurchaseArguments()
-	}
 	args := make(map[string]any, len(plan.Args))
 	for key, value := range plan.Args {
 		args[key] = value
@@ -617,7 +614,28 @@ func (r Runtime) runWorkflowWithSeedAndStream(ctx context.Context, sessionID str
 		}
 
 		transitioned := false
+		if stageResult.StageOutcome != nil {
+			stored, ok, err := r.store.GetRun(ctx, run.ID)
+			if err != nil || !ok || stored.Workflow == nil {
+				latest.fail(workflowFailureStateInvalid, err)
+				break
+			}
+			outcome := *stageResult.StageOutcome
+			assessment := profile.Assess(stored.Workflow, outcome)
+			transitioned, err = applyWorkflowOutcome(&stored, outcome, assessment)
+			if err == nil {
+				_, err = r.saveRun(ctx, stored)
+			}
+			if err != nil {
+				latest.fail(workflowFailureStateInvalid, err)
+				break
+			}
+			r.auditWorkflowOutcome(ctx, stored, outcome, assessment, transitioned, nil)
+		}
 		for _, call := range stageResult.ToolCalls {
+			if stageResult.StageOutcome != nil {
+				break
+			}
 			if call.WorkflowID == "" || call.WorkflowNodeID == "" {
 				continue
 			}

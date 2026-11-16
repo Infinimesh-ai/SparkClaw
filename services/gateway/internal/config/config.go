@@ -183,6 +183,9 @@ func Load(path string) (Config, error) {
 	if extension.MailSendLoginReuseSeconds < 0 || extension.MailSendLoginReuseSeconds > 600 {
 		return Config{}, errors.New("adapters.browserAutomation.playwrightExtension.mailSendLoginReuseSeconds must be between 0 and 600")
 	}
+	if err := normalizeMCDSelectionConfig(&cfg.MCDSelection); err != nil {
+		return Config{}, err
+	}
 	if err := normalizeRuntimeLimits(&cfg.Runtime); err != nil {
 		return Config{}, err
 	}

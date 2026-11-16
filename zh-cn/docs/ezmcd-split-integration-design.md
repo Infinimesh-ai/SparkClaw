@@ -2,7 +2,7 @@
 
 > Language: 简体中文 | [English](../../docs/ezmcd-split-integration-design.md)
 
-日期：2026-11-13。修订：R3。状态：分端接入代码已在本 worktree 实现，当前版本 G1 v4／v5 只读与历史指定取餐 G2 已有证据。[实现与发布门槛](ezmcd-adapter-implementation.md)分别记录夹具验证、上游付款和真实产品验收。全部启用开关默认关闭，不代表功能已上线。
+日期：2026-11-16。修订：R3，第 8 节同步已确认的点餐 R4。状态：分端接入与单一点餐 Workflow 已在本工作树源码实现；G1 当前构建 v4／v5 只读与历史指定取餐 G2 已有证据。[实现与发布门槛](ezmcd-adapter-implementation.md)区分夹具、上游付款和真实产品验收。所有启用开关默认关闭；11 月 16 日源码尚未重新打包或部署，不代表功能已上线。
 
 **Mac SparkX 获取和更新麦当劳会话凭据，执行下单、付款与支付对账；work2 SparkClaw 执行门店查询、选餐、购物车和报价。** 工作流编排、模型调用和 Policy／审批决策继续属于 SparkClaw；Mac 运行确定性的本机适配器，校验授权并执行被批准的动作。本文定义目标设计，实际代码与验收进展单独记入上述实现检查点；上游交接已完成一笔单独授权的订单，本轮实现没有新增订单或付款，也未部署产品能力。
 
@@ -280,7 +280,9 @@ sequenceDiagram
 
 ## 8. Workflow 与界面接入
 
-新增餐饮领域叶子 Workflow，按用户意图区分选餐／报价和购买／查询恢复；各阶段仅暴露所需工具。用户说“看看有什么”只能读，“把这些加入购物车”才进入变更，“下单付款”必须携带满足 Policy 的购买授权。不要复用 Happy 编码 Workflow 或全局任意 MCP 执行分支。
+[点餐 Workflow R4](mcd-ordering-workflow-refactor-design.md) 将原读取、购物车、报价、购买、状态五个叶子合并为唯一的 `dining.mcd_order`（`draft`、`RequireQuery: true`）。九个节点 `guard → intent → context → menu → offer → cart → quote → pay → settle` 在提问表单和付款审批前后均沿同一次执行继续；模型只解析意图、排序官方候选，确定性阶段负责工具调用和最终回复。浏览菜单、查询上一单不进入点餐。不要复用 Happy 编码 Workflow 或全局任意 MCP 执行分支。
+
+门店与配置问题复用既有审批表单，使用可选且纳入摘要的 `submit_label`。购物车按冻结计划写入，不逐次审批；清空不同的非空购物车仍需确认。优惠选择计入已选加料，最多允许一次去券重报。付款继续要求完整不可变的审阅内容与 `ARCHCARD` 授权；`settle` 核对本单，`guard` 在开始新单前核对未决原操作。状态访问独立于购物车／付款开关，可证明未发出的准备通过既有状态路径持久化退休。既有适配器能力和 ISCP 操作完整保留，不新增操作或消费授权，三个启用开关继续默认关闭。
 
 沿用现有 `Connections` 目录及详情面板，加入麦当劳连接项，提供账号连接、必要的登录恢复和断开操作；在既有会话、工具结果和审批组件中展示菜单、购物车、报价及订单。原页面、菜单、布局、样式、返回导航和交互均保留；不新增常驻凭据版本、后端地址或探针状态等技术信息。
 
@@ -309,7 +311,7 @@ G2 的 Mac Store 不预置该报价记录，测试必须包含缺字段、错误
 | P3 Mac 钱包购买 | Mac 交易账本、commit、既有 Policy／审批适配；固定 `ARCHCARD` | G1 兼容性加上真实收银渠道检查；授权消费、去重、恢复通过；以用户选定且批准的真实订单验证钱包消费和官方对账 |
 | P4 界面与配对发布 | 原连接页、会话结果与审批组件接入适配器；打包、manifest 与运维指引 | Mac／work2 配对版本资格、旧 UI 回归、真实故障矩阵；按能力开放，保留未知交易账本后回滚 |
 
-关键代码依据：Gateway [`workflow_registry.go`](../../services/gateway/internal/agent/workflow_registry.go)、[`mcpintegration/manager.go`](../../services/gateway/internal/mcpintegration/manager.go)、[`mcptools/tools.go`](../../services/gateway/internal/mcptools/tools.go)、[`reverse_session.go`](../../services/gateway/internal/iscpworkbench/reverse_session.go)；desktop [`iscp-transport.mjs`](../../apps/desktop/src/main/iscp-transport.mjs)、[`iscp-capabilities.mjs`](../../apps/desktop/src/main/iscp-capabilities.mjs)；[设置与连接配置](settings-integration-configuration-design.md)。这些是接入点，不表示已修改。
+关键代码依据：Gateway [`workflow_registry.go`](../../services/gateway/internal/agent/workflow_registry.go)、[`mcpintegration/manager.go`](../../services/gateway/internal/mcpintegration/manager.go)、[`mcptools/tools.go`](../../services/gateway/internal/mcptools/tools.go)、[`reverse_session.go`](../../services/gateway/internal/iscpworkbench/reverse_session.go)；desktop [`iscp-transport.mjs`](../../apps/desktop/src/main/iscp-transport.mjs)、[`iscp-capabilities.mjs`](../../apps/desktop/src/main/iscp-capabilities.mjs)；[设置与连接配置](settings-integration-configuration-design.md)。实现检查点记录了这些扩展点现已接入的代码及独立发布门槛。
 
 必须覆盖以下行为：
 

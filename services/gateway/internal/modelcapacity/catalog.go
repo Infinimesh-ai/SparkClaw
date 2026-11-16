@@ -55,6 +55,8 @@ const (
 	OperationMedicineRecognize        Operation = "medicine.recognize"
 	OperationMedicineParse            Operation = "medicine.parse"
 	OperationMedicineEditPlan         Operation = "medicine.edit_plan"
+	OperationMCDOrderIntent           Operation = "mcd.order_intent"
+	OperationMCDOrderRank             Operation = "mcd.order_rank"
 	OperationMedicineInfoSource       Operation = "medicine.info_source"
 )
 
@@ -87,6 +89,8 @@ var operationSpecs = []OperationSpec{
 	{Operation: OperationEmailAnalysis, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationMedicineRecognize, OutputClass: OutputVisionStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationMedicineEditPlan, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
+	{Operation: OperationMCDOrderIntent, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
+	{Operation: OperationMCDOrderRank, OutputClass: OutputWorkflowStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationMedicineInfoSource, OutputClass: OutputCompactStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 	{Operation: OperationMedicineParse, OutputClass: OutputCompactStructured, AllowedLanes: []Lane{LaneFast}, Generates: true},
 }

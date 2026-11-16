@@ -145,8 +145,8 @@ func GenerateEnrollmentRequestWithProof(directory, domainID, deviceID, hardwareC
 		KeyFile:      filepath.Join(directory, IdentityKeyFileName),
 	}
 	keyBackend = strings.ToLower(strings.TrimSpace(keyBackend))
-	if keyBackend != IdentityKeyBackendFile && keyBackend != IdentityKeyBackendKeyring {
-		return EnrollmentRequest{}, DeviceFiles{}, errors.New("identity key backend must be keyring or file")
+	if !ValidIdentityKeyBackend(keyBackend) {
+		return EnrollmentRequest{}, DeviceFiles{}, errors.New("identity key backend must be keyring, file or a registered host store")
 	}
 	if _, err := os.Stat(files.IdentityFile); err == nil {
 		return EnrollmentRequest{}, DeviceFiles{}, errors.New("device identity already exists")
@@ -243,6 +243,15 @@ func saveIdentityKey(backend, service string, deviceIdentity identity.DeviceIden
 		return nil
 	case IdentityKeyBackendFile:
 		return writeSecretFile(keyFile, []byte(encoded+"\n"))
+	case IdentityKeyBackendHost:
+		store, err := currentHostSecretStore()
+		if err != nil {
+			return err
+		}
+		if err := store.Set(hostService(service), identityKeyAccount(deviceIdentity), encoded); err != nil {
+			return fmt.Errorf("store device identity in host secret store: %w", err)
+		}
+		return nil
 	default:
 		return errors.New("unsupported identity key backend")
 	}
@@ -268,6 +277,16 @@ func loadIdentityKey(backend, service string, deviceIdentity identity.DeviceIden
 			return "", fmt.Errorf("read device identity key: %w", err)
 		}
 		return strings.TrimSpace(string(raw)), nil
+	case IdentityKeyBackendHost:
+		store, err := currentHostSecretStore()
+		if err != nil {
+			return "", err
+		}
+		encoded, err := store.Get(hostService(service), identityKeyAccount(deviceIdentity))
+		if err != nil {
+			return "", fmt.Errorf("load device identity from host secret store: %w", err)
+		}
+		return strings.TrimSpace(encoded), nil
 	default:
 		return "", errors.New("unsupported identity key backend")
 	}
@@ -279,6 +298,13 @@ func deleteIdentityKey(backend, service string, deviceIdentity identity.DeviceId
 			service = DefaultIdentityKeyringService
 		}
 		return keyring.Delete(service, identityKeyAccount(deviceIdentity))
+	}
+	if backend == IdentityKeyBackendHost {
+		store, err := currentHostSecretStore()
+		if err != nil {
+			return err
+		}
+		return store.Delete(hostService(service), identityKeyAccount(deviceIdentity))
 	}
 	return os.Remove(keyFile)
 }

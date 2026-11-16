@@ -166,8 +166,8 @@ func (c Config) Validate() error {
 	if c.EffectiveRelayProfile() != iscpbridge.ProfileProduction && c.EffectiveRelayProfile() != iscpbridge.ProfileLocalLab {
 		return errors.New("unsupported workbench Relay profile")
 	}
-	if c.IdentityKeyBackend != iscpbridge.IdentityKeyBackendFile && c.IdentityKeyBackend != iscpbridge.IdentityKeyBackendKeyring {
-		return errors.New("workbench identity key backend must be file or keyring")
+	if !iscpbridge.ValidIdentityKeyBackend(c.IdentityKeyBackend) {
+		return errors.New("workbench identity key backend must be file, keyring or a registered host store")
 	}
 	paths := []string{c.IdentityDirectory, c.EnrollmentFile, c.IssuerIdentityFile}
 	if nodeManaged && c.Role == RoleResponder {

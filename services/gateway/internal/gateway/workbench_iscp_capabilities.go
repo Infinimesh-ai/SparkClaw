@@ -78,6 +78,7 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 		{"settings_credentials", []string{iscpworkbench.OperationSettingsIntegrationsList, iscpworkbench.OperationSettingsCredentialsAdd, iscpworkbench.OperationSettingsCredentialsActivate, iscpworkbench.OperationSettingsCredentialsCheck, iscpworkbench.OperationSettingsCredentialsDelete}, a.server.integrations != nil},
 		{"approvals", []string{iscpworkbench.OperationApprovalsList, iscpworkbench.OperationApprovalsGet, iscpworkbench.OperationApprovalsDecide}, true},
 		{"notifications", []string{iscpworkbench.OperationNotificationsList, iscpworkbench.OperationNotificationsRead, iscpworkbench.OperationNotificationsReadAll}, true},
+		{"phone_overview", []string{iscpworkbench.OperationPhoneSnapshotGet, iscpworkbench.OperationPhoneActivityList}, a.server.bridge != nil},
 		{"medicine", []string{iscpworkbench.OperationMedicineRecognize}, true},
 		{"medicine_text", []string{iscpworkbench.OperationMedicineParse}, true},
 		{"medicine_box_read", []string{iscpworkbench.OperationMedicineSync, iscpworkbench.OperationMedicineOperationsGet}, true},

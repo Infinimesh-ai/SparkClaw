@@ -243,6 +243,32 @@ describe("device credentials through the production settings route", () => {
     expect(writeText).toHaveBeenCalledWith(bundled);
   });
 
+  it.each(["en", "zh"] as const)("shows a phone QR code beside a node connection credential in %s", async (language) => {
+    const nodeCredential = "sparkclaw-iscp-connect-v1." + btoa(JSON.stringify({ schema_version: 1, origin: "https://203.0.113.7:18443", scopes: ["workbench.read"] })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const connectionCredential = vi.fn(async () => nodeCredential);
+    window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, connectionCredential,
+      loginStartup: async () => ({ supported: false, enabled: false }) } as unknown as NonNullable<typeof window.sparkclawDesktop>;
+    const { host } = await render(<SettingsRoute language={language} />);
+    await visitDevices(host, language);
+    const text = dictionaries[language];
+    await act(async () => button(host, text.settings.issueClient).click());
+    await vi.waitFor(() => expect(host.querySelector(`.clientCredentialQR svg[aria-label="${text.settings.issuedClientConnectionQR}"]`)).not.toBeNull());
+    expect(host.querySelector(".issuedClientCredential code")?.textContent).toBe(nodeCredential);
+    expect(host.textContent).toContain(text.settings.issuedClientConnectionQRHint);
+    expect(button(host, text.common.copy)).toBeTruthy();
+    await act(async () => button(host, text.settings.hideClientToken).click());
+    expect(host.querySelector(".clientCredentialQR")).toBeNull();
+  });
+
+  it("shows no QR code for a browser access token", async () => {
+    const { host } = await render(<SettingsRoute />);
+    await visitDevices(host);
+    await act(async () => button(host, dictionaries.en.settings.issueClient).click());
+    expect(host.querySelector(".issuedClientCredential code")?.textContent).toBe(issued.token);
+    await act(async () => { await Promise.resolve(); });
+    expect(host.querySelector(".clientCredentialQR")).toBeNull();
+  });
+
   it("preserves one request key and name after a lost response and blocks concurrent issuance", async () => {
     const first = deferred<IssuedClientCredential>();
     vi.mocked(api.issueClient).mockReturnValueOnce(first.promise).mockResolvedValueOnce(issued);

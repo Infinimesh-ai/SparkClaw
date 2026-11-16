@@ -1,9 +1,11 @@
 import { useConfirm } from "../confirmation";
 import { CircleAlert, Copy, KeyRound, LogOut, RefreshCw, Trash2 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useRef, useState } from "react";
 import { APIError } from "../../api/client";
 import type { Client, IssuedClientCredential } from "../../api/types";
 import type { Copy as CopyText, Language } from "../../i18n";
+import { compactConnectionCredential, MEDIUM_QR_BYTES } from "../../lib/connectionCredentialQR";
 import { formatDateTime } from "../../lib/format";
 
 export type ClientSettingsActions = {
@@ -35,6 +37,7 @@ export function PairedClientsSettings({
   const [issuanceError, setIssuanceError] = useState("");
   const [recovery, setRecovery] = useState<{ clientID?: string } | null>(null);
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [credentialQR, setCredentialQR] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
   const [busy, setBusy] = useState("");
   const [loadedClients, setLoadedClients] = useState<Client[] | null>(null);
@@ -50,6 +53,17 @@ export function PairedClientsSettings({
   const listFailed = Boolean(loadError || clientsError);
   const issuedLabel = issued?.connection_credential ? text.settings.issuedClientConnectionCredential : text.settings.issuedClientToken;
   const issuedWarning = issued?.connection_credential ? text.settings.issuedClientConnectionCredentialWarning : text.settings.issuedClientTokenWarning;
+
+  // Phones scan the node connection credential; plain Web tokens get no QR.
+  const issuedConnectionCredential = issued?.connection_credential;
+  useEffect(() => {
+    let current = true;
+    setCredentialQR(null);
+    if (issuedConnectionCredential) {
+      void compactConnectionCredential(issuedConnectionCredential).then((value) => { if (current) setCredentialQR(value); });
+    }
+    return () => { current = false; };
+  }, [issuedConnectionCredential]);
 
   async function loadClients() {
     if (!reload.current) return;
@@ -224,6 +238,10 @@ export function PairedClientsSettings({
         <small>{issued.client.name} · {issued.client.id}</small>
         <code tabIndex={0} aria-label={issuedLabel}>{issued.connection_credential ?? issued.token}</code>
         <small>{issuedWarning}</small>
+        {issued.connection_credential && credentialQR && <div className="clientCredentialQR">
+          <QRCodeSVG value={credentialQR} size={280} level={credentialQR.length > MEDIUM_QR_BYTES ? "L" : "M"} marginSize={4} role="img" aria-label={text.settings.issuedClientConnectionQR} />
+          <small>{text.settings.issuedClientConnectionQRHint}</small>
+        </div>}
         <div className="clientCredentialActions">
           <button type="button" className="ghost" onClick={() => void copyToken()}><Copy size={14} /> {text.common.copy}</button>
           <button type="button" className="ghost" onClick={() => { setIssued(null); setCopyFeedback(""); }}>{text.settings.hideClientToken}</button>

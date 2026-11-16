@@ -519,6 +519,33 @@ deployment 与期限；双向验证区分角色的 finished 证明后才 ready�
 未知操作保持原证明、wrap 密钥及输入。原生重启和配对服务重启的验收单独记录，
 不能由这些测试推定完成。
 
+### 8.2 手机走节点签发器
+
+手机与 SparkX 桌面端使用同一套连接凭据、签发器兑换、Grant 和 Workbench
+端点，协议本身不区分客户端类型。它取代了手机原来的“自建 Trust Root + ISCP
+Bridge”路线：那条路只能签一小时的 `text` 授权、不能续签，并且每台手机都要手工
+写进 `peers[]`。
+
+- **库。** `services/gateway/mobile/sparkclawmobile` 是 gomobile 包（独立的 Go 1.26
+  嵌套模块，不在 `go.work` 中），由 `scripts/build-mobile-android.sh` 构建为
+  `dist/mobile/android/sparkclawmobile.aar`（arm64-v8a 与 x86_64；Gateway
+  依赖图无法编译到 32 位 ABI）。它与桌面助手共用 `internal/iscpnodeenroll`，
+  兑换、生效等待、重试和恢复完全一致。设备私钥使用 `host` 密钥后端：由 App
+  提供原生密钥存储（Android Keystore，之后为 iOS Keychain），私钥不落盘。
+- **凭据传递。** 设置 → 设备页显示一次性凭据；对节点凭据额外显示二维码，内容为
+  `sparkclaw-iscp-connect-v1z.` + base64url（同一 JSON 的 raw DEFLATE）。标准凭据
+  放不进一个二维码，压缩形式可以，手机端会逐字节还原后照常校验签名。粘贴标准
+  凭据仍然可用。
+- **续签。** 运行中的端点在 15 分钟 Grant 的最后五分之一有效期内自动续签。App
+  进入后台时关闭端点、回到前台时重新打开；重新打开会用已登记的设备私钥恢复已
+  过期的 Grant 和 Relay 凭据，无需重新邀请。
+- **手机投影。** Workbench 操作 `phone.snapshot.get` 与 `phone.activity.list`
+  按已认证的 owner 返回与 Bridge `agent.snapshot.get.v1` /
+  `agent.activity.list.v1` 完全相同的响应，现有手机页面无需改解析。其他功能使用
+  常规 Workbench 操作。
+- **权限范围。** 手机获得签发器配置的同一份授权范围，与桌面端相同。Bridge 与
+  JingSi 局域网路线保持不变。
+
 ## 9. 已部署状态与验收边界
 
 | 部分 | 已实现或部署的证据 | 边界 |

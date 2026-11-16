@@ -763,6 +763,8 @@ export const en = {
       issuedClientTokenWarning: "This browser can issue only the access token. Issue a downloadable desktop connection credential from a signed-in SparkX desktop. Hiding it or leaving this view removes this copy.",
       issuedClientConnectionCredential: "New device connection credential — shown once",
       issuedClientConnectionCredentialWarning: "Store it securely, then paste it into the target desktop. Hiding it or leaving this view removes this copy; it cannot be displayed again.",
+      issuedClientConnectionQR: "Phone connection QR code",
+      issuedClientConnectionQRHint: "You can also scan this QR code in the phone app to connect. It is equivalent to the credential above and is also shown only once.",
       hideClientToken: "Saved — hide credential",
       clientTokenCopied: "Credential copied. Store it securely.",
       clientTokenCopyFailed: "Could not copy. Select the credential above and copy it manually.",

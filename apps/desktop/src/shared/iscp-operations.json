@@ -621,6 +621,32 @@
     "capacity_class": "events"
   },
   {
+    "name": "phone.snapshot.get",
+    "constant": "OperationPhoneSnapshotGet",
+    "version": 2,
+    "direction": "forward",
+    "scope": "events.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "capacity_class": "business"
+  },
+  {
+    "name": "phone.activity.list",
+    "constant": "OperationPhoneActivityList",
+    "version": 2,
+    "direction": "forward",
+    "scope": "events.read",
+    "mutation": false,
+    "recovery": "read",
+    "limit_bytes": 63488,
+    "dependencies": [],
+    "params": [],
+    "capacity_class": "business"
+  },
+  {
     "name": "mail.providers.list",
     "constant": "OperationMailProvidersList",
     "version": 2,

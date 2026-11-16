@@ -648,6 +648,40 @@ rotation, lost response and restart. Unknown operations keep their original proo
 wrap key and input. Native relaunch and paired service-restart acceptance are tracked
 separately from those tests.
 
+### 8.2 Phone clients on the node issuer path
+
+Phones join through the same credential, issuer exchange, Grant and Workbench
+endpoint as SparkX desktop; nothing in the protocol depends on the client kind.
+This replaces the self-hosted Trust Root + ISCP Bridge route for phones, which
+could only issue one-hour `text` Grants without renewal and required each phone
+to be pasted into `peers[]`.
+
+- **Library.** `services/gateway/mobile/sparkclawmobile` is a gomobile package
+  (nested Go 1.26 module, outside `go.work`) built by
+  `scripts/build-mobile-android.sh` into `dist/mobile/android/sparkclawmobile.aar`
+  (arm64-v8a and x86_64; the gateway graph does not compile for 32-bit ABIs).
+  It shares `internal/iscpnodeenroll` with the desktop helper, so enrollment,
+  activation wait, retry and recovery are identical. The device key uses the
+  `host` key backend: the app supplies a native secret store (Android Keystore,
+  later iOS Keychain); the key is never written to a file.
+- **Credential transfer.** Settings → devices shows the one-time credential and,
+  for node credentials only, a QR code carrying
+  `sparkclaw-iscp-connect-v1z.` + base64url(raw DEFLATE of the same JSON). The
+  canonical credential does not fit one QR code; the compact form does and is
+  expanded back byte-for-byte before the usual signature check. Pasting the
+  canonical credential still works.
+- **Renewal.** The running endpoint renews the 15-minute Grant in its last fifth
+  of lifetime. Apps close the endpoint in the background and reopen it in the
+  foreground; reopening recovers expired Grant and Relay credentials with the
+  enrolled key, without a new invitation.
+- **Phone projections.** Workbench operations `phone.snapshot.get` and
+  `phone.activity.list` return the unchanged Bridge `agent.snapshot.get.v1` /
+  `agent.activity.list.v1` responses for the authenticated owner, so existing
+  phone screens keep their parser. Other features use the normal Workbench
+  operations.
+- **Scope.** Phones receive the issuer's single approved scope list, the same as
+  desktop. The Bridge and the JingSi LAN route stay unchanged.
+
 ## 9. Deployed state and acceptance boundaries
 
 | Area | Implemented/deployed evidence | Boundary |

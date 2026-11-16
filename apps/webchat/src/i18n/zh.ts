@@ -765,6 +765,8 @@ export const zh = {
       issuedClientTokenWarning: "浏览器只能签发访问 Token；请在已登录的 SparkX 桌面客户端中签发可直接使用的桌面连接凭据。收起或离开此视图会移除这份副本。",
       issuedClientConnectionCredential: "新设备连接凭据（仅显示一次）",
       issuedClientConnectionCredentialWarning: "请安全保存，然后粘贴到目标桌面客户端。收起或离开此视图将移除这份副本，之后无法再次显示。",
+      issuedClientConnectionQR: "手机扫码连接",
+      issuedClientConnectionQRHint: "也可以在手机 App 里扫描此二维码完成连接，二维码与上方凭据等效，同样只显示一次。",
       hideClientToken: "已保存，收起",
       clientTokenCopied: "已复制凭据，请安全保存。",
       clientTokenCopyFailed: "复制失败，请选择上方凭据手动复制。",

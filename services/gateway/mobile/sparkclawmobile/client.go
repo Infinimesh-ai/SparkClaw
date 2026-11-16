@@ -1,0 +1,239 @@
+package sparkclawmobile
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"sync"
+	"time"
+
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpbridge"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpnodeenroll"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
+)
+
+// Listener receives connection lifecycle callbacks on Go-owned threads.
+// States include connecting, relay_ready, disconnected, verifying_relay,
+// discovery_failed, stopped and authorization_revoked. Capabilities JSON is
+// the negotiated transport admission (profile, limits, expiry).
+type Listener interface {
+	OnState(state string)
+	OnCapabilities(capabilitiesJSON string)
+}
+
+// StreamListener receives one JSON event per call.
+type StreamListener interface {
+	OnEvent(eventJSON string, authorityValidForMillis int64)
+}
+
+// Client is one running workbench endpoint. Its Grant renews automatically
+// while the endpoint runs; after the app was suspended past expiry, the next
+// Open (or the running lifecycle) recovers with the enrolled device key.
+type Client struct {
+	endpoint *iscpworkbench.Endpoint
+	identity string
+	cancel   context.CancelFunc
+	done     chan struct{}
+	mu       sync.Mutex
+	streams  map[string]context.CancelFunc
+	closed   bool
+}
+
+// Open loads helperConfig (from Enroll) and starts the endpoint in the
+// background. It returns an error when the device was revoked; the listener
+// then also receives "authorization_revoked".
+func Open(helperConfig string, listener Listener) (*Client, error) {
+	if listener == nil {
+		return nil, errors.New("listener is required")
+	}
+	if !iscpbridge.ValidIdentityKeyBackend(iscpbridge.IdentityKeyBackendHost) {
+		return nil, errors.New("secret store is not registered")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	cfg, err := iscpworkbench.LoadRuntimeConfig(ctx, helperConfig)
+	cancel()
+	if err != nil {
+		if errors.Is(err, iscpbridge.ErrAuthorizationRevoked) {
+			listener.OnState("authorization_revoked")
+			return nil, errors.New("authorization revoked")
+		}
+		return nil, errors.New("SparkClaw connection profile unavailable: " + err.Error())
+	}
+	if cfg.Role != iscpworkbench.RoleInitiator {
+		return nil, errors.New("profile is not a client profile")
+	}
+	public, err := cfg.PublicIdentity()
+	if err != nil {
+		return nil, errors.New("device identity unavailable")
+	}
+	identity, _ := json.Marshal(public)
+	endpoint, err := iscpworkbench.NewEndpoint(cfg, denyReverse, listener.OnState)
+	if err != nil {
+		return nil, errors.New("SparkClaw endpoint initialization failed")
+	}
+	endpoint.SetCapabilitiesHandler(func(c iscpworkbench.TransportCapabilities) {
+		raw, _ := json.Marshal(c)
+		listener.OnCapabilities(string(raw))
+	})
+	runCtx, runCancel := context.WithCancel(context.Background())
+	c := &Client{endpoint: endpoint, identity: string(identity), cancel: runCancel, done: make(chan struct{}), streams: map[string]context.CancelFunc{}}
+	go func() {
+		defer close(c.done)
+		err := endpoint.Run(runCtx)
+		if errors.Is(err, iscpbridge.ErrAuthorizationRevoked) {
+			listener.OnState("authorization_revoked")
+		} else if runCtx.Err() == nil {
+			listener.OnState("stopped")
+		}
+	}()
+	return c, nil
+}
+
+// Phone clients serve no reverse (host-command) operations.
+func denyReverse(_ context.Context, r iscpworkbench.Request) iscpworkbench.Response {
+	return iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: r.Profile, ID: r.ID, Status: 403, Code: iscpworkbench.ErrorPermissionDenied, Error: "reverse operation denied"}
+}
+
+// IdentityJSON returns this device's public identity.
+func (c *Client) IdentityJSON() string { return c.identity }
+
+// Call sends one v2 workbench operation and blocks until its response. params
+// is a JSON object of string values (may be empty); body is a JSON value or
+// empty; operationID is a UUID for idempotent mutations or empty. The returned
+// JSON is the workbench response (status, error_code, retryable, body). Only
+// invalid input returns an error; transport failures are typed responses.
+func (c *Client) Call(operation, paramsJSON, bodyJSON, operationID string, timeoutMillis int64) (string, error) {
+	request, err := buildRequest(operation, paramsJSON, bodyJSON, operationID)
+	if err != nil {
+		return "", err
+	}
+	if request.Operation == iscpworkbench.OperationExecutionProgressStream {
+		return "", errors.New("stream operation requires StreamCall")
+	}
+	ctx, cancel := callContext(timeoutMillis)
+	defer cancel()
+	response, err := c.endpoint.Call(ctx, request)
+	if err != nil {
+		response = failedResponse(request, err, "ISCP workbench call failed")
+	}
+	return encodeResponse(response)
+}
+
+// StreamCall runs execution.progress.stream. streamID identifies the stream
+// for CancelStream and is also the request ID (UUID). It blocks until the
+// stream ends and returns the final response JSON.
+func (c *Client) StreamCall(streamID, paramsJSON, bodyJSON string, timeoutMillis int64, listener StreamListener) (string, error) {
+	if listener == nil {
+		return "", errors.New("stream listener is required")
+	}
+	request, err := buildRequest(iscpworkbench.OperationExecutionProgressStream, paramsJSON, bodyJSON, "")
+	if err != nil {
+		return "", err
+	}
+	request.ID = streamID
+	if err := request.Validate(); err != nil {
+		return "", errors.New("invalid stream request")
+	}
+	ctx, cancel := callContext(timeoutMillis)
+	defer cancel()
+	c.mu.Lock()
+	if c.closed || c.streams[streamID] != nil {
+		c.mu.Unlock()
+		return "", errors.New("client closed or stream identifier in use")
+	}
+	c.streams[streamID] = cancel
+	c.mu.Unlock()
+	defer func() { c.mu.Lock(); delete(c.streams, streamID); c.mu.Unlock() }()
+	response, err := c.endpoint.StreamCall(ctx, request, func(event json.RawMessage) error {
+		remaining, err := c.endpoint.StreamAuthorityRemaining(request.ID)
+		if err != nil {
+			return err
+		}
+		listener.OnEvent(string(event), remaining.Milliseconds())
+		return nil
+	})
+	if err != nil {
+		response = failedResponse(request, err, "ISCP stream unavailable")
+		if errors.Is(err, iscpworkbench.ErrStreamAuthorityExpired) {
+			response.Status, response.Code, response.Retryable = 403, iscpworkbench.ErrorGrantExpired, false
+		}
+	}
+	return encodeResponse(response)
+}
+
+// CancelStream stops a running StreamCall.
+func (c *Client) CancelStream(streamID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if cancel := c.streams[streamID]; cancel != nil {
+		cancel()
+	}
+}
+
+// Close stops the endpoint. Call it when the app goes to background for long
+// periods; Open again on resume (expired Grants recover automatically).
+func (c *Client) Close() {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return
+	}
+	c.closed = true
+	for _, cancel := range c.streams {
+		cancel()
+	}
+	c.mu.Unlock()
+	c.cancel()
+	_ = c.endpoint.Close()
+	<-c.done
+}
+
+func callContext(timeoutMillis int64) (context.Context, context.CancelFunc) {
+	if timeoutMillis <= 0 || timeoutMillis > 10*60*1000 {
+		timeoutMillis = 30000
+	}
+	return context.WithTimeout(context.Background(), time.Duration(timeoutMillis)*time.Millisecond)
+}
+
+func buildRequest(operation, paramsJSON, bodyJSON, operationID string) (iscpworkbench.Request, error) {
+	request := iscpworkbench.Request{Type: iscpworkbench.RequestType, Profile: iscpworkbench.ProfileV2, ID: iscpnodeenroll.NewUUID(), Operation: operation, OperationID: operationID}
+	if paramsJSON != "" {
+		if err := json.Unmarshal([]byte(paramsJSON), &request.Params); err != nil {
+			return request, errors.New("params must be a JSON object of strings")
+		}
+	}
+	if bodyJSON != "" {
+		if len(bodyJSON) > iscpworkbench.MaxRequestBytes || !json.Valid([]byte(bodyJSON)) {
+			return request, errors.New("body must be valid JSON within the request limit")
+		}
+		request.Body = json.RawMessage(bodyJSON)
+	}
+	if err := request.Validate(); err != nil {
+		return request, errors.New("invalid workbench request: " + err.Error())
+	}
+	return request, nil
+}
+
+func failedResponse(request iscpworkbench.Request, err error, message string) iscpworkbench.Response {
+	response := iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: request.Profile, ID: request.ID, Status: 503, Error: message, Code: iscpworkbench.ErrorCapabilityUnavailable, Retryable: true}
+	var transportError *iscpworkbench.TransportError
+	if errors.As(err, &transportError) {
+		response.Status, response.Code, response.Retryable = transportError.Status, transportError.Code, transportError.Retryable
+	}
+	var unknown *iscpbridge.UnknownAcceptance
+	if errors.As(err, &unknown) {
+		// The request may have reached SparkClaw. Never retry it as new work;
+		// reconcile with the same operation ID instead.
+		response.Status, response.Code, response.Retryable = 503, iscpworkbench.ErrorOutcomeUnknown, false
+		response.Error = "ISCP transport outcome is unknown"
+	}
+	return response
+}
+
+func encodeResponse(response iscpworkbench.Response) (string, error) {
+	raw, err := json.Marshal(response)
+	if err != nil {
+		return "", err
+	}
+	return string(raw), nil
+}

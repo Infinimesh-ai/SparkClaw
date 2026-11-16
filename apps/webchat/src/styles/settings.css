@@ -1012,6 +1012,20 @@
   line-height: var(--line-ui);
 }
 
+.clientCredentialQR {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+}
+
+.clientCredentialQR svg {
+  width: 280px;
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: #fff;
+}
+
 .clientCredentialActions {
   display: flex;
   flex-wrap: wrap;

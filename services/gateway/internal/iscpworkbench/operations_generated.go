@@ -44,6 +44,8 @@ const (
 	OperationEventsResume = "events.resume"
 	OperationEventsUnsubscribe = "events.unsubscribe"
 	OperationStateSnapshot = "state.snapshot"
+	OperationPhoneSnapshotGet = "phone.snapshot.get"
+	OperationPhoneActivityList = "phone.activity.list"
 	OperationMailProvidersList = "mail.providers.list"
 	OperationMailProvidersUpdate = "mail.providers.update"
 	OperationMailProvidersCheck = "mail.providers.check"

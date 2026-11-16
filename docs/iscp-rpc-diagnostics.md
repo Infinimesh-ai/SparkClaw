@@ -1,6 +1,6 @@
 # ISCP reverse RPC diagnostics
 
-[中文](../zh-cn/docs/iscp-rpc-diagnostics.md)
+[简体中文](../zh-cn/docs/iscp-rpc-diagnostics.md)
 
 For a failed SparkX browser health check, start with the task's request ID or
 the `browser.controller.status` RPC ID. The RPC ID is inside the authenticated

@@ -150,6 +150,12 @@ func DefaultCatalog() (Catalog, error) {
 				app.RouteOperationPublish: {app.MessageSourceWeb, app.MessageSourceThirdPartyDevice},
 			},
 		}),
+		branch("dining", string(RootID), "Browse connected dining services with exact owner context."),
+		leaf(string(app.CapabilityMCDRead), "dining", "Read the connected McDonald's account restaurants, menus, pickup options, benefits or cart. No cart changes, ordering or payment.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationRead}, RequireQuery: true}),
+		leaf("dining.mcd_cart", "dining", "Apply an explicitly selected McDonald's cart or pickup-method change with original-operation recovery. No purchase or payment.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationDraft}, RequireQuery: true}),
+		leaf("dining.mcd_purchase", "dining", "Purchase exactly one explicitly selected McDonald's meal with immutable approval and the originating Mac wallet. Never replay unknown writes.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationDraft}, RequireQuery: true}),
+		leaf("dining.mcd_status", "dining", "Reconcile an original McDonald's preparation or purchase, or view original orders. Read-only; never order or pay.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationRead}, RequireQuery: true}),
+		leaf("dining.mcd_quote", "dining", "Prepare and validate a complete McDonald's pickup quote on the originating Mac. Never submit or pay.", RouteContract{Operations: []app.RouteOperation{app.RouteOperationDraft}, RequireQuery: true}),
 		branch("browser", string(RootID), "Use current Internet facts, a single-location weather card, or a managed browser session."),
 		leafRevision(string(app.CapabilityBrowserInternetSearch), "browser", "Retrieve read-only facts that depend on current Internet state, including gold prices, exchange rates, stock or index quotes, immediate news, current sports results, schedules, and weather alerts, news, or comparisons. Stable common knowledge that does not depend on current external state is not Internet search.", 2, RouteContract{
 			Operations: []app.RouteOperation{app.RouteOperationSearch}, FactScopes: []app.RouteFactScope{app.RouteFactScopeCurrentInternet}, RequireQuery: true,

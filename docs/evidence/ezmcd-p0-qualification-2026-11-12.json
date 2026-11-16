@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-11-12T10:06:59.365937+00:00",
+  "scope": "P0 private authenticated-stdio prototype; no product ISCP or purchase qualification",
+  "upstream_commit": "2497334e4ff1b2331773a36890db74136b288537",
+  "adapter_revision": "sparkclaw-mcd-p0-v1",
+  "implementation_status": "p0_partial_gates_incomplete",
+  "g1": {
+    "adapter_revision": "sparkclaw-mcd-p0-v1",
+    "app_version": "7.0.451",
+    "binary_sha256": "c7684499ea491e20004a8b748be4fc1472ef3e2047b5f9656c7150daeb6b28e4",
+    "build_recognized": true,
+    "checkout_qualified": false,
+    "live_member_verified": true,
+    "order_created": false,
+    "payment_attempted": false,
+    "payment_method": "ARCHCARD",
+    "v4_material_available": true,
+    "v4_sample_verified": true,
+    "v5_status": "trusted_sample_and_material_locations_required"
+  },
+  "g2": {
+    "ordinary": {
+      "passed": false,
+      "original_failure": "upstream_validation_failed",
+      "readonly_followup_diagnosis": "confirmation_pickup_time_or_method_mismatch",
+      "fresh_mac_import_completed": false
+    },
+    "pickup_selection": {
+      "passed": false,
+      "original_failure": "invalid_json_type",
+      "authorized_switch_dispatched": true,
+      "original_full_receipt_retained": false,
+      "durable_state": "unknown",
+      "replayed": false,
+      "new_key_attempted": false,
+      "readonly_followup_observed_fractional_coordinates": true,
+      "cause_inference": "fractional official JSON is incompatible with the original integer-only receipt envelope",
+      "opaque_receipt_fix_offline_verified": true,
+      "real_path_requalified_after_fix": false,
+      "fresh_mac_import_completed": false
+    }
+  },
+  "wallet_sufficient_for_selected_cart": false,
+  "fixtures": {
+    "mac_python": "3.11.15",
+    "work2_python": "3.14.4",
+    "python_tests_each": 26,
+    "javascript_tests": 5,
+    "upstream_passed": 772,
+    "upstream_skipped": 2,
+    "desktop_passed": 647,
+    "desktop_skipped": 1,
+    "not_live_qualification": true
+  },
+  "engineering_checks": {
+    "go_build": true,
+    "go_vet": true,
+    "workbench_contract": true,
+    "webchat_build": true,
+    "mac_full_go_passed": false,
+    "mac_original_passing_packages": 79,
+    "mac_original_failing_packages": 3,
+    "physical_tmp_path_rechecks_passed": [
+      "cmd/sparkclaw",
+      "internal/browserhost"
+    ],
+    "linux_only_gateway_tests_unqualified": true,
+    "full_linux_go_run": false
+  },
+  "original_report_sha256": {
+    "g2-ordinary": "c3705fd22b4dd459348af688ce38a73c9549bf75f9e8cd344d070321cf6f8b8c",
+    "g2-pickup": "53310a833ac483bca287345b907d60e581186177ae584e37860500ef56b17613"
+  },
+  "product_channel_connected": false,
+  "self_contained_runtime_qualified": false,
+  "p1_p4_implemented": false,
+  "order_created": false,
+  "payment_attempted": false,
+  "product_deployed": false,
+  "original_ui_source_changed": false
+}

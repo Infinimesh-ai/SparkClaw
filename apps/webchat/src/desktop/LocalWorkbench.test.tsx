@@ -707,7 +707,7 @@ describe("workbench local workbench", () => {
       expect(host.querySelector(".settingsSegmented")).not.toBeNull();
       expect(host.querySelectorAll(".settingsSegmented button")).toHaveLength(3);
       await act(async () => settingsTab("Connections").click());
-      expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(8);
+      expect(host.querySelectorAll(".settingsConnectionRow")).toHaveLength(9);
       for (const name of ["Devices & credentials", "Models & tools", "Permissions", "Memory", "Approvals", "Timeline"]) {
         await act(async () => settingsTab(name).click());
         expect(host.querySelector('[aria-current="page"]')?.textContent).toBe(name);

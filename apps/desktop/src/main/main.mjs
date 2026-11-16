@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import { MCDSession } from "./mcd/session.mjs";
+import { MCDHost, MCD_HOST_OPERATIONS } from './mcd/host.mjs';
+import { callMCDHelper } from "./mcd/helper.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -114,6 +117,8 @@ let medicineStore;
 let medicineCapability;
 let medicineClient;
 let browserHost;
+let mcdHost;
+let mcdSession;
 let scheduleClient;
 let browserHostPreparation = Promise.resolve();
 
@@ -201,10 +206,12 @@ async function start() {
       publishBackendState(status);
     },
     onReverse: async (request, session) => {
+      if (MCD_HOST_OPERATIONS.includes(request.operation)) return mcdHost?.handleReverse(request, session);
       await prepareBrowserHostScope();
       return browserHost?.handleReverse(request, session);
     },
     onLock: async () => {
+      mcdHost?.close();
       localFilesService?.refreshIdentity();
       executionClient?.close();
       iscpEvents?.close();
@@ -223,6 +230,44 @@ async function start() {
     authorizeWorkbenchSender(event, window);
     return handler(...args);
   });
+  mcdSession = new MCDSession({
+    vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "mcd"), safeStorage }),
+    context: () => {
+      const d = desktopAuth.descriptor;
+      if (process.platform !== "darwin" || d?.transport !== "iscp") return undefined;
+      const connected=desktopAuth.status.state==='connected' && desktopAuth.status.capabilities?.surfaces?.mcd_selection?.enabled;
+      return { deployment_id: d.deploymentID, owner_id: d.ownerID, client_id: d.clientID,
+        installation_id: localStore?.installationID, operations: connected ? desktopAuth.transport?.capabilities?.operations : [], cart_enabled: desktopAuth.status.capabilities?.surfaces?.mcd_cart?.enabled === true };
+    },
+    issue: params => callMCDHelper(app.isPackaged ? path.join(process.resourcesPath, "ezmcd", "bin", "python3") : path.resolve(MODULE_DIR, "../../../../.cache/ezmcd-adapter/venv/bin/python"), { operation: "session.issue", params }, { verifyBundle: app.isPackaged }),
+    capture: params => callMCDHelper(app.isPackaged ? path.join(process.resourcesPath, 'ezmcd', 'bin', 'python3') : path.resolve(MODULE_DIR, '../../../../.cache/ezmcd-adapter/venv/bin/python'), { operation: 'host.capture', params }, { role: 'host', verifyBundle: app.isPackaged }),
+    invoke: (operation, body) => desktopAuth.invokeISCP(operation, body),
+    selectSource: async () => {
+      const selected = await dialog.showOpenDialog(window, { title: "选择已验证的麦当劳账号", properties: ["openFile", "showHiddenFiles"], filters: [{ name: "账号", extensions: ["json"] }] });
+      if (selected.canceled || selected.filePaths.length !== 1) return undefined;
+      const filename = selected.filePaths[0], info = await fs.lstat(filename);
+      if (!info.isFile() || info.isSymbolicLink() || info.mode & 0o077 || info.size > 4 * 1024 * 1024 || path.basename(path.dirname(filename)) !== "accounts") throw new Error("请选择已验证的本地账号文件");
+      const bytes = await fs.readFile(filename);
+      try {
+        const account = JSON.parse(bytes.toString("utf8"));
+        if (account.provider !== "mcd-cn" || typeof account.alias !== "string" || !/^[A-Za-z0-9_-]{1,128}$/u.test(account.alias)) throw new Error();
+        return { root: path.dirname(path.dirname(filename)), alias: account.alias };
+      } catch { throw new Error("本地账号文件无效"); }
+      finally { bytes.fill(0); }
+    },
+  });
+  mcdHost = new MCDHost({ session: mcdSession, context: () => {
+    if (process.platform !== 'darwin' || desktopAuth.status.state !== 'connected' || desktopAuth.descriptor?.transport !== 'iscp') return undefined;
+    return { ...desktopAuth.transport?.capabilities, installation_id: localStore?.installationID };
+  }, approvals: (binding,requestID) => localStore.approvals({deployment_id:binding.deployment_id,owner_id:binding.owner_id,client_id:binding.client_id},requestID), call: (request, options) => callMCDHelper(app.isPackaged ? path.join(process.resourcesPath, 'ezmcd', 'bin', 'python3') : path.resolve(MODULE_DIR, '../../../../.cache/ezmcd-adapter/venv/bin/python'), request, { role: 'host', verifyBundle: app.isPackaged, ...options }) });
+  trustedHandler("sparkclaw-mcd:status", () => mcdSession.status());
+  trustedHandler("sparkclaw-mcd:connect", () => mcdSession.connect());
+  trustedHandler("sparkclaw-mcd:disconnect", async () => {
+    mcdHost.close();
+    await mcdSession.whenIdle();
+    return mcdSession.disconnect();
+  });
+  const mcdMaintenance=setInterval(()=>{if(!suspended)void mcdSession.maintain().catch(()=>{});},60000);mcdMaintenance.unref?.();
   trustedHandler("sparkclaw-local-backend:status", () => desktopAuth.status);
   trustedHandler("sparkclaw-local-backend:retry", () => desktopAuth.retry());
   trustedHandler("sparkclaw-local-backend:configure", (descriptor) => desktopAuth.configure(descriptor));
@@ -230,8 +275,8 @@ async function start() {
   trustedHandler("sparkclaw-local-backend:enroll", (credential) => desktopAuth.enroll(credential));
   trustedHandler("sparkclaw-local-backend:connection-credential", (token) => desktopAuth.connectionCredential(token));
   trustedHandler("sparkclaw-local-backend:check-new-authorization", () => desktopAuth.checkNewAuthorization());
-  trustedHandler("sparkclaw-local-backend:delete-authorization", () => desktopAuth.deleteAuthorization());
-  trustedHandler("sparkclaw-local-backend:logout", () => desktopAuth.logout());
+  trustedHandler("sparkclaw-local-backend:delete-authorization", async () => { mcdHost?.close(); await mcdSession.whenIdle(); await mcdSession.disableLocal().catch(()=>{}); return desktopAuth.deleteAuthorization(); });
+  trustedHandler("sparkclaw-local-backend:logout", async () => { mcdHost?.close(); await mcdSession.whenIdle(); await mcdSession.disableLocal().catch(()=>{}); await mcdSession.maintain().catch(()=>{}); return desktopAuth.logout(); });
   iscpSpeech = new ISCPSpeechClient(desktopAuth);
   trustedHandler("sparkclaw-speech:stream", (request) => iscpSpeech.dispatch(request));
   iscpRecording = new ISCPRecordingClient(desktopAuth);
@@ -359,6 +404,7 @@ async function start() {
     if (mainFrame && !inPlace) localFilesService?.revoke();
   });
   powerMonitor.on("suspend", () => {
+    mcdHost?.close();
     suspended = true;
     desktopAuth.suspend();
     executionClient?.close();

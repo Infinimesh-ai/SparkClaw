@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "canonicalization": "mcd-json-v1",
+  "adapter_revision": "sparkclaw-mcd-handoff-v3",
+  "identity": {
+    "deployment_id": "deployment",
+    "owner_id": "owner",
+    "client_id": "client",
+    "installation_id": "mac",
+    "account_ref": "account",
+    "member_digest": "b82ca7c9641fff206dc423eaeacc86ac63dc7197c5e9dec14972e38d0c5d1e58"
+  },
+  "connection_id": "connection",
+  "provision_request_id": "provision",
+  "credential_revision": 1,
+  "grant_revision": 1,
+  "issued_at_ms": 1700000000000,
+  "session_not_after_ms": 1700086400000,
+  "operations": [
+    "store_get"
+  ],
+  "max_requests": 64,
+  "material": {
+    "signing_profile": "mcd-v4-v1",
+    "app_version": "7.0.451",
+    "binary_sha256": "c7684499ea491e20004a8b748be4fc1472ef3e2047b5f9656c7150daeb6b28e4",
+    "headers": {
+      "ct": "101",
+      "v": "7.0.45.1",
+      "language": "zh",
+      "sid": "SYNTHETIC_SESSION_CANARY",
+      "token": "SYNTHETIC_TOKEN_CANARY",
+      "meddyid": "fixture-member"
+    },
+    "access_key": "AAAAAAAAAAAAAAAAAAAA",
+    "secret": "SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS"
+  },
+  "material_digest": "0eb897b6896d8e7be5828b415f05f6ebab74ff72eb9c9ba8f520c6e6291bcec5",
+  "envelope_digest": "f2ec76f07ad7ac72795a7ace18d77427073bb54687bcfae31485da690e362147"
+}

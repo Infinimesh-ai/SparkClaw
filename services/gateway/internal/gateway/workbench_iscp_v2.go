@@ -54,6 +54,9 @@ func (s *Server) NewWorkbenchISCPHandler(cfg iscpworkbench.Config) (iscpworkbenc
 		if !known || spec.Direction != "forward" {
 			return workbenchV2Error(request, 400, "invalid_operation_direction")
 		}
+		if iscpworkbench.MCDSelectionOperation(request.Operation) && (request.Object != nil || len(request.Body) > 48<<10) {
+			return workbenchV2Error(request, 400, "mcd_private_inline_body_required")
+		}
 		// An authenticated ISCP session is trusted like a normal connection: no
 		// per-operation scope or qualification gate applies beyond authentication.
 		// Progress stays negotiated because old nodes cannot carry it.

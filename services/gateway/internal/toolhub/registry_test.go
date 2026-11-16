@@ -1,6 +1,7 @@
 package toolhub
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func TestFrozenSendAndMedicineBatchDeclareImmutableArguments(t *testing.T) {
 			immutable = append(immutable, definition.Name)
 		}
 	}
-	if len(immutable) != 2 || immutable[1] != app.ToolEmailSend || immutable[0] != "medicine.box.write" {
+	if len(immutable) != 3 || !slices.Contains(immutable, app.ToolEmailSend) || !slices.Contains(immutable, "medicine.box.write") || !slices.Contains(immutable, "mcd.purchase.commit") {
 		t.Fatalf("tools with immutable arguments = %v, want %s and medicine.box.write", immutable, app.ToolEmailSend)
 	}
 	hub := New(config.Default(), store.NewMemoryStore())
@@ -61,6 +62,9 @@ func TestWorkspaceDataAccessToolIsRuntimeOnly(t *testing.T) {
 
 func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 	cfg := config.Default()
+	cfg.MCDSelection.Enabled = true
+	cfg.MCDSelection.CartEnabled = true
+	cfg.MCDSelection.PurchaseEnabled = true
 	cfg.Tools.Web.Search.Enabled = true
 	cfg.Tools.BrowserAutomation.Enabled = true
 	configureTestInfoCredentials(&cfg)
@@ -174,6 +178,27 @@ func TestMigratedRegistrationsOwnExposureMetadata(t *testing.T) {
 				t.Fatalf("legacy tool %q entered a current browser r1 scope: %#v", name, definition.Capabilities)
 			}
 		}
+	}
+}
+
+func TestMCDToolsRemainOptInWithCompleteExecutionContracts(t *testing.T) {
+	names := []string{"mcd.selection.read", "mcd.cart.read", "mcd.cart.write", "mcd.quote.prepare", "mcd.purchase.commit", "mcd.purchase.status"}
+	closed := New(config.Default(), store.NewMemoryStore())
+	cfg := config.Default()
+	cfg.MCDSelection.Enabled, cfg.MCDSelection.CartEnabled, cfg.MCDSelection.PurchaseEnabled = true, true, true
+	open := New(cfg, store.NewMemoryStore())
+	for _, name := range names {
+		if _, ok := closed.Definition(name); ok {
+			t.Fatalf("%s is exposed by default", name)
+		}
+		def, ok := open.Definition(name)
+		if !ok || def.TimeoutMS != 90000 || def.OutputSchema == nil || def.Audit != "always" || def.Sandbox != "forbidden" {
+			t.Fatalf("incomplete private execution contract for %s: %#v", name, def)
+		}
+	}
+	commit, _ := open.Definition("mcd.purchase.commit")
+	if !commit.RequiresApproval || !commit.ArgumentsImmutable || commit.Risk != app.RiskDangerous || commit.Idempotent {
+		t.Fatal("purchase requires one immutable approval and no write retry")
 	}
 }
 

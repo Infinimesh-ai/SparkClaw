@@ -29,6 +29,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscppairing"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/jingsiruntime"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mailsync"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcdintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpaccess"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcpintegration"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/messagecontrol"
@@ -128,6 +129,7 @@ type Server struct {
 	workbenchEventMonitorOnce sync.Once
 	storeRuntime              StoreRuntimeMonitor
 	credentialVault           CredentialVaultMonitor
+	mcdSelection              *mcdintegration.Manager
 	jingsiRuntime             *jingsiruntime.Provider
 	// pptxSealedSweepCursor is the artifact key the next sealed-candidate
 	// expiry sweep resumes after; only the retention coordinator goroutine

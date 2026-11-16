@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { verifyControllerBundle } from "../src/browser/controller-bundle.mjs";
+import { verifyMCDRuntime } from '../src/main/mcd/runtime.mjs';
 
 const privatePattern = /(?:^|\/)(?:\.git|\.env(?:\.[^/]*)?|data|runtime|qualifications?|private|credentials?|\.tools|services|configs|InfiniCenter)(?:\/|$)|(?:^|\/)(?:desktop-client|desktop-profile|iscp-launch-profile|local-workbench|desktop-connection|backend|credential)\.(?:json|bin)$|\.(?:pem|key|sqlite(?:-wal|-shm)?|db|dump)$/iu;
 const desktopRoots = ["package.json", "src", "bin", "node_modules"];
@@ -73,7 +74,10 @@ export function auditRuntimeEntries(entries, platform, architecture) {
 
 // electron-builder invokes this on the Mac after assembling its own runtime.
 // It audits our ASAR and extra resources before generating distributables.
-export default async function auditPackage(context) {
+export default async function auditPackage(context) { return auditPackageWithRuntime(context,verifyMCDRuntime); }
+// Dependency seam for synthetic ASAR tests; the builder always uses the
+// pinned verifier above, never a context-supplied bypass or environment flag.
+export async function auditPackageWithRuntime(context,verifyMCD) {
   const { listPackage } = await import("@electron/asar");
   const resources = context.electronPlatformName === "darwin"
     ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources")
@@ -105,12 +109,15 @@ export default async function auditPackage(context) {
   auditRuntimeEntries(listPackage(path.join(resources, "app.asar")), context.electronPlatformName, architecture);
   const controller = await verifyControllerBundle(path.join(resources, "browser-controller"));
   const controllerManifestSHA256 = crypto.createHash("sha256").update(await fs.readFile(path.join(resources, "browser-controller/manifest.json"))).digest("hex");
+  const mcdRuntime = context.electronPlatformName === 'darwin' && architecture === 'arm64'
+    ? await verifyMCD(path.join(resources,'ezmcd/bin/python3'),{platform:'darwin',architecture}) : undefined;
   await fs.writeFile(path.join(resources, "client-package-audit.json"), JSON.stringify({
     schema_version: 1, platform: context.electronPlatformName,
     client_scope: "public_client_source_and_ui", application_entries: listPackage(path.join(resources, "app.asar")).length,
     ui_files: entries.length,
     preview_files: previewEntries.length,
     iscp_helper_sha256: helperSHA256,
+    ...(mcdRuntime ? { mcd_runtime: mcdRuntime } : {}),
     browser_controller: { protocol: controller.protocol, source_revision: controller.source_revision,
       versions: controller.versions, files: Object.keys(controller.files).length, bytes: controller.bytes, manifest_sha256: controllerManifestSHA256 },
   }), { mode: 0o644 });

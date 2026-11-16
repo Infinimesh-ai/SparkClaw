@@ -1,0 +1,405 @@
+{
+  "upstream_revision": "2497334e4ff1b2331773a36890db74136b288537",
+  "tools": [
+    {
+      "name": "capabilities",
+      "host": "aggregate",
+      "classification": "capability",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "account_connection_instructions",
+      "host": "aggregate",
+      "classification": "capability",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "accounts_list",
+      "host": "host",
+      "classification": "maintenance",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "account_diagnose",
+      "host": "host",
+      "classification": "maintenance",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "account_check",
+      "host": "host",
+      "classification": "maintenance",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "account_refresh",
+      "host": "host",
+      "classification": "maintenance",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": false,
+        "idempotent_hint": false,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "account_runtime_check",
+      "host": "host",
+      "classification": "maintenance",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "account_runtime_restore",
+      "host": "host",
+      "classification": "maintenance",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": false,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "preferences_get",
+      "host": "originating_workbench",
+      "classification": "preferences",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "preferences_save",
+      "host": "originating_workbench",
+      "classification": "preferences",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": false,
+        "idempotent_hint": true,
+        "open_world_hint": false
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "meal_plan",
+      "host": "selection",
+      "classification": "planning",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "cities_list",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "stores_search",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "stores_favorites",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "store_get",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "pickup_slots",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "pickup_methods",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "menu_list",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "product_detail",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "membership_assets",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "coupons_list",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "coupon_products",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "cart_get",
+      "host": "selection",
+      "classification": "external_read",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "cart_clear",
+      "host": "selection",
+      "classification": "cart_mutation",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": true,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "cart_add_simple",
+      "host": "selection",
+      "classification": "cart_mutation",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": false,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "cart_add_configured",
+      "host": "selection",
+      "classification": "cart_mutation",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": false,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "checkout_quote_pickup",
+      "host": "selection",
+      "classification": "cart_mutation",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": true,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "cart_add_status",
+      "host": "selection",
+      "classification": "cart_recovery",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "cart_operations_list",
+      "host": "selection",
+      "classification": "cart_recovery",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": false
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "cart_operation_retire",
+      "host": "selection",
+      "classification": "cart_recovery",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": true,
+        "idempotent_hint": true,
+        "open_world_hint": false
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "checkout_quote_pickup_status",
+      "host": "selection",
+      "classification": "cart_recovery",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "checkout_quote",
+      "host": "selection",
+      "classification": "quote",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "checkout_submit",
+      "host": "host",
+      "classification": "purchase",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": true,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "order_pay",
+      "host": "host",
+      "classification": "purchase",
+      "upstream_annotations": {
+        "read_only_hint": false,
+        "destructive_hint": true,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "order_status",
+      "host": "host",
+      "classification": "reconciliation",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "orders_list",
+      "host": "host",
+      "classification": "reconciliation",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": false
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "official_orders_list",
+      "host": "host",
+      "classification": "reconciliation",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    },
+    {
+      "name": "official_order_detail",
+      "host": "host",
+      "classification": "reconciliation",
+      "upstream_annotations": {
+        "read_only_hint": true,
+        "open_world_hint": true
+      },
+      "public_model_exposure": false
+    }
+  ]
+}

@@ -50,6 +50,10 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 	browserReady := browserErr == nil
 	toolsReady := len(a.server.workbenchExecutionAuthorization(session).AllowedTools) > 0
 	families := []family{
+		{"mcd_selection", []string{iscpworkbench.OperationMCDSessionProvision, iscpworkbench.OperationMCDSessionRevoke, iscpworkbench.OperationMCDSessionStatus}, a.server.mcdSelection != nil},
+		{"mcd_cart", []string{iscpworkbench.OperationMCDSessionProvision, iscpworkbench.OperationMCDSessionRevoke, iscpworkbench.OperationMCDSessionStatus}, a.server.mcdSelection != nil && a.server.cfg.MCDSelection.CartEnabled},
+		{"mcd_prepare", []string{iscpworkbench.OperationMCDCheckoutPrepare, iscpworkbench.OperationMCDCheckoutAbort, iscpworkbench.OperationMCDOperationStatus}, a.server.mcdSelection != nil && a.server.cfg.MCDSelection.CartEnabled},
+		{"mcd_purchase", []string{iscpworkbench.OperationMCDCheckoutPrepare, iscpworkbench.OperationMCDCheckoutCommit, iscpworkbench.OperationMCDCheckoutAbort, iscpworkbench.OperationMCDOperationStatus, iscpworkbench.OperationMCDOrdersQuery, iscpworkbench.OperationApprovalsDecide}, a.server.mcdSelection != nil && a.server.cfg.MCDSelection.CartEnabled && a.server.cfg.MCDSelection.PurchaseEnabled},
 		{"tools", []string{iscpworkbench.OperationToolsList, iscpworkbench.OperationToolsInvoke}, toolsReady},
 		{"files", []string{iscpworkbench.OperationTransferOpen, iscpworkbench.OperationTransferChunk, iscpworkbench.OperationTransferCommit, iscpworkbench.OperationTransferStatus, iscpworkbench.OperationTransferAbort, iscpworkbench.OperationObjectDescribe, iscpworkbench.OperationObjectRelease, iscpworkbench.OperationObjectRead, iscpworkbench.OperationExecutionInputPut, iscpworkbench.OperationExecutionFileGet}, true},
 		{"events", []string{iscpworkbench.OperationEventsSnapshot, iscpworkbench.OperationEventsPull, iscpworkbench.OperationEventsAck}, true},
@@ -82,6 +86,10 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 	for _, family := range families {
 		capability := iscpDomainCapability{ID: family.id, Operations: family.operations, Supported: true, Permitted: true, Qualified: true, DependenciesReady: family.ready}
 		for _, name := range family.operations {
+			if family.id == "mcd_selection" || family.id == "mcd_cart" || family.id == "mcd_prepare" || family.id == "mcd_purchase" {
+				capability.Qualified = capability.Qualified && slices.Contains(a.config.QualifiedCapabilities, name) && slices.Contains(session.QualifiedOperations, name)
+				capability.Permitted = capability.Permitted && slices.Contains(session.NegotiatedOperations, name)
+			}
 			if _, found := iscpworkbench.LookupOperation(name); !found || family.id == "browser" && !slices.Contains(session.NegotiatedOperations, name) {
 				capability.Supported = false
 				continue
@@ -91,6 +99,10 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 		capability.Enabled = capability.Supported && capability.Permitted && capability.Qualified && capability.DependenciesReady
 		switch {
 		case !capability.Supported:
+			capability.Reason = "capability_unavailable"
+		case !capability.Qualified:
+			capability.Reason = "qualification_required"
+		case !capability.Permitted:
 			capability.Reason = "capability_unavailable"
 		case !capability.DependenciesReady:
 			capability.Reason = "dependency_unavailable"

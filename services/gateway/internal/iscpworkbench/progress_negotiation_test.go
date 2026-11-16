@@ -55,6 +55,9 @@ func TestProgressNegotiationPreservesOldUnboundedAndBoundedOffers(t *testing.T) 
 				if json.Unmarshal(r.Body, &offer) != nil {
 					t.Fatal("bad offer")
 				}
+				if offer.Negotiation.MCDSelection || offer.Negotiation.MCDCheckout {
+					return Response{Status: 400}, nil
+				}
 				if generation != "controller" && offer.Negotiation.BrowserController {
 					return Response{Status: 400}, nil
 				}
@@ -75,7 +78,7 @@ func TestProgressNegotiationPreservesOldUnboundedAndBoundedOffers(t *testing.T) 
 				}
 				return Response{Status: 200}, nil
 			}, []string{ProfileV2, Profile})
-			want := map[string]int{"controller": 1, "settings": 2, "progress": 3, "unbounded": 4, "bounded": 5}[generation]
+			want := map[string]int{"controller": 3, "settings": 4, "progress": 5, "unbounded": 6, "bounded": 7}[generation]
 			if err != nil || response.Status != 200 || calls != want {
 				t.Fatalf("calls=%d err=%v", calls, err)
 			}
@@ -106,7 +109,7 @@ func TestProgressNegotiationOnlyAdvertisesRequestedExtension(t *testing.T) {
 			if offer.unbounded != (caps.Limits.Concurrent == 0) {
 				t.Fatal("changed independent concurrency contract")
 			}
-			if !offer.progress && !slices.Equal(caps.Operations, withoutStream(withoutProgress(OperationsV2()))) {
+			if !offer.progress && !slices.Equal(caps.Operations, withoutMCDSelection(withoutMCDCheckout(withoutStream(withoutProgress(OperationsV2()))))) {
 				t.Fatal("original exact list changed")
 			}
 		})

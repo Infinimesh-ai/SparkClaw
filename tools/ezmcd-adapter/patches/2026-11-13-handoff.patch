@@ -1,0 +1,875 @@
+diff --git a/src/ezmcd/accounts.py b/src/ezmcd/accounts.py
+index abb1127..ba74095 100644
+--- a/src/ezmcd/accounts.py
++++ b/src/ezmcd/accounts.py
+@@ -11,7 +11,7 @@ import time
+ from .errors import EzMcdError
+ from .capture import sample_headers
+ from .models import fingerprint, Policy
+-from .protocol.signing import BUILD, constants, sign_v4
++from .protocol.signing import BUILD, BUILD_LAYOUTS, constants, constants_build, sign_v4
+ from .protocol.v5 import decode_verified_sample
+ from .storage import read_private
+ 
+@@ -51,14 +51,15 @@ def profile_from_balance_request(request, binary, *, response_member=None):
+     parts = headers.get("authorization", "").split("#")
+     if len(parts) != 6:
+         raise EzMcdError("invalid_official_sample_signature")
+-    ak, secret, _, _ = constants(binary)
++    material = constants(binary)
++    ak, secret, _, _ = material
+     expected = sign_v4(headers, ak, secret, parsedate_to_datetime(parts[4]), "GET", request["path"])
+     if any(not hmac.compare_digest(value, headers.get(key, "")) for key, value in expected.items()):
+         raise EzMcdError("invalid_official_sample_signature")
+     mapping = {"sid": "sid", "token": "deviceToken", "meddyid": "meddyId",
+                "routingid": "routingId", "tid": "tid", "d": "riskDeviceId"}
+     profile = {"schema_version": 2, "imported_at": datetime.now(timezone.utc).isoformat(),
+-        "source": "user-selected signed balance request", "build_sha256": BUILD,
++        "source": "user-selected signed balance request", "build_sha256": constants_build(material),
+         "verified_endpoint": request["path"], "fields": {v: headers[k] for k, v in mapping.items() if headers.get(k)},
+         "client_headers": {k: headers[k] for k in ("ct", "v", "language")}}
+     if not headers.get("meddyid"):
+@@ -184,7 +185,8 @@ def update_runtime_from_device(store, alias, source_alias):
+             if value.get("session_refresh", {}).get("state") in ("CLAIMED", "CANDIDATE", "STOPPED"):
+                 raise EzMcdError("complete_session_refresh_or_login_before_runtime_update")
+         old, new = source.get("profile", {}), record.get("profile", {})
+-        if (old.get("build_sha256") != BUILD or new.get("build_sha256") != BUILD
++        if (old.get("build_sha256") not in tuple(BUILD_LAYOUTS)
++                or new.get("build_sha256") != old.get("build_sha256")
+                 or any(not old.get("client_headers", {}).get(k) or old["client_headers"][k] != new.get("client_headers", {}).get(k)
+                        for k in ("ct", "v", "language"))
+                 or any(not old.get("fields", {}).get(k) or old["fields"][k] != new.get("fields", {}).get(k)
+@@ -219,11 +221,12 @@ def update_runtime_from_device(store, alias, source_alias):
+ def _enroll(store, alias, profile, binary, runtime_sample, phone_label, *, update=False, check_live=False,
+             expected_account=None, verify_runtime=False, capture_receipt=None):
+     fields = profile.get("fields", {})
+-    if (profile.get("build_sha256") != BUILD or profile.get("verified_endpoint") != "/bff/member/mwallet/balance"
++    if (profile.get("build_sha256") not in tuple(BUILD_LAYOUTS) or profile.get("verified_endpoint") != "/bff/member/mwallet/balance"
+             or not all(isinstance(fields.get(k), str) and fields[k] for k in ("sid", "deviceToken", "meddyId"))
+             or not all(profile.get("client_headers", {}).get(k) for k in ("ct", "v", "language"))):
+         raise EzMcdError("validated_official_session_required")
+-    constants(binary)
++    if constants_build(constants(binary)) != profile["build_sha256"]:
++        raise EzMcdError("official_client_profile_build_mismatch")
+     runtime = None
+     if runtime_sample:
+         sample = runtime_sample if isinstance(runtime_sample, dict) else read_private(Path(runtime_sample).expanduser())
+@@ -321,6 +324,8 @@ def public_account(record, *, session_verified=False):
+     demo = record["provider"] == "demo"
+     revoked = bool(record.get("revoked"))
+     fields = record.get("profile", {}).get("fields", {})
++    login_build_supported = (record["provider"] == "mcd-cn"
++        and record.get("profile", {}).get("build_sha256") == BUILD)
+     refresh_state = record.get("session_refresh", {}).get("state", "NOT_ATTEMPTED")
+     refresh_incomplete = refresh_state in ("CLAIMED", "CANDIDATE", "STOPPED")
+     recovery = ("resume_refresh_verification" if refresh_state == "CANDIDATE"
+@@ -347,7 +352,7 @@ def public_account(record, *, session_verified=False):
+     return {"account": record["alias"], "provider": record["provider"],
+         "phone_label": record.get("phone_label"), "auth_method": "offline_demo" if record["provider"] == "demo" else record.get("auth_method", "official_session_import"),
+         "session_status": session_status,
+-        "sms_login_supported": record["provider"] == "mcd-cn", "sms_login_requires_official_device_context": True,
++        "sms_login_supported": login_build_supported, "sms_login_requires_official_device_context": True,
+         "runtime_available": runtime_available,
+         "runtime_recovery_available": recovery_available(record, time.time()),
+         "runtime_use": runtime_use,
+@@ -355,7 +360,7 @@ def public_account(record, *, session_verified=False):
+             "age_hours": round((time.time() - runtime["observed_at"]) / 3600, 2) if runtime and not revoked else None,
+             "verification_scope": ("v5_order_list_get" if runtime.get("source") in ("same_official_device_readonly_verified", "previous_own_device_readonly_verified")
+                                    else "official_request_reconstruction") if runtime and not revoked else None},
+-        "session_refresh_supported": bool(not revoked and fields.get("refreshToken") and refresh_state not in ("CLAIMED", "STOPPED")),
++        "session_refresh_supported": bool(login_build_supported and not revoked and fields.get("refreshToken") and refresh_state not in ("CLAIMED", "STOPPED")),
+         "session_refresh_state": refresh_state,
+         "session_recovery": None if revoked else recovery,
+         "device_context_available": bool(not revoked and fields.get("deviceToken") and fields.get("riskDeviceId")),
+diff --git a/src/ezmcd/diagnostics.py b/src/ezmcd/diagnostics.py
+index ce361b6..1f8d070 100644
+--- a/src/ezmcd/diagnostics.py
++++ b/src/ezmcd/diagnostics.py
+@@ -7,7 +7,7 @@ import time
+ from . import __version__
+ from .accounts import public_account
+ from .errors import EzMcdError, error_result
+-from .protocol.signing import BUILD
++from .protocol.signing import BUILD, BUILD_LAYOUTS
+ 
+ GUIDE = "https://github.com/Chiiz0/EzMcDonalds/blob/main/docs/credentials.md"
+ 
+@@ -105,7 +105,8 @@ def doctor(service, alias=None, *, verify_session=False, binary="/Applications/M
+                     result = "unsupported"
+                 else:
+                     with source.open("rb") as stream:
+-                        result = "supported" if hashlib.file_digest(stream, "sha256").hexdigest() == BUILD else "unsupported"
++                        digest = hashlib.file_digest(stream, "sha256").hexdigest()
++                        result = "supported" if digest == BUILD or digest in BUILD_LAYOUTS else "unsupported"
+             except OSError:
+                 result = "not_readable"
+             builds[path] = result
+diff --git a/src/ezmcd/mcp_server.py b/src/ezmcd/mcp_server.py
+index dce39f4..7d0c671 100644
+--- a/src/ezmcd/mcp_server.py
++++ b/src/ezmcd/mcp_server.py
+@@ -324,7 +324,7 @@ def build_server(service):
+     @server.tool(annotations=PAY)
+     @protected
+     def order_pay(account: str, attempt_id: str) -> dict:
+-        """Pay an existing locally CREATED order only if payment has never been attempted. All other states only query."""
++        """Pay an existing local order only before any payment attempt. CREATED is supported; a prior order_not_payable readiness rejection additionally requires its matching successful create receipt and zero preorder/consume claims. Revalidates the exact original order and policy. Any uncertain payment dispatch stays query-only."""
+         return service.pay_existing(account, attempt_id)
+ 
+     @server.tool(annotations=READ)
+diff --git a/src/ezmcd/modifiers.py b/src/ezmcd/modifiers.py
+index a373b7c..66dc1c1 100644
+--- a/src/ezmcd/modifiers.py
++++ b/src/ezmcd/modifiers.py
+@@ -22,6 +22,23 @@ def paid_binary_choice(group):
+             and paid["selectedQuantity"] == 0 and 0 < paid["price"] <= 100000)
+ 
+ 
++def mode_two_ice_choice(group):
++    """Observed four-way free ice choice, despite displayMode=2.
++
++    The 7.0.451 cart serializer uses selectedQuantity/selectedKey and the
++    absence of unselectedKey, not displayMode, for this single-choice wire
++    shape. Do not generalize mode 2 to arbitrary repeated-code groups.
++    """
++    values = group.get("values", [])
++    return (group.get("minValues") == group.get("maxValues") == 1
++            and len(values) == 4 and len({v.get("code") for v in values}) == 1
++            and {v.get("selectedKey") for v in values} == {"0-0", "0-1", "0-2", "1-1"}
++            and all(v.get("price") == 0 and v.get("soldOut") is False
++                    and not v.get("unselectedKey")
++                    and v.get("selectedQuantity") == int(v.get("selectedKey") == "0-1")
++                    for v in values))
++
++
+ def modifier_groups(product):
+     if product.get("grills") or product.get("biasChoices"):
+         raise EzMcdError("advanced_customization_requires_official_cart")
+@@ -41,7 +58,7 @@ def modifier_groups(product):
+         modes = {v.get("displayMode") for v in values}
+         if modes not in ({1}, {2}):
+             raise EzMcdError("advanced_customization_requires_official_cart")
+-        single = modes == {1}
++        single = modes == {1} or modes == {2} and mode_two_ice_choice(group)
+         optional = single and low == 0 and high == 1 and len(values) == 1
+         codes, keys = set(), set()
+         if single and not optional and (low != 1 or high != 1 or len(values) > 20):
+diff --git a/src/ezmcd/order_views.py b/src/ezmcd/order_views.py
+index 270247d..a01ecba 100644
+--- a/src/ezmcd/order_views.py
++++ b/src/ezmcd/order_views.py
+@@ -54,12 +54,13 @@ def status_view(raw):
+     source = "orderStatus" if title else None
+     if title is None:
+         headline = text(raw.get("orderStatusTitle"))
+-        if headline in ("待支付", "预约完成", "已完成", "已取消"):
++        if headline in ("待支付", "预约完成", "已完成", "已取消", "To be paid", "Paid", "Catering"):
+             title, source = headline, "orderStatusTitle"
+     return {"status_title": title, "status_source": source,
+         "status_description": text(raw.get("orderStatusSubTitle"), 500), "collection_verified": False,
+         "official_order_state": "COMPLETED" if title == "已完成" else
+-                             "CANCELLED" if title == "已取消" else "UNKNOWN"}
++                             "CANCELLED" if title == "已取消" else
++                             "PREPARING" if title == "Catering" else "UNKNOWN"}
+ 
+ 
+ def products(rows, depth=0):
+diff --git a/src/ezmcd/protocol/login.py b/src/ezmcd/protocol/login.py
+index 4c6a192..12d4025 100644
+--- a/src/ezmcd/protocol/login.py
++++ b/src/ezmcd/protocol/login.py
+@@ -8,11 +8,14 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+ 
+ from ..errors import EzMcdError
+ from .macho import MachO
+-from .signing import constants
++from .signing import BUILD, constants, constants_build
+ 
+ 
+ def login_key(binary):
+-    constants(binary)  # Validate the entire pinned build before reading its data.
++    if constants_build(constants(binary)) != BUILD:
++        # SMS/refresh field encryption for additional builds needs independent
++        # validation; do not interpret a newer binary at an older key address.
++        raise EzMcdError("official_client_login_build_not_supported")
+     key = MachO(binary).describe(0x102b009f0).encode("utf-8")
+     if len(key) != 16:
+         raise EzMcdError("unsupported_login_encryption_key")
+diff --git a/src/ezmcd/protocol/signing.py b/src/ezmcd/protocol/signing.py
+index 23c0d74..cb8dcc7 100644
+--- a/src/ezmcd/protocol/signing.py
++++ b/src/ezmcd/protocol/signing.py
+@@ -15,24 +15,53 @@ from .macho import MachO
+ from .v5 import ObservedRuntime, encode
+ 
+ BUILD = "745da50c09c44a62eb222f72fda2571b9fa3acec55a2a17a4e5fdee5b7a85d85"
++# Exact binary layouts, not a version-string allowlist. The second build is
++# undergoing local interoperability validation; no SDK fields are fabricated.
++BUILD_70451 = "c7684499ea491e20004a8b748be4fc1472ef3e2047b5f9656c7150daeb6b28e4"
++BUILD_LAYOUTS = {
++    BUILD: (0x10237DA39, 0x10237DA4E, 0x103279890,
++            (0x102b7e410, 0x102b7e430, 0x102b7e450)),
++    BUILD_70451: (0x1024757a9, 0x1024757be, 0x103399490,
++                  (0x102c84ed0, 0x102c84ef0, 0x102c84f10)),
++}
+ SIGNED = frozenset(("ct", "language", "p", "sid", "token", "v", "sv", "x-mcd-gw-v"))
+ 
+ 
++class ClientConstants(tuple):
++    """Keep the four-value interface while binding material to its binary."""
++    def __new__(cls, values, build_sha256=BUILD):
++        obj = super().__new__(cls, values)
++        obj.build_sha256 = build_sha256
++        return obj
++
++    def __repr__(self):
++        return f"ClientConstants(build_sha256={self.build_sha256!r}, material=<redacted>)"
++
++
++def constants_build(values):
++    # Plain four-tuples are the legacy fixed-build interface, including offline
++    # protocol fixtures. Real file loading always returns ClientConstants.
++    return values.build_sha256 if isinstance(values, ClientConstants) else BUILD
++
++
+ @lru_cache(maxsize=4)
+ def _constants(path, size, modified):
+     m = MachO(path)
+-    if hashlib.sha256(m.blob).hexdigest() != BUILD:
++    build = hashlib.sha256(m.blob).hexdigest()
++    if build not in BUILD_LAYOUTS:
+         raise EzMcdError("official_client_build_not_supported")
++    access_address, secret_address, digest_address, wallet_addresses = BUILD_LAYOUTS[build]
+     def decode(address, length, delta):
+         return bytes(v ^ ((i - delta) & 255) for i, v in enumerate(m.read(address, length))).decode("ascii")
+-    digest = list(struct.unpack("<64I", m.read(0x103279890, 256)))
++    digest = list(struct.unpack("<64I", m.read(digest_address, 256)))
+     digest[16] &= 0xff00ff00
+     digest[19] &= 0xff0011ff
+     digest[29] &= 0xff110011
+-    ums = tuple(m.describe(x) for x in (0x102b7e410, 0x102b7e430, 0x102b7e450))
++    ums = tuple(m.describe(x) for x in wallet_addresses)
+     if not all(x and x.isascii() for x in ums):
+         raise EzMcdError("invalid_wallet_client_constants")
+-    return decode(0x10237DA39, 20, 5), decode(0x10237DA4E, 40, 29), tuple(digest), ums
++    return ClientConstants((decode(access_address, 20, 5), decode(secret_address, 40, 29),
++                            tuple(digest), ums), build)
+ 
+ 
+ def constants(binary):
+@@ -86,7 +115,10 @@ class Signer:
+             headers.update(biz_from=business[0], biz_scenario=business[1])
+         if method == "GET" and path == "/bff/order/orders":
+             headers["apiVersion"] = "2.0"
+-        ak, secret, digest, _ = constants(self.account["binary"])
++        material = constants(self.account["binary"])
++        if constants_build(material) != profile.get("build_sha256"):
++            raise EzMcdError("official_client_profile_build_mismatch")
++        ak, secret, digest, _ = material
+         if v5:
+             runtime = self.runtime(readonly_probe=historical_runtime_probe)
+             if not historical_runtime_probe and now - self.account["runtime"]["observed_at"] > 24 * 3600:
+@@ -108,7 +140,10 @@ class Signer:
+         return headers
+ 
+     def wallet_query(self, token, body):
+-        app_id, version, key = constants(self.account["binary"])[3]
++        material = constants(self.account["binary"])
++        if constants_build(material) != self.account["profile"].get("build_sha256"):
++            raise EzMcdError("official_client_profile_build_mismatch")
++        app_id, version, key = material[3]
+         timestamp = str(int(time.time()) * 1000)
+         signature = hashlib.sha256((version + timestamp + app_id + body.decode("ascii") + key).encode("ascii")).hexdigest()
+         return {"appId": app_id, "version": version, "signKey": key, "timestamp": timestamp, "sign": signature, "token": token}
+diff --git a/src/ezmcd/provider.py b/src/ezmcd/provider.py
+index eda85e2..df26519 100644
+--- a/src/ezmcd/provider.py
++++ b/src/ezmcd/provider.py
+@@ -378,7 +378,7 @@ class McdProvider:
+         self.validate_order(attempt, quote, order)
+         if state["cashier"].get("payStatus") == "PAID":
+             raise EzMcdError("already_paid_query_only")
+-        if (order.get("orderStatusTitle") != "待支付" or order.get("leftPaySecond", 0) <= 30
++        if (order.get("orderStatusTitle") not in ("待支付", "To be paid") or order.get("leftPaySecond", 0) <= 30
+                 or state["cashier"].get("payStatus") != "PAYING" or order.get("realPayAmount")):
+             raise EzMcdError("order_not_payable")
+         if state["wallet_cents"] != attempt["wallet_before_cents"]:
+@@ -452,7 +452,7 @@ class McdProvider:
+         return raw, cashier
+ 
+     @staticmethod
+-    def validate_order(attempt, quote, order):
++    def validate_order(attempt, quote, order, *, require_pickup_time=True):
+         try:
+             expected = sorted((x["product_code"], x["quantity"]) for x in quote["items"])
+             actual = sorted((str(x["productCode"]), x["quantity"]) for x in order.get("orderProductList", []))
+@@ -466,7 +466,7 @@ class McdProvider:
+                 or order.get("lockerOrder") is not (quote.get("eat_type") == "locker-in")
+                 or str(order.get("orderType")) != "1" or str(order.get("beType")) != "1"
+                 or type(order.get("eatType")) is not int or order["eatType"] != 2 or order.get("dtStatus") not in (None, "")
+-                or order.get("expectPickUpTime") != pickup_time(quote["pickup_at"]).strftime("%Y-%m-%d %H:%M:%S")
++                or require_pickup_time and order.get("expectPickUpTime") != pickup_time(quote["pickup_at"]).strftime("%Y-%m-%d %H:%M:%S")
+                 or cents(order.get("realTotalAmount")) != quote["amount_cents"] or expected != actual):
+             raise EzMcdError("created_order_does_not_match_quote")
+         # Keep components bound to their parent row, including its quantity.
+diff --git a/src/ezmcd/runtime_recovery.py b/src/ezmcd/runtime_recovery.py
+index a4c3186..7a3e383 100644
+--- a/src/ezmcd/runtime_recovery.py
++++ b/src/ezmcd/runtime_recovery.py
+@@ -10,7 +10,7 @@ import time
+ 
+ from .errors import EzMcdError
+ from .models import fingerprint
+-from .protocol.signing import BUILD
++from .protocol.signing import BUILD_LAYOUTS
+ from .transport import Transport
+ 
+ SOURCE = "previous_own_device_readonly_verified"
+@@ -19,13 +19,14 @@ SOURCE = "previous_own_device_readonly_verified"
+ def device_context(record):
+     profile = record.get("profile", {})
+     headers, fields = profile.get("client_headers", {}), profile.get("fields", {})
+-    if profile.get("build_sha256") != BUILD:
++    build = profile.get("build_sha256")
++    if build not in tuple(BUILD_LAYOUTS):
+         return None
+     values = {k: headers.get(k) for k in ("ct", "v", "language")}
+     values.update({k: fields.get(k) for k in ("deviceToken", "riskDeviceId")})
+     if any(not isinstance(v, str) or not v for v in values.values()):
+         return None
+-    return fingerprint({"build": BUILD, "values": values})
++    return fingerprint({"build": build, "values": values})
+ 
+ 
+ def fresh_evidence(runtime, now):
+diff --git a/src/ezmcd/sampling_app.py b/src/ezmcd/sampling_app.py
+index c98b787..22e1895 100644
+--- a/src/ezmcd/sampling_app.py
++++ b/src/ezmcd/sampling_app.py
+@@ -7,7 +7,7 @@ import signal
+ import subprocess
+ 
+ from .errors import EzMcdError
+-from .protocol.signing import BUILD
++from .protocol.signing import BUILD, BUILD_LAYOUTS
+ 
+ 
+ class SamplingApp:
+@@ -30,7 +30,8 @@ class SamplingApp:
+             if not path.is_file() or path.stat().st_size > 512 * 1024 * 1024:
+                 raise EzMcdError("sampling_managed_app_unsupported")
+             with path.open("rb") as stream:
+-                if hashlib.file_digest(stream, "sha256").hexdigest() != BUILD:
++                digest = hashlib.file_digest(stream, "sha256").hexdigest()
++                if digest != BUILD and digest not in BUILD_LAYOUTS:
+                     raise EzMcdError("sampling_managed_app_unsupported")
+         except OSError:
+             raise EzMcdError("sampling_managed_app_unsupported") from None
+@@ -38,7 +39,10 @@ class SamplingApp:
+     def validate(self):
+         """Match the configured binary to the bundle we will ask macOS to open."""
+         self.verify_binary(self.binary)
+-        bundles = [p for p in self.binary.parents if p.name == "McdApp.app"]
++        # App Store wrappers may have a localized/display name (McDonald's.app)
++        # while the executable still runs inside Wrapper/McdApp.app. Launch the
++        # outer wrapper, but keep full binary, bundle ID and entrypoint checks.
++        bundles = [p for p in self.binary.parents if p.suffix == ".app"]
+         if self.binary.name != "McdApp" or not bundles:
+             raise EzMcdError("sampling_managed_app_unsupported")
+         bundle = bundles[-1]
+diff --git a/src/ezmcd/service.py b/src/ezmcd/service.py
+index 843f8d3..0ef1670 100644
+--- a/src/ezmcd/service.py
++++ b/src/ezmcd/service.py
+@@ -8,7 +8,7 @@ from .accounts import public_account
+ from .errors import EzMcdError
+ from .models import CheckoutInput, ItemSelection, Policy, QuoteScope, cents, pickup_time, yuan, fingerprint
+ from .provider import McdProvider
+-from .order_views import status_view
++from .order_views import status_view, moment
+ from .transport import data
+ 
+ 
+@@ -47,6 +47,8 @@ def attempt_summary(a):
+         "pickup_code_pending": pickup_pending, "next_action": next_action,
+         "official_status": a.get("official_status"), "official_order_state": a.get("official_order_state", "UNKNOWN"),
+         "official_status_detail": a.get("official_status_detail"), "collection_verified": False,
++        "official_pickup_at": a.get("official_pickup_at"),
++        "pickup_time_changed": a.get("pickup_time_changed", False),
+         "wallet_balance_cny": yuan(a["wallet_after_cents"]) if "wallet_after_cents" in a else None}
+ 
+ 
+@@ -399,7 +401,7 @@ class Service:
+             attempt = self.store.attempt(account["identity"], attempt_id)
+             q = self.store.quote(account["identity"], attempt["quote_id"])
+             self.policy(account, q)
+-            if attempt["state"] != "CREATED":
++            if attempt["state"] != "CREATED" and not self._initial_payment_unattempted(attempt):
+                 return self._status(account, provider, attempt)
+             try:
+                 return self._pay(account, provider, attempt, q)
+@@ -408,9 +410,28 @@ class Service:
+                 self.store.update_attempt(account["identity"], attempt)
+                 return self._status(account, provider, attempt)
+ 
++    def _initial_payment_unattempted(self, attempt):
++        """A readiness rejection is not an uncertain payment dispatch.
++
++        Only the explicit order_pay action may resume this narrow case. Keep
++        the original attempt, key and claims; checkout_submit/status stay
++        query-only. A payment-stage claim, even without a receipt, forbids it.
++        """
++        if (attempt.get("state") != "UNKNOWN" or attempt.get("stop_reason") != "order_not_payable"
++                or attempt.get("paid_verified")
++                or any(self.store.write_claimed(attempt["attempt_id"], stage) for stage in ("preorder", "consume"))):
++            return False
++        try:
++            created = data(self.store.write_receipt(attempt["attempt_id"], "order"))
++            return (isinstance(created, dict) and bool(attempt.get("order_id")) and bool(attempt.get("pay_id"))
++                    and created.get("orderId") == attempt["order_id"] and created.get("payId") == attempt["pay_id"])
++        except (EzMcdError, TypeError, KeyError, AttributeError):
++            return False
++
+     def _pay(self, account, provider, attempt, quote):
+         body = provider.payment_ready(attempt, quote)
+         attempt["state"] = "PAYMENT_ATTEMPTED"
++        attempt["stop_reason"] = None
+         self.store.update_attempt(account["identity"], attempt)
+         preorder = self._write(attempt, "preorder", lambda: provider.preorder(body), account=account, quote=quote)
+         inputs = provider.wallet_inputs(attempt, preorder)
+@@ -443,8 +464,29 @@ class Service:
+             state = provider.status(attempt)
+             attempt["status_query_failed"] = False
+             order = state["order"]
+-            provider.validate_order(attempt, q, order)
+             observed = status_view(order)
++            settled_amounts = (state["cashier"].get("payStatus") == "PAID"
++                and order.get("paymentChannel") == "ARCHCARD"
++                and cents(order.get("realPayAmount") or 0) == q["amount_cents"]
++                and attempt["wallet_before_cents"] - state["wallet_cents"] == q["amount_cents"])
++            receipt = self.store.write_receipt(attempt["attempt_id"], "consume")
++            consume_succeeded = (isinstance(receipt, dict) and receipt.get("http_status") == 200
++                and isinstance(receipt.get("response"), dict) and str(receipt["response"].get("code")) == "0")
++            # Some near-term orders replace the reservation time with a live
++            # preparation estimate after payment. This exception is READ ONLY:
++            # require our successful consume receipt and independent settlement
++            # amounts; payment_ready always retains the exact original time.
++            settled_estimate = (settled_amounts and consume_succeeded
++                and observed["status_title"] in ("Paid", "Catering"))
++            official_pickup = moment(order.get("expectPickUpTime"))
++            known_paid_estimate = (attempt.get("paid_verified") and official_pickup
++                                  and official_pickup == attempt.get("official_pickup_at"))
++            if official_pickup and (settled_estimate or known_paid_estimate):
++                provider.validate_order(attempt, q, order, require_pickup_time=False)
++            else:
++                provider.validate_order(attempt, q, order)
++            attempt.update(official_pickup_at=official_pickup,
++                           pickup_time_changed=bool(official_pickup and official_pickup != q["pickup_at"]))
+             attempt["status_checked_at"] = time.time()
+             attempt.update(official_status=observed["status_title"], official_order_state=observed["official_order_state"],
+                            official_status_detail=observed["status_description"])
+@@ -453,10 +495,7 @@ class Service:
+             title = order.get("orderStatusTitle", "")
+             if observed["official_order_state"] == "CANCELLED":
+                 attempt.update(state="CANCELLED", paid_verified=False)
+-            elif (state["cashier"].get("payStatus") == "PAID" and title == "预约完成"
+-                    and order.get("paymentChannel") == "ARCHCARD"
+-                    and cents(order.get("realPayAmount") or 0) == q["amount_cents"]
+-                    and attempt["wallet_before_cents"] - state["wallet_cents"] == q["amount_cents"]):
++            elif settled_amounts and (title == "预约完成" or settled_estimate):
+                 attempt.update(state="PAID", paid_verified=True, stop_reason=None)
+             elif not attempt.get("paid_verified"):
+                 attempt["state"] = "UNKNOWN"  # No status may authorize a write retry.
+diff --git a/tests/test_project_diagnostics.py b/tests/test_project_diagnostics.py
+index 48f6389..d8f0169 100644
+--- a/tests/test_project_diagnostics.py
++++ b/tests/test_project_diagnostics.py
+@@ -22,7 +22,7 @@ class DiagnosticTests(unittest.TestCase):
+         self.store = Store(Path(temporary.name))
+         self.record = {"alias": "test", "identity": fingerprint({"test": "doctor"}), "provider": "mcd-cn",
+             "binary": str(self.store.root / "private-client-path"), "policy": Policy().model_dump(),
+-            "profile": {"fields": {"sid": "private-session", "refreshToken": "private-refresh",
++            "profile": {"build_sha256": BUILD, "fields": {"sid": "private-session", "refreshToken": "private-refresh",
+                                     "deviceToken": "private-device", "riskDeviceId": "private-risk"}}}
+         self.store.add_account(self.record)
+         self.provider = Mock()
+diff --git a/tests/test_project_fulfillment.py b/tests/test_project_fulfillment.py
+index 4236b0c..5a08ae7 100644
+--- a/tests/test_project_fulfillment.py
++++ b/tests/test_project_fulfillment.py
+@@ -93,6 +93,20 @@ class CreatedOrderComponentsTests(unittest.TestCase):
+         self.order["orderProductList"].reverse()
+         self.validate()
+ 
++    def test_time_exception_is_read_only_and_never_waives_other_order_fields(self):
++        self.order['expectPickUpTime'] = '2099-01-01 10:16:58'
++        with self.assertRaises(EzMcdError): self.validate()
++        McdProvider.validate_order(self.attempt, self.quote, self.order, require_pickup_time=False)
++        provider = McdProvider({}, Mock())
++        with patch.object(provider, 'status', return_value={'order': self.order,
++                'cashier': {'payStatus': 'PAYING'}, 'wallet_cents': 10000}):
++            with self.assertRaises(EzMcdError): provider.payment_ready(self.attempt, self.quote)
++        for field, value in (('storeCode', '9000999'), ('orderId', 'other'), ('payId', 'other'),
++                             ('realTotalAmount', '99.00'), ('lockerOrder', False)):
++            changed = deepcopy(self.order); changed[field] = value
++            with self.subTest(field=field), self.assertRaises(EzMcdError):
++                McdProvider.validate_order(self.attempt, self.quote, changed, require_pickup_time=False)
++
+     def test_components_swapped_between_distinct_products_are_rejected(self):
+         rows = self.order["orderProductList"]
+         rows[0]["comboItemList"], rows[1]["comboItemList"] = rows[1]["comboItemList"], rows[0]["comboItemList"]
+diff --git a/tests/test_project_modifiers.py b/tests/test_project_modifiers.py
+index 951d097..faa4f7b 100644
+--- a/tests/test_project_modifiers.py
++++ b/tests/test_project_modifiers.py
+@@ -31,6 +31,43 @@ def iced_coffee():
+ 
+ 
+ class ModifierTests(unittest.TestCase):
++    def test_mode_two_four_way_ice_preserves_explicit_single_choice(self):
++        p = iced_coffee()
++        p['modification']['items'] = p['modification']['items'][:1]
++        for v in p['modification']['items'][0]['values']:
++            v['displayMode'] = 2
++        view = public_modifiers(p)
++        self.assertTrue(view['supported'])
++        self.assertEqual(view['groups'][0]['kind'], 'single_choice')
++        self.assertEqual(cart_configuration(p)['modification']['values'],
++                         [{'code': '222', 'quantity': 1, 'key': '0-1'}])
++        for key in ('0-0', '0-1', '0-2', '1-1'):
++            wanted = selected_modification(p, [ModifierSelection(code='222', quantity=1, key=key)])
++            actual = {'customization': {'options': [], 'items': [
++                {'code': '222', 'key': key, 'values': [{'quantity': 1, 'price': 0}]}]}}
++            verify_modification(wanted, actual)
++            actual['customization']['items'][0]['key'] = '9-9'
++            with self.assertRaises(EzMcdError):
++                verify_modification(wanted, actual)
++
++    def test_mode_two_ice_does_not_accept_other_repeated_code_shapes(self):
++        base = iced_coffee()
++        base['modification']['items'] = base['modification']['items'][:1]
++        for v in base['modification']['items'][0]['values']:
++            v['displayMode'] = 2
++        for field, value in (('price', 100), ('soldOut', True), ('code', '999'),
++                             ('selectedKey', '4-4'), ('unselectedKey', '0-0'),
++                             ('selectedQuantity', 0), ('displayMode', 1), ('maxQuantity', 2)):
++            p = deepcopy(base)
++            p['modification']['items'][0]['values'][0][field] = value
++            with self.subTest(field=field), self.assertRaises(EzMcdError):
++                cart_configuration(p)
++        for low, high in ((0, 1), (1, 2)):
++            p = deepcopy(base)
++            p['modification']['items'][0].update(minValues=low, maxValues=high)
++            with self.assertRaises(EzMcdError):
++                cart_configuration(p)
++
+     def test_default_two_free_ingredients_use_official_modification_values(self):
+         self.assertEqual(cart_configuration(coffee()), {"modification": {"values": [
+             {"code": "111", "key": "0-1", "quantity": 1}, {"code": "112", "key": "0-1", "quantity": 1}]}})
+diff --git a/tests/test_project_protocol.py b/tests/test_project_protocol.py
+index 2a47e6e..e4b1049 100644
+--- a/tests/test_project_protocol.py
++++ b/tests/test_project_protocol.py
+@@ -89,6 +89,24 @@ class ProjectProtocolTests(unittest.TestCase):
+                 provider.payment_ready(attempt, quote)
+         provider.http.send.assert_not_called()
+ 
++    def test_observed_english_unpaid_title_keeps_all_payment_guards(self):
++        provider = McdProvider({'profile': {'fields': {'meddyId': 'synthetic'}}}, transport=Mock())
++        attempt = {'order_id': 'o', 'pay_id': 'p', 'wallet_before_cents': 10000}
++        quote = {'amount_cents': 1000}
++        state = {'order': {'orderStatusTitle': 'To be paid', 'leftPaySecond': 500, 'realPayAmount': ''},
++                 'cashier': {'payStatus': 'PAYING'}, 'wallet_cents': 10000}
++        channels = {'realTotalAmount': 1000, 'channelInfos': [{'code': 'ARCHCARD', 'freePayStatus': '4'}]}
++        with patch.object(provider, 'validate_order'), patch.object(provider, 'status', return_value=state), \
++                patch.object(provider, 'get', return_value=channels):
++            self.assertEqual(provider.payment_ready(attempt, quote)['payId'], 'p')
++            for field, value in (('orderStatusTitle', 'unrecognized'), ('leftPaySecond', 30), ('realPayAmount', '10.00')):
++                original = state['order'][field]; state['order'][field] = value
++                with self.assertRaises(EzMcdError): provider.payment_ready(attempt, quote)
++                state['order'][field] = original
++            state['cashier']['payStatus'] = 'CLOSED'
++            with self.assertRaises(EzMcdError): provider.payment_ready(attempt, quote)
++        provider.http.send.assert_not_called()
++
+     def test_v4_matches_previously_verified_implementation_with_synthetic_keys(self):
+         # Fixed synthetic vectors cross-checked against the original implementation.
+         signatures = {"GET": "f0QciLQ+jMxJW9GBjeJRH1zZopwJTwKnDfW4Di0cBYk=",
+diff --git a/tests/test_project_runtime_check.py b/tests/test_project_runtime_check.py
+index dd2eb00..77b426e 100644
+--- a/tests/test_project_runtime_check.py
++++ b/tests/test_project_runtime_check.py
+@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
+ 
+ from ezmcd.errors import EzMcdError
+ from ezmcd.models import Policy, fingerprint
+-from ezmcd.protocol.signing import Signer
++from ezmcd.protocol.signing import BUILD, Signer
+ from ezmcd.runtime_check import check_runtime
+ from ezmcd.storage import Store
+ from ezmcd.transport import Transport
+@@ -21,6 +21,7 @@ class RuntimeCheckTests(unittest.TestCase):
+         self.store = Store(Path(tmp.name))
+         self.record = {"alias": "mine", "provider": "mcd-cn", "identity": fingerprint({"member": "synthetic"}),
+             "policy": Policy().model_dump(), "binary": "synthetic-binary", "profile": {
++                "build_sha256": BUILD,
+                 "fields": {"sid": "private-session", "deviceToken": "private-token"},
+                 "client_headers": {"ct": "101", "v": "synthetic", "language": "cn"}},
+             "runtime": {"device_hex": "A" * 32, "environment_hex": "b" * 16, "observed_at": NOW-90000}}
+diff --git a/tests/test_project_sampling_app.py b/tests/test_project_sampling_app.py
+index d50fb58..4c83d13 100644
+--- a/tests/test_project_sampling_app.py
++++ b/tests/test_project_sampling_app.py
+@@ -38,6 +38,18 @@ class SamplingAppTests(unittest.TestCase):
+         (outer/'WrappedBundle').symlink_to(inner,target_is_directory=True)
+         self.assertEqual(SamplingApp(outer/'WrappedBundle'/'McdApp').validate(),outer)
+ 
++    def test_display_named_wrapper_launches_outer_app_not_incompatible_inner_bundle(self):
++        outer=self.root/"McDonald's.app";inner=outer/'Wrapper'/'McdApp.app'
++        inner.mkdir(parents=True)
++        (inner/'McdApp').write_bytes(self.binary.read_bytes())
++        (inner/'Info.plist').write_bytes(plistlib.dumps(self.plist))
++        (outer/'WrappedBundle').symlink_to(inner,target_is_directory=True)
++        app=SamplingApp(inner/'McdApp');app.pids=Mock(return_value=[])
++        with patch('ezmcd.sampling_app.subprocess.Popen') as start:app.start()
++        self.assertEqual(start.call_args.args[0],['/usr/bin/open','-W','-a',str(outer)])
++        (inner/'Info.plist').write_bytes(plistlib.dumps({**self.plist,'CFBundleIdentifier':'unrelated'}))
++        with self.assertRaisesRegex(EzMcdError,'unsupported'):app.validate()
++
+     def test_changed_or_missing_binary_is_rejected(self):
+         self.binary.write_bytes(b'unsupported')
+         with self.assertRaisesRegex(EzMcdError,'unsupported'):self.app.validate()
+diff --git a/tests/test_project_service.py b/tests/test_project_service.py
+index b3f5a96..1dc4f4b 100644
+--- a/tests/test_project_service.py
++++ b/tests/test_project_service.py
+@@ -9,7 +9,7 @@ from ezmcd.demo import DemoProvider, setup_demo
+ from ezmcd.errors import EzMcdError
+ from ezmcd.models import CheckoutInput, Policy, SHANGHAI
+ from ezmcd.service import Service
+-from ezmcd.storage import Store
++from ezmcd.storage import Store, write_private
+ 
+ 
+ class ProjectCheckoutTests(unittest.TestCase):
+@@ -112,6 +112,92 @@ class ProjectCheckoutTests(unittest.TestCase):
+         self.assertFalse(result["paid_verified"])
+         self.assertEqual(result["wallet_balance_cny"], "100.00")
+ 
++    def test_readiness_rejection_can_pay_original_order_only_by_explicit_action(self):
++        q = self.quote()
++        with patch.object(DemoProvider, 'payment_ready', side_effect=EzMcdError('order_not_payable')):
++            first = self.service.submit('demo', q['quote_id'], 'original')
++        self.assertEqual(first['state'], 'UNKNOWN')
++        with patch.object(DemoProvider, 'preorder') as preorder:
++            repeated = self.service.submit('demo', q['quote_id'], 'original')
++            self.service.status('demo', first['attempt_id'])
++            preorder.assert_not_called()
++        self.assertEqual(repeated['order_id'], first['order_id'])
++        restarted = Service(Store(Path(self.temp.name)))
++        paid = restarted.pay_existing('demo', first['attempt_id'])
++        self.assertTrue(paid['paid_verified'])
++        self.assertEqual(paid['order_id'], first['order_id'])
++        self.assertEqual(restarted.pay_existing('demo', first['attempt_id'])['wallet_balance_cny'], '90.00')
++        with self.store.connect() as conn:
++            self.assertEqual(conn.execute('SELECT count(*) FROM writes').fetchone()[0], 3)
++            self.assertEqual(conn.execute('SELECT count(*) FROM attempts').fetchone()[0], 1)
++
++    def test_readiness_recovery_requires_create_receipt_and_zero_payment_claims(self):
++        q = self.quote()
++        with patch.object(DemoProvider, 'payment_ready', side_effect=EzMcdError('order_not_payable')):
++            first = self.service.submit('demo', q['quote_id'], 'original')
++        for stage in ('preorder', 'consume'):
++            with patch.object(self.store, 'write_claimed', side_effect=lambda op, s: s == stage), \
++                    patch.object(DemoProvider, 'preorder') as preorder:
++                self.service.pay_existing('demo', first['attempt_id'])
++                preorder.assert_not_called()
++        receipt = self.store.write_receipt(first['attempt_id'], 'order')
++        wrong = deepcopy(receipt)
++        wrong['response']['data']['orderId'] = 'another-order'
++        for invalid in (None, {}, wrong):
++            with patch.object(self.store, 'write_receipt', return_value=invalid), \
++                    patch.object(DemoProvider, 'preorder') as preorder:
++                self.service.pay_existing('demo', first['attempt_id'])
++                preorder.assert_not_called()
++        identity = self.store.account('demo')['identity']
++        a = self.store.attempt(identity, first['attempt_id'])
++        a['stop_reason'] = 'synthetic_unknown_response'
++        self.store.update_attempt(identity, a)
++        with patch.object(DemoProvider, 'preorder') as preorder:
++            self.service.pay_existing('demo', first['attempt_id'])
++            preorder.assert_not_called()
++
++    def test_paid_english_order_keeps_original_time_and_reports_live_estimate(self):
++        q = self.quote()
++        original = DemoProvider.consume
++        def shifted(provider, inputs):
++            result = original(provider, inputs)
++            state = provider.read()
++            order = next(iter(state['orders'].values()))
++            order.update(orderStatus='Catering', orderStatusTitle='Catering',
++                         expectPickUpTime=order['expectPickUpTime'].replace('10:15:00', '10:16:58'))
++            write_private(provider.path, state)
++            return result
++        with patch.object(DemoProvider, 'consume', shifted):
++            result = self.service.submit('demo', q['quote_id'], 'shifted')
++        self.assertTrue(result['paid_verified'])
++        self.assertTrue(result['pickup_time_changed'])
++        self.assertEqual(result['pickup_at'], self.args.pickup_at)
++        self.assertIn('10:16:58', result['official_pickup_at'])
++        self.assertEqual(result['official_order_state'], 'PREPARING')
++        self.assertFalse(result['collection_verified'])
++        repeated = Service(self.store).submit('demo', q['quote_id'], 'shifted')
++        self.assertEqual(repeated['order_id'], result['order_id'])
++        with self.store.connect() as conn:
++            self.assertEqual(conn.execute('SELECT count(*) FROM writes').fetchone()[0], 3)
++
++    def test_changed_estimate_cannot_establish_payment_without_successful_receipt(self):
++        q = self.quote()
++        with patch.object(DemoProvider, 'payment_ready', side_effect=EzMcdError('order_not_payable')):
++            result = self.service.submit('demo', q['quote_id'], 'unpaid')
++        original = DemoProvider.status
++        def misleading(provider, attempt):
++            state = original(provider, attempt)
++            state['order'].update(orderStatus='Catering', orderStatusTitle='Catering',
++                expectPickUpTime=state['order']['expectPickUpTime'].replace('10:15:00', '10:16:58'),
++                realPayAmount='10.00', paymentChannel='ARCHCARD')
++            state['cashier']['payStatus'] = 'PAID'; state['wallet_cents'] = 9000
++            return state
++        with patch.object(DemoProvider, 'status', misleading), patch.object(DemoProvider, 'preorder') as preorder:
++            result = self.service.status('demo', result['attempt_id'])
++            self.assertFalse(result['paid_verified'])
++            self.assertTrue(result['status_query_failed'])
++            preorder.assert_not_called()
++
+     def test_delayed_settlement_queries_until_paid_without_repeating_writes(self):
+         q = self.quote()
+         original = DemoProvider.status
+diff --git a/tests/test_project_sessions.py b/tests/test_project_sessions.py
+index 163438d..b471c1c 100644
+--- a/tests/test_project_sessions.py
++++ b/tests/test_project_sessions.py
+@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
+ from ezmcd.accounts import public_account, revoke_local
+ from ezmcd.errors import EzMcdError
+ from ezmcd.models import Policy, fingerprint
++from ezmcd.protocol.signing import BUILD
+ from ezmcd.service import Service
+ from ezmcd.sessions import REFRESH, refresh_account
+ from ezmcd.storage import Store
+@@ -30,7 +31,7 @@ class SessionTests(unittest.TestCase):
+             "provider": "mcd-cn", "binary": "unused", "phone_label": "138****0000",
+             "auth_method": "direct_sms", "policy": Policy().model_dump(),
+             "runtime": {"observed_at": time.time(), "device_hex": "A" * 32, "environment_hex": "b" * 16},
+-            "profile": {"fields": {"sid": "synthetic-old-sid", "refreshToken": "synthetic-old-refresh",
++            "profile": {"build_sha256": BUILD, "fields": {"sid": "synthetic-old-sid", "refreshToken": "synthetic-old-refresh",
+                 "meddyId": "synthetic-member", "deviceToken": "synthetic-device", "riskDeviceId": "synthetic-risk"}}}
+         self.store.add_account(self.record)
+         self.transport = Mock()
+diff --git a/tests/test_project_client_builds.py b/tests/test_project_client_builds.py
+new file mode 100644
+index 0000000..37ecedf
+--- /dev/null
++++ b/tests/test_project_client_builds.py
+@@ -0,0 +1,101 @@
++from copy import deepcopy
++import hashlib
++from pathlib import Path
++import tempfile
++import unittest
++from unittest.mock import Mock, patch
++
++from ezmcd.accounts import _enroll, profile_from_balance_sample, public_account
++from ezmcd.models import Policy
++from ezmcd.errors import EzMcdError
++from ezmcd.protocol.login import login_key
++from ezmcd.protocol.signing import BUILD, BUILD_70451, ClientConstants, Signer, _constants
++from ezmcd.runtime_recovery import device_context
++from ezmcd.storage import Store
++from test_project_accounts import KEYS, sample
++
++
++class ClientBuildTests(unittest.TestCase):
++    def test_verified_request_records_actual_binary_build_and_rejects_bad_signature(self):
++        for build in (BUILD, BUILD_70451):
++            with self.subTest(build=build), patch('ezmcd.accounts.constants',
++                    return_value=ClientConstants(KEYS, build)):
++                result=profile_from_balance_sample(sample(), 'unused')
++                self.assertEqual(result['build_sha256'], build)
++                altered=sample();altered['request']['headers']['token']='different-device'
++                with self.assertRaisesRegex(EzMcdError, 'invalid_official_sample_signature'):
++                    profile_from_balance_sample(altered, 'unused')
++
++    def test_enrollment_rejects_other_pinned_binary_before_wallet_or_account_write(self):
++        with patch('ezmcd.accounts.constants', return_value=ClientConstants(KEYS, BUILD)):
++            profile=profile_from_balance_sample(sample(), 'unused')
++        with tempfile.TemporaryDirectory() as tmp, patch('ezmcd.accounts.constants',
++                return_value=ClientConstants(KEYS, BUILD_70451)), \
++                patch('ezmcd.provider.McdProvider.wallet') as wallet:
++            store=Store(Path(tmp))
++            with self.assertRaisesRegex(EzMcdError, 'official_client_profile_build_mismatch'):
++                _enroll(store, 'mine', profile, 'unused', None, None, check_live=True)
++            self.assertEqual(store.accounts(), [])
++            wallet.assert_not_called()
++
++    def test_device_recovery_never_treats_distinct_builds_as_same_context(self):
++        record={'profile':{'build_sha256':BUILD,
++            'client_headers':{'ct':'101','v':'synthetic','language':'zh'},
++            'fields':{'deviceToken':'synthetic-device','riskDeviceId':'synthetic-risk'}}}
++        current=deepcopy(record);current['profile']['build_sha256']=BUILD_70451
++        self.assertIsNotNone(device_context(current))
++        self.assertNotEqual(device_context(record),device_context(current))
++        current['profile']['build_sha256']='unknown'
++        self.assertIsNone(device_context(current))
++
++    def test_unknown_binary_is_rejected_before_material_addresses_are_read(self):
++        image=Mock(blob=b'unknown synthetic binary')
++        with patch('ezmcd.protocol.signing.MachO', return_value=image):
++            with self.assertRaisesRegex(EzMcdError,'official_client_build_not_supported'):
++                _constants.__wrapped__('unused',0,0)
++        image.read.assert_not_called();image.describe.assert_not_called()
++
++    def test_material_uses_only_layout_selected_by_complete_binary_digest(self):
++        blob=b'synthetic pinned binary';digest=hashlib.sha256(blob).hexdigest()
++        image=Mock(blob=blob)
++        access,secret,table,wallet=1,2,3,(4,5,6)
++        encoded=lambda value,delta:bytes(v^((i-delta)&255) for i,v in enumerate(value))
++        materials={access:encoded(b'A'*20,5),secret:encoded(b'S'*40,29),table:bytes(256)}
++        image.read.side_effect=lambda address,size:materials[address]
++        image.describe.side_effect=lambda address:{4:'synthetic-app',5:'synthetic-version',6:'synthetic-key'}[address]
++        with patch('ezmcd.protocol.signing.MachO',return_value=image), \
++                patch.dict('ezmcd.protocol.signing.BUILD_LAYOUTS',{digest:(access,secret,table,wallet)},clear=True):
++            result=_constants.__wrapped__('unused',0,0)
++        self.assertEqual(result.build_sha256,digest)
++        self.assertEqual(result[:2],('A'*20,'S'*40))
++        self.assertNotIn('S'*40,repr(result))
++        self.assertEqual(result[3],('synthetic-app','synthetic-version','synthetic-key'))
++
++    def test_new_build_sms_encryption_stops_before_reading_old_key_address(self):
++        with patch('ezmcd.protocol.login.constants',return_value=ClientConstants(KEYS,BUILD_70451)), \
++                patch('ezmcd.protocol.login.MachO') as image:
++            with self.assertRaisesRegex(EzMcdError,'official_client_login_build_not_supported'):
++                login_key('unused')
++            image.assert_not_called()
++
++    def test_account_reports_login_support_for_verified_login_build_only(self):
++        for build,supported in ((BUILD,True),(BUILD_70451,False),('unknown',False)):
++            record={'alias':'mine','provider':'mcd-cn','policy':Policy().model_dump(),
++                'profile':{'build_sha256':build,'fields':{'refreshToken':'synthetic-refresh'}}}
++            result=public_account(record)
++            self.assertEqual(result['sms_login_supported'],supported)
++            self.assertEqual(result['session_refresh_supported'],supported)
++
++    def test_signer_rejects_binary_replacement_for_api_and_wallet_requests(self):
++        record={'binary':'unused','profile':{'build_sha256':BUILD,
++            'fields':{'sid':'synthetic-session','deviceToken':'synthetic-token'},
++            'client_headers':{'ct':'101','v':'synthetic','language':'zh'}}}
++        signer=Signer(record)
++        with patch('ezmcd.protocol.signing.constants',return_value=ClientConstants(KEYS,BUILD_70451)):
++            with self.assertRaisesRegex(EzMcdError,'official_client_profile_build_mismatch'):
++                signer.headers('GET','/bff/member/mwallet/balance')
++            with self.assertRaisesRegex(EzMcdError,'official_client_profile_build_mismatch'):
++                signer.wallet_query('synthetic-token',b'{}')
++
++
++if __name__=='__main__':unittest.main()

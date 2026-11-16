@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "builds": [
+    {
+      "version": "7.0.440",
+      "client_header_version": "7.0.44.0",
+      "sha256": "745da50c09c44a62eb222f72fda2571b9fa3acec55a2a17a4e5fdee5b7a85d85",
+      "adapter_revision": "sparkclaw-mcd-p0-v1",
+      "v4_locations": [
+        "0x10237da39",
+        "0x10237da4e"
+      ],
+      "v5": "upstream_pinned_build_not_locally_qualified",
+      "checkout_qualified": false
+    },
+    {
+      "version": "7.0.451",
+      "client_header_version": "7.0.45.1",
+      "sha256": "c7684499ea491e20004a8b748be4fc1472ef3e2047b5f9656c7150daeb6b28e4",
+      "adapter_revision": "sparkclaw-mcd-handoff-v3",
+      "v4_locations": [
+        "0x1024757a9",
+        "0x1024757be"
+      ],
+      "v5": "upstream_handoff_verified_2026_11_13_product_qualification_pending",
+      "checkout_qualified": false
+    }
+  ]
+}

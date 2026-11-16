@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-11-13T11:39:12.074754+00:00",
+  "scope": "f7d8 worktree implementation, offline/product fixtures and native package build; not installed product checkout qualification",
+  "source_base_revision": "32143be1fa81519413c1b6271ac21a0e781c1787",
+  "handoff_thread": "01a1d310-38f5-73a3-848d-ed9de44bfdf5",
+  "real_order_created": false,
+  "real_payment_attempted": false,
+  "production_deployed": false,
+  "installed_app_replaced": false,
+  "runtime_contract": {
+    "schema_version": 1,
+    "python": "3.11.15",
+    "adapter_revision": "sparkclaw-mcd-handoff-v3",
+    "upstream_revision": "2497334e4ff1b2331773a36890db74136b288537",
+    "patch_sha256": [
+      "9f2c369f4f633f55d7b843655ae9dadceba135c01e42874477feedc47ac93762"
+    ],
+    "adapter_source_sha256": "42b09daa39f45e5f485a8e4997e696fd57dd49ec8b182dd09ef2375199172760",
+    "dependencies_sha256": "25389bac67f5a79fbde7c4adf2d51b85e258cba5224287f16e14bcb63855b237"
+  },
+  "mac_package_audit": {
+    "schema_version": 1,
+    "platform": "darwin",
+    "client_scope": "public_client_source_and_ui",
+    "application_entries": 7247,
+    "ui_files": 24,
+    "preview_files": 224,
+    "iscp_helper_sha256": "dfa0f2eee35c3adfba0899d4380b19f27872642c30de5f8217cf2398f50913fd",
+    "mcd_runtime": {
+      "manifest_sha256": "7aaa5336175843d39677487d15efbf68112fedfa0566c1b038a3422ab394160b",
+      "source_sha256": "42b09daa39f45e5f485a8e4997e696fd57dd49ec8b182dd09ef2375199172760",
+      "files": 1134,
+      "bytes": 62721590
+    },
+    "browser_controller": {
+      "protocol": "browser.controller.v1",
+      "source_revision": "32143be1fa81519413c1b6271ac21a0e781c1787",
+      "versions": {
+        "@playwright/mcp": "0.0.80",
+        "playwright": "1.63.0-alpha-2026-08-31",
+        "playwright-core": "1.63.0-alpha-2026-08-31"
+      },
+      "files": 207,
+      "bytes": 18741077,
+      "manifest_sha256": "3094a0facca4638257776f41bbaaed7dfcb377ddc368219232d10f726808e8f3"
+    }
+  },
+  "linux_runtime": {
+    "platform": "linux",
+    "architecture": "x86_64",
+    "python": "3.11.15",
+    "manifest_sha256": "486961f7351095616074a6f845279070af4ab6d3a4d2d54343cb3fb29c9daac0",
+    "files": 1133,
+    "bytes_including_manifest": 96624391,
+    "relocation_import_smoke_passed": true,
+    "deployment_location": "temporary acceptance directory, not production"
+  },
+  "artifacts": [
+    {
+      "path": "apps/desktop/dist/SparkX-0.1.0-mac-arm64.dmg",
+      "sha256": "6a2f0bab3880c9f593f14a5092dad6d0d99499547981e879ba3f6ffb0d5d9321",
+      "bytes": 247688558,
+      "signed": false,
+      "installed": false
+    },
+    {
+      "path": "apps/desktop/dist/SparkX-0.1.0-mac-arm64.zip",
+      "sha256": "7288ce5f22e5fd6858b18c0972f6ae0e9de14165d057b95ea9215efc9dae3af5",
+      "bytes": 251697890,
+      "signed": false,
+      "installed": false
+    }
+  ],
+  "checks": {
+    "python_mac": {
+      "passed": 44,
+      "failed": 0
+    },
+    "python_work2": {
+      "passed": 44,
+      "failed": 0
+    },
+    "native_to_python_mac": {
+      "passed": 1,
+      "external_provider": "offline synthetic fixture; original service/ledger/authority real"
+    },
+    "native_to_python_work2": {
+      "passed": 1,
+      "external_provider": "offline synthetic fixture; original service/ledger/authority real"
+    },
+    "javascript_canonical_vectors": {
+      "passed": 6
+    },
+    "desktop_full": {
+      "total": 660,
+      "passed": 659,
+      "skipped": 1,
+      "failed": 0,
+      "test_concurrency": 1
+    },
+    "webchat_full": {
+      "files": 94,
+      "passed": 602,
+      "failed": 0,
+      "node_options": "--no-experimental-webstorage"
+    },
+    "webchat_typescript_and_build": "passed",
+    "go_build": "passed",
+    "go_vet": "passed",
+    "go_race_packages": [
+      "internal/mcdintegration",
+      "internal/mcddining"
+    ],
+    "go_work2_packages_passed": [
+      "internal/gateway",
+      "internal/mcdintegration",
+      "internal/mcddining",
+      "internal/iscpworkbench"
+    ],
+    "go_mac_full": {
+      "remaining_platform_failures": [
+        "TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval",
+        "TestExecutionStartupRemovesOnlyOwnedDeploymentMemoryWorkspaces",
+        "TestExecutionRealWorkflowUsesOnlyClientContextAndNoLegacyPersistence"
+      ],
+      "cause": "Linux /dev/shm memory workspace unavailable on macOS; corresponding work2 gateway suite passed",
+      "all_other_packages": "passed"
+    },
+    "visual_settings": {
+      "original_navigation_and_connection_directory": "verified",
+      "mcd_disabled_entry_and_back_navigation": "verified",
+      "text_button_wrapping": "fixed using existing textActions style",
+      "authenticated_live_product_ui": "not qualified"
+    },
+    "contracts": [
+      "workbench",
+      "ISCP operations",
+      "EzMcDonalds source/runtime"
+    ],
+    "mac_arm64_dmg_zip_build_and_audit": "passed",
+    "docs": {
+      "project_markdown_files": 148,
+      "mirrors_and_links": "passed"
+    }
+  },
+  "rollout": {
+    "enabled": false,
+    "cart_enabled": false,
+    "purchase_enabled": false,
+    "qualified_product_purchase": false
+  },
+  "retained_failures": [
+    "earlier real G2 unknown pickup write and original retirement receipt",
+    "initial G1 script mismatch before read-only successful rerun",
+    "incomplete work2 v2 source archive; superseded by verified v3 source extraction",
+    "initial frontend expectations and Node 26/jsdom storage conflict",
+    "desktop attachment lost-response timing failure under concurrent load; serial full rerun passed",
+    "three macOS Go platform failures"
+  ],
+  "unqualified": [
+    "matched installed product ISCP live disconnect/restart/lost-response matrix",
+    "ordinary quote portability and broader configured products/benefits/pickup methods",
+    "new official account acquisition and cross-day refresh",
+    "new separately approved real purchase through SparkClaw Workflow",
+    "installed application acceptance"
+  ],
+  "logs_sha256": {
+    "f7d8-mcd-python-release.log": "8fe6c2e96c2ffc5419d7be8623bb40bbf88ce09d5ce89572b128c9c1cfa1ad3b",
+    "f7d8-mcd-crosslang-release.log": "698d921537833ade59523b206921897dd3ffbb722577fa50ceaa8f559d48111b",
+    "f7d8-mcd-desktop-release-serial.log": "77f03bfe022f829276a76efad23ec132e17f61836aefc66e30e00ce61bdc80e2",
+    "f7d8-mcd-webchat-full-2.log": "8459ef1e473d153fa2172c04014db73f30dca0762947899a5b69a7fe808f1f69",
+    "f7d8-mcd-webchat-build.log": "09fcd629ed7af13e7c59044aefd84900d7bcdea848a6c4a630341fdc914a509f",
+    "f7d8-mcd-work2-go-release.log": "7470d3c83644da9577970fb558498f7ad4c6b9a1110f81ff583405e1eb669a09",
+    "f7d8-mcd-race-release.log": "07b3c284f9751373068226f4c3168341fc1e1ee37391f82cc067aa690ac87994",
+    "f7d8-mcd-mac-package.log": "6200a277c474b34660a805515a5e30dd0475b1c98de1c535ce6e792db9bf6db3",
+    "f7d8-mcd-go-close.log": "4d6e23d81b2bd1609bdb757e2e462f6190bc3083c42576a8c1b36d6ce5e3b38b",
+    "f7d8-mcd-work2-cart-final.log": "c7ecc96791c72d1f7eb374a0d64a3b0a67af7f7d9d0574bcf98cef8b9922304e",
+    "f7d8-mcd-native-lifecycle.log": "ebea940d41cf258c91d14835d13364700a9378dc5a0b1e8ad97cd973a6503ea5",
+    "f7d8-mcd-tool-contracts.log": "fe3e20c081bd89c80434faca2898e6d215f3e2653f40b5a9adc39c648cf85e9a",
+    "work2-product-v3-build.log": "8393757c4081bd9fc6033d03af2b018d867766e156016f6a6cd8fa6049e8cfa3",
+    "work2-product-v3-python-tests.log": "85e4d9e151fa8f337970de505786e214c163357f95011004213d877bbf125f3c",
+    "work2-product-v3-native-python.log": "9ea9c09076a3483cebeae261a05b9ee5bc9419cfd2e2e78ffefe5d0ae74522e7",
+    "work2-product-v3-package.log": "38115f2d2e576a26b02c2b1a1b411f5a0b8474bf23632500e9e20956e2d94297"
+  },
+  "implementation_commits": [
+    "c6f71a9b",
+    "54b5c44b"
+  ]
+}

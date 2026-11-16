@@ -1,0 +1,89 @@
+{
+  "schema_version": 1,
+  "scope": "G2 real selected-pickup quote handoff on private authenticated SSH; not product ISCP",
+  "upstream_commit": "2497334e4ff1b2331773a36890db74136b288537",
+  "adapter_revision": "sparkclaw-mcd-p0-v2",
+  "report": {
+    "abort_receipt": "aborted_before_write",
+    "checked_at_ms": 1794480681153,
+    "complete_envelope_retained_on_mac": true,
+    "g1": {
+      "adapter_revision": "sparkclaw-mcd-p0-v2",
+      "app_version": "7.0.451",
+      "binary_sha256": "c7684499ea491e20004a8b748be4fc1472ef3e2047b5f9656c7150daeb6b28e4",
+      "build_recognized": true,
+      "checkout_qualified": false,
+      "live_member_verified": true,
+      "order_created": false,
+      "payment_attempted": false,
+      "payment_method": "ARCHCARD",
+      "v4_material_available": true,
+      "v4_sample_verified": true,
+      "v5_status": "trusted_sample_and_material_locations_required"
+    },
+    "g1_purchase_qualified": false,
+    "g2_handoff_passed": true,
+    "import_checkout_blockers": [
+      "split_integration_not_qualified",
+      "insufficient_wallet_balance"
+    ],
+    "import_checkout_qualified": false,
+    "import_state": "prepared",
+    "import_wallet_sufficient": false,
+    "negative_paths": {
+      "expired": "quote_expired_or_clock_untrusted",
+      "key_drift": "operation_key_conflict",
+      "missing_items": "invalid_fields",
+      "tampered_pickup_receipt": "pickup_receipt_tampered",
+      "wrong_member": "quote_scope_mismatch"
+    },
+    "order_created": false,
+    "original_expiry_preserved": true,
+    "payment_attempted": false,
+    "pickup_receipt_included": true,
+    "purchase_digest_matches": true,
+    "quote_lifetime_ms": 120000,
+    "same_key_returns_original_receipt": true,
+    "schema_version": 1,
+    "scope": "P0 authenticated-private-stdio prototype, not product ISCP",
+    "selection_quote_produced": true,
+    "wallet_sufficient": false
+  },
+  "requested_store_code": "3330613",
+  "requested_pickup_method": "locker-in",
+  "original_attempt": {
+    "state": "retired",
+    "original_state": "unknown",
+    "local_only": true,
+    "retirement_confirms_upstream_outcome": false,
+    "automatic_write_retry": false,
+    "official_cart_changed": false
+  },
+  "ordinary_quote": {
+    "qualified": false,
+    "observed_server_default": "eat-in",
+    "requested_method": "locker-in",
+    "fallback_performed": false
+  },
+  "v5_followup": {
+    "cached_requests_checked": 296,
+    "signed_v5_samples": 0,
+    "official_order_history_signature_version": "v4",
+    "purchase_gate_opened": false
+  },
+  "runtime": {
+    "mac_python": "3.11.15",
+    "linux_python": "3.11.15",
+    "linux_archive": {
+      "browser_download_url": "https://github.com/astral-sh/python-build-standalone/releases/download/20260610/cpython-3.11.15%2B20260610-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+      "digest": "sha256:67a5b22f796e96f4d7fa628f95866d5fd1d524d0588f74e4601facd82b66792b",
+      "id": 444377082,
+      "name": "cpython-3.11.15+20260610-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+      "size": 30878933
+    },
+    "python_offline_tests_each": 27,
+    "javascript_tests": 5
+  },
+  "full_quote_or_credential_in_public_evidence": false,
+  "original_report_sha256": "44dc78e0940df35f8adb272b55d31c5db281f576138ad2c9ad3cc9dfab409d2e"
+}

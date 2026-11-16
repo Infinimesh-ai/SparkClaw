@@ -1,2 +1,4 @@
 # Preserve the checksum-pinned upstream license bytes, including CRLF.
 /tools/browser-bridge/LICENSE -text whitespace=trailing-space,space-before-tab,cr-at-eol
+# Unified diff context includes single-space blank lines; preserve pinned bytes.
+/tools/ezmcd-adapter/patches/2026-11-13-handoff.patch -text -whitespace

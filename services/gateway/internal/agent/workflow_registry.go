@@ -229,6 +229,11 @@ func newWorkflowProfileRegistry(profiles ...workflowProfile) workflowProfileRegi
 
 func defaultWorkflowProfileRegistry() workflowProfileRegistry {
 	return newWorkflowProfileRegistry(
+		mcdReadProfile{},
+		mcdCartProfile{},
+		mcdCartProfile{quote: true},
+		mcdCartProfile{purchase: true},
+		mcdStatusProfile{},
 		aiChatProfile{provider: "chatgpt"},
 		aiChatProfile{provider: "claude"},
 		aiChatProfile{provider: "gemini"},

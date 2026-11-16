@@ -11,6 +11,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  ezmcd-adapter:
+    name: EzMcDonalds private helper contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.15'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: Build pinned helper (no official account required)
+        run: python3 scripts/setup-ezmcd-adapter.py --python python3
+      - name: Check helper integrity and offline contracts
+        run: |
+          node scripts/sync-ezmcd-contract.mjs --check
+          python3 scripts/setup-ezmcd-adapter.py --check
+          .cache/ezmcd-adapter/venv/bin/python -m unittest discover -s tools/ezmcd-adapter/tests -v
+          node --test tools/ezmcd-adapter/tests/canonical.test.mjs
+          node --test apps/desktop/test/mcd-python-host.test.mjs
   docs:
     name: Docs
     runs-on: ubuntu-24.04
@@ -26,7 +47,7 @@ jobs:
           root = Path(".")
           ignored = {
               ".git", "node_modules", ".tools", "data",
-              ".agents", ".claude", ".codex", ".sparkclaw",
+              ".agents", ".claude", ".codex", ".sparkclaw", ".cache",
           }
           # Local agent instructions are ignored by Git and are not project docs.
           agent_files = {Path("AGENTS.md"), Path("CLAUDE.md")}

@@ -319,6 +319,9 @@ func workflowArgumentAllowed(binding app.ArgumentBinding, node app.WorkflowNode,
 }
 
 func (r Runtime) bindWorkflowToolArguments(ctx context.Context, runID string, plan toolPlan) (map[string]any, error) {
+	if plan.Name == "mcd.purchase.commit" {
+		return r.tools.MCDPurchaseArguments()
+	}
 	args := make(map[string]any, len(plan.Args))
 	for key, value := range plan.Args {
 		args[key] = value

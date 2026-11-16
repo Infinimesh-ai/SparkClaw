@@ -65,7 +65,7 @@ func TestBrowserControllerInitiatorRetriesStrictPrecedingPeerWithoutOtherDowngra
 		}
 		return Response{Status: 200}, nil
 	}, []string{ProfileV2, Profile})
-	if err != nil || response.Status != 200 || calls != 2 {
+	if err != nil || response.Status != 200 || calls != 4 {
 		t.Fatalf("expected opt-in followed by exact legacy retry: calls=%d status=%d err=%v", calls, response.Status, err)
 	}
 }
@@ -94,8 +94,8 @@ func TestBrowserControllerResponderDoesNotAdvertiseToPrecedingClient(t *testing.
 	if err != nil || reply.Status != 200 || json.Unmarshal(reply.Body, &decoded) != nil || decoded.Negotiation == nil {
 		t.Fatalf("preceding client negotiation failed: %d %v", reply.Status, err)
 	}
-	if !slices.Equal(decoded.Negotiation.Operations, preControllerOperations(OperationsV2())) ||
-		!slices.Equal(decoded.Negotiation.QualifiedOperations, preControllerOperations(OperationsV2())) {
+	if !slices.Equal(decoded.Negotiation.Operations, preControllerOperations(withoutMCDSelection(withoutMCDCheckout(OperationsV2())))) ||
+		!slices.Equal(decoded.Negotiation.QualifiedOperations, preControllerOperations(withoutMCDSelection(withoutMCDCheckout(OperationsV2())))) {
 		t.Fatal("new responder advertised Controller operations to an old client")
 	}
 	initiator.installCapabilities(*decoded.Negotiation)

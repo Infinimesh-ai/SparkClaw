@@ -1,3 +1,4 @@
+import { MCDConnectionSettings } from "../MCDConnectionSettings";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -65,6 +66,7 @@ type SettingsDetail =
   | "browser-email"
   | "info"
   | "localmind"
+  | "mcd"
   | "external-mcp"
   | "tool-policy"
   | "models"
@@ -441,6 +443,7 @@ export function SettingsPanel({
             onRevokeNotificationBinding={onRevokeNotificationBinding}
             onUpdateConnector={onUpdateConnector}
           />}
+          {detail === "mcd" && <MCDConnectionSettings language={language} />}
           {detail === "browser-control" && <BrowserControlSettings text={text} language={language} />}
           {detail === "ai-platform-login" && <AIPlatformLoginSettings text={text} language={language} backendLoginNotice={access?.aiPlatformLoginNotice} loginAvailable={access?.aiPlatformLoginAvailable} statusAvailable={access?.aiPlatformStatusAvailable} />}
           {detail === "browser-email" && <BrowserEmailSettings text={text} backendLoginNotice={access?.emailLoginNotice} loginAvailable={access?.emailLoginAvailable} />}
@@ -475,6 +478,7 @@ export function SettingsPanel({
           <ConnectionRow icon={<ConnectionIcon name="browser" />} title={text.settings.browserControl} description={text.settings.browserControlSharedProfile} action={surface.manage} onClick={() => setDetail("browser-control")} />
           <ConnectionRow icon={<ConnectionIcon name="ai-login" />} title={text.settings.aiPlatformLogin} description={text.settings.aiPlatformNames} action={surface.manage} onClick={() => setDetail("ai-platform-login")} />
           <ConnectionRow icon={<ConnectionIcon name="info" />} title={text.settings.info} description={integrationDirectoryStatus(infoStatus, integrationLoadFailed, text)} action={surface.manage} onClick={() => setDetail("info")} />
+          <ConnectionRow icon={<ConnectionIcon name="info" />} title={language === "zh" ? "麦当劳" : "McDonald’s"} description={language === "zh" ? "门店、菜单与优惠" : "Restaurants, menus and offers"} action={surface.manage} onClick={() => setDetail("mcd")} />
           <ConnectionRow icon={<ConnectionIcon name="localmind" />} title={text.settings.localMind} description={integrationDirectoryStatus(localMindStatus, integrationLoadFailed, text)} action={surface.manage} onClick={() => setDetail("localmind")} />
           <ConnectionRow icon={<ConnectionIcon name="mcp" />} title={text.settings.externalMCP} description={connectors.find((item) => item.channel === "mcp")?.enabled ? text.settings.active : text.common.disabled} action={surface.manage} onClick={() => setDetail("external-mcp")} />
         </section>
@@ -536,6 +540,7 @@ export function SettingsPanel({
               onUpdateConnector={onUpdateConnector}
             />
           )}
+          {detail === "mcd" && <MCDConnectionSettings language={language} />}
           {detail === "browser-control" && <BrowserControlSettings text={text} language={language} />}
           {detail === "ai-platform-login" && <AIPlatformLoginSettings text={text} language={language} backendLoginNotice={access?.aiPlatformLoginNotice} loginAvailable={access?.aiPlatformLoginAvailable} statusAvailable={access?.aiPlatformStatusAvailable} />}
           {detail === "browser-email" && <BrowserEmailSettings text={text} backendLoginNotice={access?.emailLoginNotice} loginAvailable={access?.emailLoginAvailable} />}
@@ -669,6 +674,7 @@ export function SettingsPanel({
               <DirectoryRow icon={<Bot size={17} />} title={text.settings.aiPlatformLogin} status={text.settings.aiPlatformNames} onClick={() => setDetail("ai-platform-login")} />
               <DirectoryRow icon={<Mail size={17} />} title={text.settings.browserEmail} status={text.settings.browserEmailProviders} onClick={() => setDetail("browser-email")} />
               <DirectoryRow icon={<DatabaseZap size={17} />} title={text.settings.info} status={integrationDirectoryStatus(infoStatus, integrationLoadFailed, text)} onClick={() => setDetail("info")} />
+              <DirectoryRow icon={<DatabaseZap size={17} />} title={language === "zh" ? "麦当劳" : "McDonald’s"} status="" onClick={() => setDetail("mcd")} />
               <DirectoryRow icon={<Network size={17} />} title={text.settings.localMind} status={integrationDirectoryStatus(localMindStatus, integrationLoadFailed, text)} onClick={() => setDetail("localmind")} />
               <DirectoryRow icon={<Cable size={17} />} title={text.settings.externalMCP} status={connectors.find((item) => item.channel === "mcp")?.enabled ? text.settings.active : text.common.disabled} onClick={() => setDetail("external-mcp")} />
             </>
@@ -895,6 +901,7 @@ function settingsDetailTitle(detail: SettingsDetail, text: CopyText) {
     "browser-email": text.settings.browserEmail,
     info: text.settings.info,
     localmind: text.settings.localMind,
+    mcd: "McDonald’s",
     "external-mcp": text.settings.externalMCP,
     "tool-policy": text.settings.toolPolicy,
     models: text.settings.modelProfiles,

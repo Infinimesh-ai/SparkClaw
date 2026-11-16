@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "python": "3.11.15",
+  "adapter_revision": "sparkclaw-mcd-handoff-v3",
+  "upstream_revision": "2497334e4ff1b2331773a36890db74136b288537",
+  "patch_sha256": [
+    "9f2c369f4f633f55d7b843655ae9dadceba135c01e42874477feedc47ac93762"
+  ],
+  "adapter_source_sha256": "42b09daa39f45e5f485a8e4997e696fd57dd49ec8b182dd09ef2375199172760",
+  "dependencies_sha256": "25389bac67f5a79fbde7c4adf2d51b85e258cba5224287f16e14bcb63855b237"
+}

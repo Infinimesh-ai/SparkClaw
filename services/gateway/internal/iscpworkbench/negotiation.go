@@ -101,6 +101,8 @@ type negotiationOffer struct {
 		StreamSchemaVersion int      `json:"stream_schema_version,omitempty"`
 		ConnectionSettings  bool     `json:"connection_settings,omitempty"`
 		BrowserController   bool     `json:"browser_controller,omitempty"`
+		MCDSelection        bool     `json:"mcd_selection,omitempty"`
+		MCDCheckout         bool     `json:"mcd_checkout,omitempty"`
 	} `json:"transport_negotiation"`
 }
 type negotiationReply struct {
@@ -129,7 +131,10 @@ func (e *Endpoint) capabilitiesFor(id string, profile string) TransportCapabilit
 	if profile == ProfileV2 {
 		streamVersion = 1
 	}
-	return TransportCapabilities{StreamSchemaVersion: streamVersion, SchemaVersion: version, Profile: profile, SessionID: id, Revision: "2", AuthorizationRevision: e.grantMaterial().grant.RevocationEpoch, ExpiresAt: time.Now().UTC().Add(5 * time.Minute), Operations: ops, QualifiedOperations: slices.Clone(ops), Binding: e.config.Binding, Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
+	qualified := slices.DeleteFunc(slices.Clone(ops), func(op string) bool {
+		return (MCDSelectionOperation(op) || MCDCheckoutOperation(op)) && !slices.Contains(e.config.QualifiedCapabilities, op)
+	})
+	return TransportCapabilities{StreamSchemaVersion: streamVersion, SchemaVersion: version, Profile: profile, SessionID: id, Revision: "2", AuthorizationRevision: e.grantMaterial().grant.RevocationEpoch, ExpiresAt: time.Now().UTC().Add(5 * time.Minute), Operations: ops, QualifiedOperations: qualified, Binding: e.config.Binding, Limits: TransportLimits{MaxRequestBytes, MaxResponseBytes, MaxBodyBytes, MaxConcurrent, 8192, 2}}
 }
 func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) error {
 	var offer negotiationOffer
@@ -146,6 +151,14 @@ func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) 
 		profile = ProfileV2
 	}
 	caps := e.capabilitiesFor(id, profile)
+	if !offer.Negotiation.MCDCheckout {
+		caps.Operations = withoutMCDCheckout(caps.Operations)
+		caps.QualifiedOperations = withoutMCDCheckout(caps.QualifiedOperations)
+	}
+	if !offer.Negotiation.MCDSelection {
+		caps.Operations = withoutMCDSelection(caps.Operations)
+		caps.QualifiedOperations = withoutMCDSelection(caps.QualifiedOperations)
+	}
 	if !offer.Negotiation.BrowserController {
 		caps.Operations = withoutBrowserController(caps.Operations)
 		caps.QualifiedOperations = withoutBrowserController(caps.QualifiedOperations)
@@ -228,6 +241,8 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	offer.Negotiation.ExecutionProgress = slices.Contains(profiles, ProfileV2)
 	offer.Negotiation.ConnectionSettings = slices.Contains(profiles, ProfileV2)
 	offer.Negotiation.BrowserController = slices.Contains(profiles, ProfileV2)
+	offer.Negotiation.MCDSelection = slices.Contains(profiles, ProfileV2)
+	offer.Negotiation.MCDCheckout = slices.Contains(profiles, ProfileV2)
 	if offer.Negotiation.ExecutionProgress {
 		offer.Negotiation.StreamSchemaVersion = 1
 	}
@@ -237,6 +252,14 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	}
 	r, err := call()
 	// Each retry is only the read-only negotiation, never a user operation.
+	if err == nil && offer.Negotiation.MCDCheckout && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
+		offer.Negotiation.MCDCheckout = false
+		r, err = call()
+	}
+	if err == nil && offer.Negotiation.MCDSelection && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
+		offer.Negotiation.MCDSelection = false
+		r, err = call()
+	}
 	if err == nil && offer.Negotiation.BrowserController && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
 		offer.Negotiation.BrowserController = false
 		r, err = call()
@@ -288,7 +311,7 @@ func validateNegotiation(c TransportCapabilities, id string, mode ...string) err
 		return errors.New("incompatible stream schema")
 	}
 	for _, name := range c.QualifiedOperations {
-		if !slices.Contains(ops, name) || (name == OperationExecutionProgress || connectionSettingsOperation(name) || browserControllerOperation(name)) && !slices.Contains(c.Operations, name) {
+		if !slices.Contains(ops, name) || (name == OperationExecutionProgress || connectionSettingsOperation(name) || browserControllerOperation(name) || MCDSelectionOperation(name) || MCDCheckoutOperation(name)) && !slices.Contains(c.Operations, name) {
 			return errors.New("unregistered qualified operation")
 		}
 	}
@@ -321,10 +344,12 @@ func withoutStream(ops []string) []string {
 // tables compatible in both directions; this
 // is not permission to advertise an arbitrary subset of registered operations.
 func compatibleV2Operations(actual, current []string) bool {
-	for _, base := range [][]string{current, withoutConnectionSettings(current), withoutBrowserController(current), withoutBrowserController(withoutConnectionSettings(current))} {
-		if slices.Equal(actual, base) || slices.Equal(actual, withoutProgress(base)) ||
-			slices.Equal(actual, withoutStream(base)) || slices.Equal(actual, withoutStream(withoutProgress(base))) {
-			return true
+	for _, generation := range [][]string{current, withoutMCDSelection(current), withoutMCDCheckout(current), withoutMCDSelection(withoutMCDCheckout(current))} {
+		for _, base := range [][]string{generation, withoutConnectionSettings(generation), withoutBrowserController(generation), withoutBrowserController(withoutConnectionSettings(generation))} {
+			if slices.Equal(actual, base) || slices.Equal(actual, withoutProgress(base)) ||
+				slices.Equal(actual, withoutStream(base)) || slices.Equal(actual, withoutStream(withoutProgress(base))) {
+				return true
+			}
 		}
 	}
 	return false
@@ -361,4 +386,22 @@ func browserControllerOperation(operation string) bool {
 	default:
 		return false
 	}
+}
+
+func MCDSelectionOperation(op string) bool {
+	return op == OperationMCDSessionProvision || op == OperationMCDSessionRevoke || op == OperationMCDSessionStatus
+}
+func withoutMCDSelection(ops []string) []string {
+	return slices.DeleteFunc(slices.Clone(ops), MCDSelectionOperation)
+}
+
+func MCDCheckoutOperation(op string) bool {
+	switch op {
+	case OperationMCDAccountEnsure, OperationMCDCheckoutPrepare, OperationMCDCheckoutCommit, OperationMCDCheckoutAbort, OperationMCDOperationStatus, OperationMCDOrdersQuery:
+		return true
+	}
+	return false
+}
+func withoutMCDCheckout(ops []string) []string {
+	return slices.DeleteFunc(slices.Clone(ops), MCDCheckoutOperation)
 }

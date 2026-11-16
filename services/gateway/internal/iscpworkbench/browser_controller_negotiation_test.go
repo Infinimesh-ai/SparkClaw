@@ -94,8 +94,8 @@ func TestBrowserControllerResponderDoesNotAdvertiseToPrecedingClient(t *testing.
 	if err != nil || reply.Status != 200 || json.Unmarshal(reply.Body, &decoded) != nil || decoded.Negotiation == nil {
 		t.Fatalf("preceding client negotiation failed: %d %v", reply.Status, err)
 	}
-	if !slices.Equal(decoded.Negotiation.Operations, preControllerOperations(withoutMCDSelection(withoutMCDCheckout(OperationsV2())))) ||
-		!slices.Equal(decoded.Negotiation.QualifiedOperations, preControllerOperations(withoutMCDSelection(withoutMCDCheckout(OperationsV2())))) {
+	if !slices.Equal(decoded.Negotiation.Operations, preControllerOperations(withoutPhoneProjections(withoutMCDSelection(withoutMCDCheckout(OperationsV2()))))) ||
+		!slices.Equal(decoded.Negotiation.QualifiedOperations, preControllerOperations(withoutPhoneProjections(withoutMCDSelection(withoutMCDCheckout(OperationsV2()))))) {
 		t.Fatal("new responder advertised Controller operations to an old client")
 	}
 	initiator.installCapabilities(*decoded.Negotiation)

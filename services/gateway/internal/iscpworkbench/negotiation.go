@@ -103,6 +103,7 @@ type negotiationOffer struct {
 		BrowserController   bool     `json:"browser_controller,omitempty"`
 		MCDSelection        bool     `json:"mcd_selection,omitempty"`
 		MCDCheckout         bool     `json:"mcd_checkout,omitempty"`
+		PhoneProjections    bool     `json:"phone_projections,omitempty"`
 	} `json:"transport_negotiation"`
 }
 type negotiationReply struct {
@@ -151,6 +152,12 @@ func (e *Endpoint) answerNegotiation(ctx context.Context, id string, r Request) 
 		profile = ProfileV2
 	}
 	caps := e.capabilitiesFor(id, profile)
+	// Clients installed before the phone projections compare the exact table,
+	// so these operations are offered only to peers that ask for them.
+	if !offer.Negotiation.PhoneProjections {
+		caps.Operations = withoutPhoneProjections(caps.Operations)
+		caps.QualifiedOperations = withoutPhoneProjections(caps.QualifiedOperations)
+	}
 	if !offer.Negotiation.MCDCheckout {
 		caps.Operations = withoutMCDCheckout(caps.Operations)
 		caps.QualifiedOperations = withoutMCDCheckout(caps.QualifiedOperations)
@@ -243,6 +250,7 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	offer.Negotiation.BrowserController = slices.Contains(profiles, ProfileV2)
 	offer.Negotiation.MCDSelection = slices.Contains(profiles, ProfileV2)
 	offer.Negotiation.MCDCheckout = slices.Contains(profiles, ProfileV2)
+	offer.Negotiation.PhoneProjections = slices.Contains(profiles, ProfileV2)
 	if offer.Negotiation.ExecutionProgress {
 		offer.Negotiation.StreamSchemaVersion = 1
 	}
@@ -252,8 +260,11 @@ func requestRPCNegotiation(ctx context.Context, caller func(context.Context, Req
 	}
 	r, err := call()
 	// Each retry is only the read-only negotiation, never a user operation.
+	// Phone projections are the newest extension: a strict responder that
+	// predates them rejects the field, so drop them with the first downgrade.
 	if err == nil && offer.Negotiation.MCDCheckout && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
 		offer.Negotiation.MCDCheckout = false
+		offer.Negotiation.PhoneProjections = false
 		r, err = call()
 	}
 	if err == nil && offer.Negotiation.MCDSelection && (r.Status == 400 || r.Status == 404 || r.Status == 501) {
@@ -311,7 +322,7 @@ func validateNegotiation(c TransportCapabilities, id string, mode ...string) err
 		return errors.New("incompatible stream schema")
 	}
 	for _, name := range c.QualifiedOperations {
-		if !slices.Contains(ops, name) || (name == OperationExecutionProgress || connectionSettingsOperation(name) || browserControllerOperation(name) || MCDSelectionOperation(name) || MCDCheckoutOperation(name)) && !slices.Contains(c.Operations, name) {
+		if !slices.Contains(ops, name) || (name == OperationExecutionProgress || connectionSettingsOperation(name) || browserControllerOperation(name) || MCDSelectionOperation(name) || MCDCheckoutOperation(name) || PhoneProjectionOperation(name)) && !slices.Contains(c.Operations, name) {
 			return errors.New("unregistered qualified operation")
 		}
 	}
@@ -344,6 +355,15 @@ func withoutStream(ops []string) []string {
 // tables compatible in both directions; this
 // is not permission to advertise an arbitrary subset of registered operations.
 func compatibleV2Operations(actual, current []string) bool {
+	for _, phone := range [][]string{current, withoutPhoneProjections(current)} {
+		if compatibleV2OperationsWithPhone(actual, phone) {
+			return true
+		}
+	}
+	return false
+}
+
+func compatibleV2OperationsWithPhone(actual, current []string) bool {
 	for _, generation := range [][]string{current, withoutMCDSelection(current), withoutMCDCheckout(current), withoutMCDSelection(withoutMCDCheckout(current))} {
 		for _, base := range [][]string{generation, withoutConnectionSettings(generation), withoutBrowserController(generation), withoutBrowserController(withoutConnectionSettings(generation))} {
 			if slices.Equal(actual, base) || slices.Equal(actual, withoutProgress(base)) ||
@@ -386,6 +406,15 @@ func browserControllerOperation(operation string) bool {
 	default:
 		return false
 	}
+}
+
+// PhoneProjectionOperation reports the read-only phone projections, a
+// negotiated extension so older installed clients keep their exact table.
+func PhoneProjectionOperation(op string) bool {
+	return op == OperationPhoneSnapshotGet || op == OperationPhoneActivityList
+}
+func withoutPhoneProjections(ops []string) []string {
+	return slices.DeleteFunc(slices.Clone(ops), PhoneProjectionOperation)
 }
 
 func MCDSelectionOperation(op string) bool {

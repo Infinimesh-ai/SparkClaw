@@ -92,7 +92,7 @@ func TestConnectionSettingsResponderPreservesAnOldClientTable(t *testing.T) {
 			if err != nil || reply.Status != 200 || json.Unmarshal(reply.Body, &decoded) != nil || decoded.Negotiation == nil {
 				t.Fatalf("negotiation failed: status=%d err=%v", reply.Status, err)
 			}
-			expected := withoutMCDSelection(withoutMCDCheckout(OperationsV2()))
+			expected := withoutPhoneProjections(withoutMCDSelection(withoutMCDCheckout(OperationsV2())))
 			if !settings {
 				expected = withoutConnectionSettings(expected)
 			}

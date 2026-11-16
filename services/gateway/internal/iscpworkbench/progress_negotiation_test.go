@@ -109,7 +109,7 @@ func TestProgressNegotiationOnlyAdvertisesRequestedExtension(t *testing.T) {
 			if offer.unbounded != (caps.Limits.Concurrent == 0) {
 				t.Fatal("changed independent concurrency contract")
 			}
-			if !offer.progress && !slices.Equal(caps.Operations, withoutMCDSelection(withoutMCDCheckout(withoutStream(withoutProgress(OperationsV2()))))) {
+			if !offer.progress && !slices.Equal(caps.Operations, withoutPhoneProjections(withoutMCDSelection(withoutMCDCheckout(withoutStream(withoutProgress(OperationsV2())))))) {
 				t.Fatal("original exact list changed")
 			}
 		})

@@ -93,7 +93,7 @@ func (a *iscpDomainAdapter) capabilitiesWithSession(ctx context.Context, request
 				capability.Qualified = capability.Qualified && slices.Contains(a.config.QualifiedCapabilities, name) && slices.Contains(session.QualifiedOperations, name)
 				capability.Permitted = capability.Permitted && slices.Contains(session.NegotiatedOperations, name)
 			}
-			if _, found := iscpworkbench.LookupOperation(name); !found || family.id == "browser" && !slices.Contains(session.NegotiatedOperations, name) {
+			if _, found := iscpworkbench.LookupOperation(name); !found || (family.id == "browser" || family.id == "phone_overview") && !slices.Contains(session.NegotiatedOperations, name) {
 				capability.Supported = false
 				continue
 			}

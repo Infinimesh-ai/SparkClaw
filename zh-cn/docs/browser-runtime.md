@@ -46,7 +46,7 @@ Xvfb 或浏览器自动化引擎。
 | Controller Socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop Launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-固定兼容组合为 Browser Bridge `1.0.29`、Playwright MCP `0.0.85`、Playwright CLI
+固定兼容组合为 Browser Bridge `1.0.30`、Playwright MCP `0.0.85`、Playwright CLI
 `0.1.23`、Playwright Library `1.65.1` 和 Chromium
 `159.0.8154.6`。Bridge Source Closure 记录在 `configs/browser-bridge-artifacts.json`，
 安装时拒绝发生修改或出现额外文件的 Source Tree。

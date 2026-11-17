@@ -53,7 +53,7 @@ automation engine.
 | Controller socket | `${XDG_RUNTIME_DIR}/sparkclaw/browser-controller/controller.sock` |
 | Desktop launcher | `~/.local/share/applications/sparkclaw-browser.desktop` |
 
-The pinned compatibility set is Browser Bridge `1.0.29`, Playwright MCP
+The pinned compatibility set is Browser Bridge `1.0.30`, Playwright MCP
 `0.0.85`, Playwright CLI `0.1.23`, Playwright Library
 `1.65.1`, and Chromium `159.0.8154.6`. The Bridge source
 closure is recorded in `configs/browser-bridge-artifacts.json`; installation

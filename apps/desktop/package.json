@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@deepseek-ai/libreoffice-kit": "0.2.3",
-    "@sparkclaw/browser-bridge": "1.0.29",
+    "@sparkclaw/browser-bridge": "1.0.30",
     "exceljs": "4.4.0",
     "papaparse": "5.7.1",
     "yauzl": "3.4.0"

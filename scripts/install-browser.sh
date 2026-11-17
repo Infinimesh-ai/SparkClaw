@@ -250,6 +250,8 @@ if [[ ! -x "$INSTALL_ROOT/chrome" || ! -r "$INSTALL_ROOT/sparkclaw-manifest.json
   [[ ! -e "$INSTALL_ROOT" ]] || sudo rm -rf -- "$INSTALL_ROOT"
   sudo install -d -m 0755 "$INSTALL_ROOT"
   sudo cp -a "$stage/unpacked/$ARCHIVE_ROOT/." "$INSTALL_ROOT/"
+  # The sandbox profile requires a root-owned, non-writable executable path.
+  sudo chown -R root:root "$INSTALL_ROOT"; sudo chmod -R go-w "$INSTALL_ROOT"; sudo chmod 0755 "$INSTALL_ROOT"
   sudo chmod 0755 "$INSTALL_ROOT/chrome"
   sudo chown root:root "$INSTALL_ROOT/chrome_sandbox"; sudo chmod 4755 "$INSTALL_ROOT/chrome_sandbox"
   installed_version="$("$INSTALL_ROOT/chrome" --version | sed 's/[[:space:]]*$//')"

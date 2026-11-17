@@ -12,6 +12,11 @@ const PROFILE = "sparkclaw.workbench.transport.v2";
 const WIRE_LIMIT = 63488;
 const INLINE_LIMIT = 48 << 10;
 const INLINE_RESULT = Symbol("inline-result-descriptor");
+// Terminal task fences outlive reconnects because task keys carry no epoch.
+// A fence can expire once no lease (<= 10 min) or command (<= 25 s) admitted
+// before termination can still arrive; only a burst inside that window fails closed.
+const FENCE_LIMIT = 4096;
+const FENCE_RETENTION_MS = 15 * 60 * 1000;
 
 export class BrowserControllerForwarder {
   constructor({ auth, registry, runtime, userDataDir, onChange = () => {}, isTaskCanceled = () => false, onVerifiedPage = () => {} }) {
@@ -21,7 +26,7 @@ export class BrowserControllerForwarder {
     Object.assign(this, { auth, registry, runtime, onChange, isTaskCanceled, onVerifiedPage });
     this.journal = new HostJournal(path.join(userDataDir, "workbench/browser-journal"));
     this.remoteFences = new Map(); this.flights = new Map(); this.results = new ControllerResults();
-    this.cancelledTasks = new Set();
+    this.cancelledTasks = new Map(); // task key -> fenced at, in insertion order
     this.generation = 0; this.state = "ungranted"; this.admission = new ControllerAdmission();
     this.receiptTimeoutMS = 5000;
     this.authority = new AbortController(); this.lease = null;
@@ -64,14 +69,23 @@ export class BrowserControllerForwarder {
   autoConnect() { void this.#connect(this.auth.transport?.capabilities).catch(() => {}); }
   #fenceTask(binding) {
     const key = taskKey(binding);
-    if (this.cancelledTasks.size >= 1024 && !this.cancelledTasks.has(key)) {
-      this.state = "unavailable"; this.authority.abort(); this.admission.close();
-    } else this.cancelledTasks.add(key);
+    if (!this.cancelledTasks.has(key)) {
+      if (this.cancelledTasks.size >= FENCE_LIMIT) this.#expireFences();
+      if (this.cancelledTasks.size >= FENCE_LIMIT) { this.state = "unavailable"; this.authority.abort(); this.admission.close(); }
+      else this.cancelledTasks.set(key, Date.now());
+    }
     for (const flight of this.flights.values()) if (flight.taskKey === key) {
       flight.abort.abort(); delete flight.inline;
       if (flight.reply) delete flight.reply.payload;
     }
     this.results.discardTask(binding);
+  }
+  #expireFences() {
+    const cutoff = Date.now() - FENCE_RETENTION_MS;
+    for (const [key, fencedAt] of this.cancelledTasks) {
+      if (fencedAt > cutoff) break;
+      this.cancelledTasks.delete(key);
+    }
   }
   cancelTask(binding) { return this.endTask(binding, "task_canceled"); }
   async endTask(binding, reason = "task_ended") {

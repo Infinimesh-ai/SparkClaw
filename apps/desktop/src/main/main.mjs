@@ -447,6 +447,8 @@ async function start() {
     presentation,
     scriptHost,
     qualification,
+    confirmUnload: () => qualification || dialog.showMessageBoxSync(window, { type: "question", buttons: ["离开", "留下"], defaultId: 0, cancelId: 1,
+      noLink: true, title: "离开此网站？", message: "离开此网站？", detail: "系统可能不会保存你所做的更改。" }) === 0,
   });
   registry.onHumanPage = record => {
     if (qualification || !localIdentity() || !record.hostBinding) return;

@@ -85,6 +85,9 @@ export function BrowserPanel({ language, localConversationID, open = true,
   const shownRef = useRef(shown); shownRef.current = shown;
   const creating = useRef<Promise<string> | null>(null);
   const selectionRequest = useRef(0);
+  // Closing is confirmed by the page's removal (beforeunload may keep it open);
+  // the neighbor chosen at click time is selected once the tab is gone.
+  const closing = useRef<{ pageRef: string; neighbor: string } | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
   const focusedRequest = useRef(0);
   const opened = useRef<string | null>(null);
@@ -114,7 +117,17 @@ export function BrowserPanel({ language, localConversationID, open = true,
   const activePage = pages.find((page) => page.page_ref === selectedPageRef);
   const blankPage = !activePage || activePage.url === "about:blank";
   useEffect(() => {
-    if (selectedPageRef && !activePage && !creating.current) setSelectedPageRef("");
+    // Drafts of closed tabs are dropped once the page is gone, not at click time.
+    const live = new Set((state?.pages ?? []).map(candidate => candidate.page_ref));
+    for (const ref of drafts.current.keys()) if (ref && !live.has(ref)) drafts.current.delete(ref);
+  }, [state]);
+  useEffect(() => {
+    if (!selectedPageRef || activePage || creating.current) return;
+    const closed = closing.current?.pageRef === selectedPageRef ? closing.current : null;
+    closing.current = null;
+    const neighbor = closed && pages.some(candidate => candidate.page_ref === closed.neighbor) ? closed.neighbor : "";
+    setSelectedPageRef(neighbor);
+    if (closed) { setAddress(""); setFocusRequest(value => value + 1); }
   }, [selectedPageRef, activePage, pages]);
 
   const create = useCallback((url?: string): Promise<string> => {
@@ -275,21 +288,19 @@ export function BrowserPanel({ language, localConversationID, open = true,
     const target = resolveBrowserInput(address);
     drafts.current.delete(selectedPageRef);
     if (userAction(activePage, "navigate") && activePage) run(desktop.navigatePersonal(activePage.page_ref, target));
-    else if (!activePage) void create(target);
+    else void create(target); // A read-only task page opens the address in a new tab, as before.
   };
   const choose = (page: DesktopPage) => { selectionRequest.current++; setSelectedPageRef(page.page_ref); setMenuOpen(false); onShowBrowser?.(); };
   const browserSelected = !conversationInFront;
-  const close = (page: DesktopPage) => run(desktop.closePersonal(page.page_ref).then(async () => {
-    // beforeunload can cancel close; retain the address draft and selection.
-    const latest = await desktop.state();
-    if (latest.pages.some(candidate => candidate.page_ref === page.page_ref)) return;
-    drafts.current.delete(page.page_ref);
+  const close = (page: DesktopPage) => {
     if (page.page_ref === selectedPageRef) {
       const remaining = pages.filter(candidate => candidate.page_ref !== page.page_ref);
       const neighbor = remaining[Math.min(pages.indexOf(page), remaining.length - 1)];
-      setSelectedPageRef(neighbor?.page_ref ?? ""); setAddress(""); setFocusRequest(value => value + 1);
+      closing.current = { pageRef: page.page_ref, neighbor: neighbor?.page_ref ?? "" };
     }
-  }));
+    // The page leaves the state once it is really closed; beforeunload may keep it.
+    run(desktop.closePersonal(page.page_ref));
+  };
   const leaveBrowser = () => {
     setShowTransfers(false); setMenuOpen(false); setWide(false);
     run(desktop.hideBrowser());
@@ -325,7 +336,7 @@ export function BrowserPanel({ language, localConversationID, open = true,
         <button type="button" disabled={!userAction(activePage, "navigate")} onClick={() => activePage && userAction(activePage, "navigate") && run(desktop.personalNavigation(activePage.page_ref, "reload"))} title={text.reload}><RefreshCw size={14} /></button>
         <div className="desktopOmnibox">
           <input ref={addressRef} aria-label={text.address} placeholder={text.address} value={address} onChange={(event) => { setAddress(event.target.value); drafts.current.set(selectedPageRef, event.target.value); }} autoComplete="off" spellCheck={false} />
-          <button type="submit" disabled={!address.trim() || Boolean(activePage && !userAction(activePage, "navigate"))} title={text.go} aria-label={text.go}><ArrowUpRight size={14} /></button>
+          <button type="submit" disabled={!address.trim()} title={text.go} aria-label={text.go}><ArrowUpRight size={14} /></button>
         </div>
         <button type="button" className={`desktopTransfersButton ${showTransfers ? "selected" : ""}`} onClick={toggleTransfers} title={text.transfers} aria-label={text.transfers}>
           <Download size={14} />{(state?.downloads.length ?? 0) + (state?.permissions.length ?? 0) > 0 && <small>{(state?.downloads.length ?? 0) + (state?.permissions.length ?? 0)}</small>}

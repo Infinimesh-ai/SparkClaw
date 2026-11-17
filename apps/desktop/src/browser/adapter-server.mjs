@@ -136,7 +136,7 @@ export class ElectronAdapterServer {
     if (association.connectionID) {
       const cleanup = Promise.resolve(this.registry.closeConnection(association.connectionID, reason));
       this.controllerCleanups.add(cleanup);
-      void cleanup.then(() => this.controllerCleanups.delete(cleanup), () => {});
+      void cleanup.finally(() => this.controllerCleanups.delete(cleanup)).catch(() => {});
       this.relays.get(association.connectionID)?.close(reason);
       this.relays.delete(association.connectionID);
       return cleanup;

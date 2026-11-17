@@ -38,7 +38,7 @@ export class PageInteractions {
     for (const group of groups) {
       // A detached debugger/read may still have an outstanding native promise.
       // Failure or a stuck operation leaves the original group read-only.
-      await Promise.all([...group.pages].map(page => page.executionCleanup));
+      await Promise.allSettled([...group.pages].map(page => page.executionCleanup));
       if (group.state !== "releasing" || [...group.pages].some(page => !page.destroyed &&
           (page.connectionID || !page.executionClean || page.executionWork?.size))) continue;
       group.state = "human"; group.revision++;

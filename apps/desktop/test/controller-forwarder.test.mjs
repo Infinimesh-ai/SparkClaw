@@ -330,3 +330,21 @@ test("failed task cleanup keeps its admission slot occupied and reports no handb
   assert.equal(f.forwarder.state, "unavailable"); assert.equal(completed.length, 0);
   f.runtime.stop = async () => {}; // fixture teardown cannot prove production cleanup.
 });
+
+test("terminal fences expire after the lease window instead of exhausting browser availability", async t => {
+  const f = await fixture(t), b = binding();
+  await f.acquireTask(b);
+  const now = Date.now; let offset = 0;
+  t.mock.method(Date, "now", () => now.call(Date) + offset);
+  const ended = id => ({ ...scope, local_conversation_id: "ended", local_task_id: `ended-${id}` });
+  for (let i = 0; i < 4096; i++) await f.forwarder.endTask(ended(i), "completed");
+  assert.equal(f.forwarder.state, "connected", "ordinary terminal facts fill the fence table without disabling the browser");
+  offset = 16 * 60 * 1000;
+  await f.forwarder.endTask(ended("late"), "completed");
+  assert.equal(f.forwarder.state, "connected");
+  assert.equal(f.forwarder.cancelledTasks.size, 1, "fences older than any admissible lease are retired");
+  for (let i = 0; i < 4095; i++) await f.forwarder.endTask(ended(`burst-${i}`), "completed");
+  assert.equal(f.forwarder.state, "connected");
+  await f.forwarder.endTask(ended("overflow"), "completed");
+  assert.equal(f.forwarder.state, "unavailable", "a burst inside the lease window still fails closed");
+});

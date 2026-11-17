@@ -98,12 +98,15 @@ export async function qualifyHandback({ registry, browserSession, window, shield
     assert.equal(page.webContents.id, nativeID); assert.equal(page.webContents.navigationHistory.canGoBack(), true);
     await evaluate(`window.sparkclawDesktop.personalNavigation(${JSON.stringify(page.pageRef)}, 'back')`);
     await until(() => page.webContents.getURL() === "https://fixture.test/handback" && !page.webContents.isLoading(), "human back failed");
-    // A canceled beforeunload retains the native page; the second close succeeds.
+    // The owner choosing to stay at beforeunload retains the native page; the second close succeeds.
+    const confirmUnload = registry.confirmUnload; let asked = 0;
+    registry.confirmUnload = () => { asked++; return false; };
     await page.webContents.executeJavaScript("window.onbeforeunload=()=>false;void 0", true);
     let prevented = false; page.webContents.once("will-prevent-unload", () => { prevented = true; });
     await evaluate(`window.sparkclawDesktop.closePersonal(${JSON.stringify(page.pageRef)})`);
     await until(() => prevented, "beforeunload was not observed");
-    assert.equal(page.webContents.isDestroyed(), false);
+    assert.equal(page.webContents.isDestroyed(), false); assert.equal(asked, 1);
+    registry.confirmUnload = confirmUnload;
     if (evidenceRoot) await fs.writeFile(path.join(evidenceRoot, "handed-back.png"), (await window.webContents.capturePage()).toPNG());
     await page.webContents.executeJavaScript("window.onbeforeunload=null");
     // Keep the page alive for a new-task isolation check before closing it.

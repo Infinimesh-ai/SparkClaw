@@ -350,8 +350,13 @@ separate. No new Gateway operation, Store schema or remote pause/resume protocol
   observations. Native reads, CDP work and hidden capture hints must settle after detachment.
   Cleanup failure keeps input locked and admission occupied. A late response can settle its
   original receipt but cannot publish page data or change a replacement execution.
+  A failed page cleanup locks only that page: other connections and the Controller keep
+  working, and native work that settles after the drain timeout hands the page back then.
+  Terminal fences survive reconnects and expire 15 minutes after termination, beyond the
+  longest lease; only more than 4096 terminal tasks inside that window fail closed.
 - Presented/selected result pages and owned popups survive cleanup. Human navigation, history,
-  context menus, permissions and downloads use the original page. Close respects `beforeunload`.
+  context menus, permissions and downloads use the original page. Close respects `beforeunload`
+  by asking the owner to leave or stay; without a prompt the page closes.
   Task download teardown keeps the original bounded ownership; human downloads are not registered
   as Controller artifacts, and retired adapter download listeners are removed.
 - `browser_view:` metadata stores safe human browsing bookmarks separately from verified

@@ -7,8 +7,11 @@ import { loadPersonalPage } from "./personal-page-load.mjs";
 const ALLOWED_ROLES = new Set(["personal", "task"]);
 
 export class PageRegistry {
-  constructor({ runtimeGeneration, browserSession, createView, presentation, scriptHost, qualification = false }) {
+  constructor({ runtimeGeneration, browserSession, createView, presentation, scriptHost, qualification = false, confirmUnload }) {
     this.runtimeGeneration = runtimeGeneration;
+    // A page's beforeunload asks the owner, as a browser would. Without a
+    // prompt the unload proceeds so closing a tab can never silently fail.
+    this.confirmUnload = confirmUnload;
     this.browserSession = browserSession;
     this.createView = createView;
     this.presentation = presentation;
@@ -382,9 +385,9 @@ export class PageRegistry {
     }
     connection.facade?.dispose();
     this.connections.delete(connectionID);
-    const cleanup = Promise.all([...pending, ...this.cleanups]);
-    // Event callbacks may not await, but the adapter/supervisor always does.
-    void cleanup.catch(() => {});
+    // A page whose detach or native work did not settle stays read-only on its
+    // own record; that must not fail unrelated connections or the Controller.
+    const cleanup = Promise.allSettled([...pending, ...this.cleanups]).then(() => undefined);
     return cleanup;
   }
 
@@ -401,9 +404,20 @@ export class PageRegistry {
     const cleanup = failure ? Promise.reject(failure) : drainPageWork(record);
     record.executionCleanup = cleanup;
     this.cleanups.add(cleanup);
-    void cleanup.then(() => this.cleanups.delete(cleanup), () => {});
+    void cleanup.finally(() => this.cleanups.delete(cleanup)).catch(() => {});
+    // Native work that outlived the drain timeout may still settle; the page is
+    // handed back then. A failed debugger detach stays locked for good.
+    if (!failure) void cleanup.catch(() => this.#lateHandback(record));
     this.#changed();
     return cleanup;
+  }
+
+  async #lateHandback(record) {
+    while (record.executionWork?.size) await Promise.allSettled([...record.executionWork]);
+    if (record.destroyed || record.connectionID || record.executionClean) return;
+    record.executionClean = true;
+    const group = record.interaction;
+    if (group?.state === "releasing") await this.interactions.complete([group]);
   }
 
   changed() { this.#changed(); }
@@ -516,7 +530,11 @@ export class PageRegistry {
       if (!canInteract(record)) event.preventDefault();
     });
     webContents.on("will-prevent-unload", (event) => {
-      if (!canInteract(record)) event.preventDefault();
+      let leave = true;
+      if (canInteract(record) && typeof this.confirmUnload === "function") {
+        try { leave = this.confirmUnload(record) !== false; } catch { leave = true; }
+      }
+      if (leave) event.preventDefault();
       else record.userCloseRequested = false;
     });
     webContents.on("select-bluetooth-device", (event, _devices, callback) => {

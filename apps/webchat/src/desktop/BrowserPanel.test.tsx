@@ -63,7 +63,10 @@ describe("desktop browser entry", () => {
       expect(f.host.querySelector<HTMLButtonElement>('[title="Reload"]')!.disabled).toBe(true);
       await act(async () => { f.host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
       expect(f.desktop.navigatePersonal).not.toHaveBeenCalled();
-      expect(f.desktop.createPersonal).not.toHaveBeenCalled();
+      expect(f.desktop.createPersonal).toHaveBeenCalledWith("https://example.test/user-draft");
+      vi.mocked(f.desktop.createPersonal).mockClear();
+      await act(async () => { f.host.querySelector<HTMLButtonElement>('.desktopTabSelect[title="https://example.test/result"]')!.click(); });
+      await f.type("https://example.test/user-draft");
       await act(async () => f.push({ ...f.state(), revision: 2, pages: [{ ...task, interaction_state: "releasing" }] }));
       expect(f.host.querySelector(".desktopTaskNotice")).not.toBeNull();
       await act(async () => f.push({ ...f.state(), revision: 3, pages: [{ ...task, interaction_state: "human",
@@ -80,6 +83,20 @@ describe("desktop browser entry", () => {
       await act(async () => { f.host.querySelector<HTMLButtonElement>(".desktopTabClose")!.click(); });
       expect(f.input().value).toBe("cancel-close-draft");
       expect(f.host.querySelector('.desktopTabSelect[aria-selected="true"]')).not.toBeNull();
+    } finally { await f.cleanup(); }
+  });
+
+  it("selects the neighboring tab once a close that the page confirmed later actually removes it", async () => {
+    const pages = [page(1, "https://one.test/"), page(2, "https://two.test/"), page(3, "https://three.test/")];
+    const f = await fixture(pages);
+    try {
+      await f.render(true, true);
+      await act(async () => { f.host.querySelector<HTMLButtonElement>('.desktopTabSelect[title="https://two.test/"]')!.click(); });
+      f.desktop.closePersonal = vi.fn(async () => ({ completed: true as const }));
+      await act(async () => { f.host.querySelectorAll<HTMLButtonElement>(".desktopTabClose")[1]!.click(); });
+      expect(f.host.querySelector('.desktopTabSelect[aria-selected="true"]')!.getAttribute("title")).toBe("https://two.test/");
+      await act(async () => f.push({ ...f.state(), revision: 2, pages: [pages[0], pages[2]] }));
+      expect(f.host.querySelector('.desktopTabSelect[aria-selected="true"]')!.getAttribute("title")).toBe("https://three.test/");
     } finally { await f.cleanup(); }
   });
 

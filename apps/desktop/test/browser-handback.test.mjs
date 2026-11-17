@@ -109,10 +109,54 @@ test("native read settlement and debugger detach are required before handback; c
   failed.attached = true;
   failed.webContents.debugger.detach = () => { throw new Error("detach failed"); };
   const failingGroups = registry.beginTaskEnd(binding("task-B"), "failed");
-  await assert.rejects(registry.closeConnection("failed", "task_ended"), /detach failed/);
-  await assert.rejects(registry.completeTaskEnd(failingGroups), /detach failed/);
+  await registry.closeConnection("failed", "task_ended");
+  await registry.completeTaskEnd(failingGroups);
   assert.equal(failed.interaction.state, "releasing");
   assert.equal(registry.desktopSnapshot().find(p => p.page_ref === failed.pageRef).capabilities.interact, false);
+  // The locked page is local: later tasks still connect, clean up and hand back.
+  connect("after", binding("task-C"));
+  const later = registry.createTaskPage("after", "https://example.test/c");
+  const laterGroups = registry.beginTaskEnd(binding("task-C"), "completed");
+  await registry.closeConnection("after", "task_ended");
+  await registry.completeTaskEnd(laterGroups);
+  assert.equal(later.interaction.state, "human");
+  assert.equal(failed.interaction.state, "releasing", "a failed detach never unlocks");
+});
+
+test("a page's beforeunload asks the owner instead of silently keeping the tab open", async () => {
+  const { registry, connect } = fixture();
+  connect("active");
+  const page = registry.createTaskPage("active", "https://example.test/compose");
+  assert.equal(blocked(page, "will-prevent-unload"), true, "an execution-owned page never holds unload");
+  const groups = registry.beginTaskEnd(binding(), "completed");
+  await registry.closeConnection("active", "task_ended"); await registry.completeTaskEnd(groups);
+  assert.equal(blocked(page, "will-prevent-unload"), true, "without a prompt the close proceeds");
+  const answers = [];
+  registry.confirmUnload = record => { answers.push(record); return answers.length > 1; };
+  page.userCloseRequested = true;
+  assert.equal(blocked(page, "will-prevent-unload"), false, "staying keeps the page");
+  assert.equal(page.userCloseRequested, false);
+  assert.equal(blocked(page, "will-prevent-unload"), true, "leaving lets the page unload");
+  assert.deepEqual(answers, [page, page]);
+});
+
+test("native work that outlives the cleanup timeout hands the page back once it settles", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { registry, connect } = fixture();
+  connect("slow");
+  const page = registry.createTaskPage("slow", "https://example.test/slow-read");
+  let finish;
+  trackPageWork(page, () => new Promise(resolve => { finish = resolve; }));
+  const groups = registry.beginTaskEnd(binding(), "canceled");
+  const cleanup = registry.closeConnection("slow", "task_canceled");
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(5000);
+  await cleanup;
+  await registry.completeTaskEnd(groups);
+  assert.equal(page.interaction.state, "releasing", "unsettled native work keeps the page read-only");
+  finish();
+  for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.interaction.state, "human");
 });
 
 test("execution popups stay locked; human popups retain provenance without gaining Controller authority", async () => {

@@ -4,10 +4,16 @@
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
-  "engines": { "node": ">=24 <27" },
+  "engines": {
+    "node": ">=24 <27"
+  },
   "dependencies": {
-    "@playwright/mcp": "0.0.80",
-    "playwright": "1.63.0-alpha-2026-08-31",
-    "playwright-core": "1.63.0-alpha-2026-08-31"
+    "@playwright/mcp": "0.0.85",
+    "playwright": "1.65.1",
+    "playwright-core": "1.65.1"
+  },
+  "overrides": {
+    "playwright": "$playwright",
+    "playwright-core": "$playwright-core"
   }
 }

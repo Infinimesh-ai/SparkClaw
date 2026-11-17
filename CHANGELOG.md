@@ -87,6 +87,19 @@ The project is pre-1.0. Breaking changes may occur, but they should be documente
 
 ### Changed
 
+- Dependencies follow upstream within their current major versions: Go 1.27.4
+  (Go 1.25 left upstream support) with refreshed `golang.org/x/*` and pgx 5.13;
+  Node.js 26.13.1; Playwright Library/Core 1.65.1, Playwright MCP 0.0.85 and
+  Playwright CLI 0.1.23 with the download/completion patches re-anchored; the
+  fixed host Chromium 159.0.8154.6 (Playwright build 1255 on ARM64, Chrome for
+  Testing on x86_64); Electron 44.11.3; Gotenberg 8.40.0 with LibreOffice
+  26.8.2.2 and pypdfium2 5.15.2 for PPTX visual QA; and Alpine 3.24, nginx
+  1.31, Debian 13 Node/distroless base images. The Gateway accepts only the new
+  Desktop controller versions, so Gateway and Desktop must be released together.
+  Breaking major upgrades (Electron 45, TypeScript 7, Vitest 5, lucide-react 1,
+  jsdom 31, @electron/asar 4, Gotenberg 9, msoffcrypto-tool 6) and the ASR
+  runtime packages inside the vLLM image are deferred.
+
 - WebChat and the SparkX desktop client follow the updated Spark X design: a
   compact density pass across shared surfaces, a labelled New conversation entry,
   device-local conversation archiving, simplified message headers and a quieter

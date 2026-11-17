@@ -364,7 +364,7 @@ class LocalComposeTest(unittest.TestCase):
         gotenberg = config["services"]["gotenberg"]
         self.assertEqual(
             gotenberg["image"],
-            "gotenberg/gotenberg:8.36.0@sha256:87c16b9f364279d321bc9772d31fa58aa6abe036423c270698bd636c3a8e9466",
+            "gotenberg/gotenberg:8.40.0@sha256:53073e798c8ef39ea2187e44cb67bab77894ea2509100b94c4fe3b461f7b2996",
         )
         self.assertEqual(
             config["services"]["gateway"]["depends_on"]["gotenberg"]["condition"],
@@ -447,7 +447,7 @@ class LocalComposeTest(unittest.TestCase):
         self.assertNotIn(" chromium", dockerfile.lower())
         self.assertNotIn("xvfb", dockerfile.lower())
         self.assertIn("browser_controller_smoke.mjs", dockerfile)
-        self.assertIn("pypdfium2==5.12.1", DOCUMENT_REQUIREMENTS.read_text(encoding="utf-8"))
+        self.assertIn("pypdfium2==5.15.2", DOCUMENT_REQUIREMENTS.read_text(encoding="utf-8"))
 
     def test_webchat_has_no_pairing_listener(self) -> None:
         nginx = WEBCHAT_NGINX.read_text(encoding="utf-8")

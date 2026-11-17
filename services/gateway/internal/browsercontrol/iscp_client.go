@@ -107,7 +107,7 @@ func (c *ISCPControllerClient) ControllerStatus(ctx context.Context) (result Cli
 		status.Limits.ResponseBytes != maxControllerExecutionResponseBytes || status.Limits.TimeoutMS < 1 || status.Limits.TimeoutMS > 25000 ||
 		status.Limits.CacheBytes != 20<<20 || status.Limits.WireBytes < 4096 || status.Limits.WireBytes > controllerWireLimit ||
 		status.Limits.ChunkBytes < 1 || status.Limits.ChunkBytes > controllerChunkLimit || status.Limits.ChunkConcurrency < 1 || status.Limits.ChunkConcurrency > 4 ||
-		status.Versions["@playwright/mcp"] != "0.0.80" || status.Versions["playwright"] != "1.63.0-alpha-2026-08-31" || status.Versions["playwright-core"] != "1.63.0-alpha-2026-08-31" {
+		status.Versions["@playwright/mcp"] != "0.0.85" || status.Versions["playwright"] != "1.65.1" || status.Versions["playwright-core"] != "1.65.1" {
 		return ClientControllerStatus{}, invalidControllerResponse()
 	}
 	switch status.ProcessState {

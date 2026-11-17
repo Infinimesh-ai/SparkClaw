@@ -1,8 +1,8 @@
 {
   "recorded": {
-    "playwright_mcp": "0.0.80",
-    "playwright_cli": "0.1.19",
-    "playwright_core": "1.63.0-alpha-2026-08-31",
+    "playwright_mcp": "0.0.85",
+    "playwright_cli": "0.1.23",
+    "playwright_core": "1.65.1",
     "browser_channel": "chrome",
     "fixture_url": "http://127.0.0.1:48765/fixture",
     "note": "Recorded by record-playwright-golden.mjs against a local headless browser; screenshot bytes are elided."
@@ -13,6 +13,7 @@
       "browser_resize",
       "browser_console_messages",
       "browser_handle_dialog",
+      "browser_emulate_media",
       "browser_evaluate",
       "browser_file_upload",
       "browser_drop",
@@ -143,7 +144,7 @@
       "content": [
         {
           "type": "text",
-          "text": "{\n  \"result\": \"Waited for 0.1\"\n}"
+          "text": "{\n  \"result\": \"Waited for 0.1 seconds\"\n}"
         }
       ]
     },
@@ -155,7 +156,7 @@
         },
         {
           "type": "image",
-          "data": "<18022 bytes elided>",
+          "data": "<18017 bytes elided>",
           "mimeType": "image/png"
         }
       ]

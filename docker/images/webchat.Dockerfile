@@ -8,7 +8,7 @@ COPY apps/desktop/src/assets/icon.png apps/desktop/src/assets/icon.png
 COPY apps/webchat apps/webchat
 RUN npm --workspace @sparkclaw/webchat run build
 
-FROM nginx:1.29-alpine
+FROM nginx:1.31-alpine
 # The stock nginx entrypoint renders /etc/nginx/templates/*.template with
 # envsubst on start. The filter limits substitution to SPARKCLAW_* variables
 # so nginx's own $request_uri/$http_* variables pass through untouched.

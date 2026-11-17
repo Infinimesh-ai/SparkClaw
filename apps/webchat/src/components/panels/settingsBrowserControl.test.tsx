@@ -28,8 +28,8 @@ const ready: BrowserExtensionStatus = {
   last_validated_at: "2026-09-04T02:30:00Z",
   versions: {
     client: "playwright-mcp",
-    client_version: "0.0.80",
-    playwright_version: "1.63.0-alpha-2026-08-31",
+    client_version: "0.0.85",
+    playwright_version: "1.65.1",
     browser_channel: "chrome"
   }
 };
@@ -76,7 +76,7 @@ describe("Browser control settings", () => {
     await act(async () => { (container.querySelector("form") as HTMLFormElement).requestSubmit(); });
     expect(save).toHaveBeenCalledWith("qualification-token-value");
     expect(input.value).toBe("");
-    expect(container.textContent).toContain("playwright-mcp 0.0.80");
+    expect(container.textContent).toContain("playwright-mcp 0.0.85");
 
     const checkButton = container.querySelector(`button[title="${dictionaries.en.settings.checkConnection}"]`) as HTMLButtonElement;
     await act(async () => checkButton.click());

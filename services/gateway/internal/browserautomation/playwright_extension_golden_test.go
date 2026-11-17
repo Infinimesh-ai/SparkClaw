@@ -60,7 +60,7 @@ func (g playwrightGolden) payload(t *testing.T, key string) map[string]any {
 
 func TestPlaywrightSnapshotRefsFromRecordedSnapshot(t *testing.T) {
 	golden := loadPlaywrightGolden(t)
-	if golden.Recorded.PlaywrightMCP != "0.0.80" {
+	if golden.Recorded.PlaywrightMCP != "0.0.85" {
 		t.Fatalf("golden was recorded from @playwright/mcp %q; update the pinned expectations", golden.Recorded.PlaywrightMCP)
 	}
 

@@ -208,7 +208,7 @@ func validationResult(controller, session, page int64) ValidationResult {
 	return ValidationResult{
 		SchemaVersion: 1, State: "ready", ProfileID: "default",
 		ControllerGeneration: controller, SessionGeneration: session, PageGeneration: page,
-		Versions: Versions{Client: "playwright-mcp", ClientVersion: "0.0.80", PlaywrightVersion: "1.63.0-alpha-2026-08-31", BrowserChannel: "chromium"},
+		Versions: Versions{Client: "playwright-mcp", ClientVersion: "0.0.85", PlaywrightVersion: "1.65.1", BrowserChannel: "chromium"},
 	}
 }
 

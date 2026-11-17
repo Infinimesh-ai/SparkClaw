@@ -183,10 +183,10 @@ check "docker" bash -lc "$DOCKER_BIN --version"
 check "docker compose" bash -lc "$DOCKER_BIN compose version"
 GO_BIN="${GO_BIN:-$(command -v go 2>/dev/null || true)}"
 if [[ -z "$GO_BIN" ]]; then
-  echo "err Go 1.25 is required on the host"
+  echo "err Go 1.27 is required on the host"
   exit 1
 fi
-check "Go 1.25" bash -lc '[[ "$("$1" version)" == "go version go1.25."* ]]' _ "$GO_BIN"
+check "Go 1.27" bash -lc '[[ "$("$1" version)" == "go version go1.27."* ]]' _ "$GO_BIN"
 
 for dir in data/workspaces data/traces data/artifacts data/logs data/memory data/eval configs docker; do
   if [[ ! -d "$dir" ]]; then

@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.work ./
 COPY services/gateway/go.mod services/gateway/go.mod
@@ -6,7 +6,7 @@ COPY services/gateway services/gateway
 RUN go build -o /out/sparkclaw ./services/gateway/cmd/sparkclaw \
     && go build -o /out/iscp-bridge ./services/gateway/cmd/iscp-bridge
 
-FROM node:26-bookworm-slim
+FROM node:26-trixie-slim
 WORKDIR /app
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates ffmpeg fonts-noto-cjk \

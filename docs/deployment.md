@@ -44,7 +44,7 @@ node --version  # must report v26.x
 npm --version   # must report 11.x
 ```
 
-Go 1.25 is needed only for host-side development and is not required by either
+Go 1.27 is needed only for host-side development and is not required by either
 containerized product deployment.
 
 ## One-Command DGX Spark Deployment

@@ -54,7 +54,7 @@ func newControllerWireFixture(t *testing.T) (*controllerWireFixture, *ISCPContro
 func (f *controllerWireFixture) ControllerCall(ctx context.Context, operation string, raw json.RawMessage) (json.RawMessage, error) {
 	if operation == "browser.controller.status" {
 		return wireJSON(ClientControllerStatus{SchemaVersion: 1, Protocol: ClientControllerProtocol, Available: true, ProcessState: "stopped",
-			Versions: map[string]string{"@playwright/mcp": "0.0.80", "playwright": "1.63.0-alpha-2026-08-31", "playwright-core": "1.63.0-alpha-2026-08-31"},
+			Versions: map[string]string{"@playwright/mcp": "0.0.85", "playwright": "1.65.1", "playwright-core": "1.65.1"},
 			Limits:   ControllerWireLimits{ResponseBytes: 10 << 20, TimeoutMS: 25000, WireBytes: 63488, CacheBytes: 20 << 20, ChunkBytes: 32768, ChunkConcurrency: 4}}), nil
 	}
 	var input map[string]json.RawMessage

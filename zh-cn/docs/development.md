@@ -77,7 +77,7 @@ Owner package 不得依赖 Gateway handler 或 WebChat concern。Adapter 实现 
 
 ## 安装
 
-已验证的宿主基线是 Ubuntu ARM64、Go 1.25、Node.js 26、npm 11、Python 3.12
+已验证的宿主基线是 Ubuntu ARM64、Go 1.27、Node.js 26、npm 11、Python 3.12
 和 Docker。`.nvmrc`、CI 与 Docker build 都使用 Node 26，使宿主和容器验证保持
 相同主版本。
 

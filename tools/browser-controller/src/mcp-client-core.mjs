@@ -95,8 +95,8 @@ export class PlaywrightMCPClientFactory {
   info() {
     return {
       client: "playwright-mcp",
-      client_version: "0.0.80",
-      playwright_version: "1.63.0-alpha-2026-08-31",
+      client_version: "0.0.85",
+      playwright_version: "1.65.1",
       browser_channel: this.browserChannel,
     };
   }

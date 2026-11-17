@@ -48,7 +48,7 @@ func (f *controllerDesktop) ControllerCall(_ context.Context, operation string, 
 	f.operations = append(f.operations, operation)
 	if operation == "browser.controller.status" {
 		return controllerJSON(browsercontrol.ClientControllerStatus{SchemaVersion: 1, Protocol: browsercontrol.ClientControllerProtocol, Available: true, ProcessState: "stopped",
-			Versions: map[string]string{"@playwright/mcp": "0.0.80", "playwright": "1.63.0-alpha-2026-08-31", "playwright-core": "1.63.0-alpha-2026-08-31"},
+			Versions: map[string]string{"@playwright/mcp": "0.0.85", "playwright": "1.65.1", "playwright-core": "1.65.1"},
 			Limits:   browsercontrol.ControllerWireLimits{ResponseBytes: 10 << 20, TimeoutMS: 25000, WireBytes: 63488, CacheBytes: 20 << 20, ChunkBytes: 32768, ChunkConcurrency: 4}}), nil
 	}
 	var body struct {

@@ -65,7 +65,7 @@ export async function openPinnedSession(sessionName, directory) {
   const command=await fs.readFile(`/proc/${metadata.pid}/cmdline`);
   if(!command.toString().split('\0').includes(sessionName))throw clientContractError();
   const require=createRequire(import.meta.url);
-  if(require('../node_modules/playwright-core/package.json').version!=='1.63.0-alpha-2026-08-31')throw clientContractError();
+  if(require('../node_modules/playwright-core/package.json').version!=='1.65.1')throw clientContractError();
   const {Session}=require('../node_modules/playwright-core/lib/tools/cli-client/session.js');
   const {Registry,createClientInfo}=require('../node_modules/playwright-core/lib/tools/cli-client/registry.js');
   const info=createClientInfo();

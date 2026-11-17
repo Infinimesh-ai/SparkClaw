@@ -7,8 +7,8 @@
 | 状态 | Runtime 实现已于 2026-09-01 完成；部署默认仍为 shadow，且未授予 repair 或 blocking 资格 |
 | 决策日期 | 2026-09-01 |
 | 范围 | 所有可能发布新演示文稿的受治理 PPTX mutation |
-| 权威 renderer | Gotenberg `8.36.0` 加 LibreOffice `26.2.5.2` |
-| Rasterizer | pypdfium2 `5.12.1` |
+| 权威 renderer | Gotenberg `8.40.0` 加 LibreOffice `26.8.2.2` |
+| Rasterizer | pypdfium2 `5.15.2` |
 | 视觉审查器 | Runtime 当前活动 profile 解析出的 Fast 模型 |
 | 发布规则 | 只发布被已记录证据覆盖的同一份密封 candidate |
 | 决策所有者 | SparkClaw Workflow Runtime |
@@ -49,9 +49,9 @@ warning、repair 授权、停止与 blocking 决策均由 Runtime 负责，不�
 
 目标 Runtime 路径已完成实现，并受 operator 所有的 rollout 与 qualification gate 控制：
 
-- Compose 运行按 digest 固定的 Gotenberg `8.36.0` 镜像，Gateway 只使用其私有
+- Compose 运行按 digest 固定的 Gotenberg `8.40.0` 镜像，Gateway 只使用其私有
   LibreOffice 转换 endpoint。
-- 文档 runtime 与 Gateway image 安装严格固定的 `pypdfium2==5.12.1`。
+- 文档 runtime 与 Gateway image 安装严格固定的 `pypdfium2==5.15.2`。
 - 现有审批前临时 candidate 路径会对六种受治理 PPTX mutation 调用视觉 QA：
   `replace_text`、`add_slide`、`update_slide`、`update_deck`、`duplicate_slide` 与
   `delete_slide`。
@@ -404,9 +404,9 @@ package 验证，包括有界展开、必需 presentation part、relationship �
 Gateway 把每份 job-local candidate attempt 精确发送一次到一个私有 Gotenberg endpoint。
 请求不能覆盖 endpoint、LibreOffice option、font path 或 output location。选定基准为：
 
-- Gotenberg `8.36.0`，使用 image manifest digest
-  `sha256:87c16b9f364279d321bc9772d31fa58aa6abe036423c270698bd636c3a8e9466` 固定；
-- image 内的 LibreOffice `26.2.5.2`；
+- Gotenberg `8.40.0`，使用 image manifest digest
+  `sha256:53073e798c8ef39ea2187e44cb67bab77894ea2509100b94c4fe3b461f7b2996` 固定；
+- image 内的 LibreOffice `26.8.2.2`；
 - 使用版本化 manifest digest 标识的只读 font bundle。
 
 改变 Gotenberg digest、LibreOffice version 或 font manifest 都属于视觉基准变更，必须重新
@@ -455,7 +455,7 @@ identity。资格测试使用解码后的 page-pixel 稳定性。
 
 ### 4. Rasterization
 
-pypdfium2 `5.12.1` 从同一份 PDF 的选定页面读取有界 text/glyph 证据并渲染。PNG 使用固定 RGB
+pypdfium2 `5.15.2` 从同一份 PDF 的选定页面读取有界 text/glyph 证据并渲染。PNG 使用固定 RGB
 scale、color policy 与 encoder 设置。分辨率必须处于配置的 Fast 图片限制内，并保留资格测试
 corpus 覆盖的最小文字尺寸。
 
@@ -655,9 +655,9 @@ class 分别通过资格测试。模型不能改变 rollout state、threshold、
 | `SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS` | accepted plan 中允许的 internal repair operation，逗号分隔 | 空 |
 | `SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES` | 允许 blocking 的严重 class，逗号分隔 | 空 |
 | `SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS` | 初始 candidate 之后的 repair attempt 数，限制为 `0..2` | `2` |
-| `SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION` | 部署所固定的 Gotenberg 版本；每个转换窗口前通过 `GET /version` 校验，并记录进 sealed manifest | `8.36.0` |
-| `SPARKCLAW_PPTX_VISUAL_QA_LIBREOFFICE_VERSION` | 该 Gotenberg 镜像内置的 LibreOffice 版本；记录进 sealed manifest | `26.2.5.2` |
-| `SPARKCLAW_PPTX_VISUAL_QA_PDFIUM_VERSION` | 文档运行时固定的 pypdfium2 版本；与分析脚本上报的版本校验，并记录进 sealed manifest | `5.12.1` |
+| `SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION` | 部署所固定的 Gotenberg 版本；每个转换窗口前通过 `GET /version` 校验，并记录进 sealed manifest | `8.40.0` |
+| `SPARKCLAW_PPTX_VISUAL_QA_LIBREOFFICE_VERSION` | 该 Gotenberg 镜像内置的 LibreOffice 版本；记录进 sealed manifest | `26.8.2.2` |
+| `SPARKCLAW_PPTX_VISUAL_QA_PDFIUM_VERSION` | 文档运行时固定的 pypdfium2 版本；与分析脚本上报的版本校验，并记录进 sealed manifest | `5.15.2` |
 
 加载时会拒绝未知或重复的 class/operation、未同时 repair-qualified 的 blocking class、
 超出 `0..2` 的 attempt 限制，以及不是点分数字版本号的渲染器 pin。运行中的 Gotenberg 或

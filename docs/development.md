@@ -94,7 +94,7 @@ implement typed interfaces; they do not redefine domain records.
 
 ## Setup
 
-The validated host baseline is Ubuntu ARM64 with Go 1.25, Node.js 26, npm 11,
+The validated host baseline is Ubuntu ARM64 with Go 1.27, Node.js 26, npm 11,
 Python 3.12, and Docker. `.nvmrc`, CI, and Docker builds use Node 26 so host and
 container validation stay on the same major version.
 

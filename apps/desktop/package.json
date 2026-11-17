@@ -25,7 +25,7 @@
     "@deepseek-ai/libreoffice-kit": "0.2.3",
     "@sparkclaw/browser-bridge": "1.0.29",
     "exceljs": "4.4.0",
-    "papaparse": "5.7.0",
+    "papaparse": "5.7.1",
     "yauzl": "3.4.0"
   },
   "engines": {
@@ -34,8 +34,8 @@
   },
   "devDependencies": {
     "@electron/asar": "3.4.1",
-    "electron": "44.4.3",
-    "electron-builder": "26.15.3"
+    "electron": "44.11.3",
+    "electron-builder": "26.18.0"
   },
   "build": {
     "appId": "ai.infinimesh.sparkclaw",

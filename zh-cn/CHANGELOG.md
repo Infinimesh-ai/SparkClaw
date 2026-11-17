@@ -64,6 +64,18 @@
 
 ### Changed
 
+- 依赖在当前主版本内同步上游：Go 1.27.4（Go 1.25 已退出上游支持），并更新
+  `golang.org/x/*` 与 pgx 5.13；Node.js 26.13.1；Playwright Library/Core 1.65.1、
+  Playwright MCP 0.0.85、Playwright CLI 0.1.23，下载/完成补丁已重新定位；固定的
+  宿主 Chromium 159.0.8154.6（ARM64 使用 Playwright build 1255，x86_64 使用
+  Chrome for Testing）；Electron 44.11.3；PPTX 视觉质检使用 Gotenberg 8.40.0、
+  LibreOffice 26.8.2.2 与 pypdfium2 5.15.2；基础镜像升级为 Alpine 3.24、nginx
+  1.31 以及 Debian 13 的 Node/distroless 镜像。Gateway 只接受新的 Desktop
+  controller 版本，因此 Gateway 与 Desktop 必须成对发布。有破坏性变更的大版本
+  （Electron 45、TypeScript 7、Vitest 5、lucide-react 1、jsdom 31、
+  @electron/asar 4、Gotenberg 9、msoffcrypto-tool 6）以及 vLLM 镜像内的 ASR
+  运行时依赖暂缓升级。
+
 - WebChat 和 SparkX 桌面客户端对齐更新后的 Spark X 设计：共享界面整体收紧密度，
   新增带文字的“新建对话”入口、仅保存在本机的对话归档，简化消息头部并采用更轻的欢迎页。
   桌面端绘制自己的标题栏，内嵌 macOS 窗口控件并提供后退/前进页面历史。

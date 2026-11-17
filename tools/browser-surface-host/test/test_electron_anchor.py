@@ -294,7 +294,7 @@ class ElectronAnchorQualificationTest(unittest.TestCase):
         self.processes.append(process)
         information = read_json(process, timeout=15)
         self.assertEqual(information.get("event"), "ready")
-        self.assertEqual(information.get("electron"), "44.4.3")
+        self.assertEqual(information.get("electron"), "44.11.3")
         self.assertRegex(str(information.get("chromium", "")), r"^\d+\.\d+\.\d+\.\d+$")
         return process, information
 

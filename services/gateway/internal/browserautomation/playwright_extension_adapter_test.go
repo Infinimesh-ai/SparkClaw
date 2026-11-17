@@ -314,7 +314,7 @@ func newFakePlaywrightController() *fakePlaywrightController {
 func (c *fakePlaywrightController) Status(context.Context) browsercontrol.Status {
 	return browsercontrol.Status{
 		Configured: true, State: app.IntegrationStateReady, ProfileID: "default", CredentialGeneration: 7,
-		Versions: browsercontrol.Versions{Client: "playwright-mcp", ClientVersion: "0.0.80"},
+		Versions: browsercontrol.Versions{Client: "playwright-mcp", ClientVersion: "0.0.85"},
 	}
 }
 

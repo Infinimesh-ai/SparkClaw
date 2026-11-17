@@ -1,11 +1,11 @@
-FROM golang:1.25-alpine AS build
+FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.work ./
 COPY services/gateway/go.mod services/gateway/go.mod
 COPY services/gateway services/gateway
 RUN go build -o /out/sparkclaw-sandbox-runner ./services/gateway/cmd/sandbox-runner
 
-FROM alpine:3.22
+FROM alpine:3.24
 WORKDIR /app
 RUN apk add --no-cache docker-cli
 COPY --from=build /out/sparkclaw-sandbox-runner /usr/local/bin/sparkclaw-sandbox-runner

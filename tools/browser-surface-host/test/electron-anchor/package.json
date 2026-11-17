@@ -5,6 +5,6 @@
   "description": "Disposable Electron anchor fixture for isolated X11 surface-host qualification.",
   "license": "Apache-2.0",
   "devDependencies": {
-    "electron": "44.4.3"
+    "electron": "44.11.3"
   }
 }

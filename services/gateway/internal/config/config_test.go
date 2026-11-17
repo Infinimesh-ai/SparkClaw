@@ -250,7 +250,7 @@ func TestLoadDefaultsOptionalFeaturesOff(t *testing.T) {
 	if visual.TimeoutSeconds != 120 || visual.MaxInputBytes != 64<<20 || visual.MaxPDFBytes != 64<<20 || visual.MaxPages != 100 || visual.MaxChangedPages != 20 || visual.RasterScale != 1.5 || visual.MaxPagePixels != 20_000_000 || visual.MaxPNGBytes != 12<<20 || visual.DiagnosticToleranceMilli != 2 || visual.ReadinessTTLSeconds != 300 {
 		t.Fatalf("PPTX visual QA limits missing: %#v", visual)
 	}
-	if visual.GotenbergVersion != "8.36.0" || visual.LibreOfficeVersion != "26.2.5.2" || visual.PDFiumVersion != "5.12.1" {
+	if visual.GotenbergVersion != "8.40.0" || visual.LibreOfficeVersion != "26.8.2.2" || visual.PDFiumVersion != "5.15.2" {
 		t.Fatalf("PPTX visual QA renderer pins missing: %#v", visual)
 	}
 	if cfg.Tools.Web.Search.Enabled {

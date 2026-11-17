@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const expectedVersion = '1.63.0-alpha-2026-08-31';
+const expectedVersion = '1.65.1';
 const patches = [
   // The MCP relay resolves replies through several async forwarding layers,
   // while debugger events are synchronous. Yield between coalesced ws frames
@@ -26,12 +26,12 @@ const patches = [
     'this._sparkclawDownloads.close();\n          this._handler.onExtensionDisconnect(reason);',
   ],
   [
-    'this._handler = new ExtensionProtocolV2(sendCommand);',
-    'this._handler = new ExtensionProtocolV2(sendCommand);\n        this._sparkclawDownloads = new (require("../../../src/extension-downloads.cjs").ExtensionDownloads)(sendCommand, message => this._sendToCDPClient(message));',
+    'this._handler = new ExtensionProtocolV2(sendCommand, background);',
+    'this._handler = new ExtensionProtocolV2(sendCommand, background);\n        this._sparkclawDownloads = new (require("../../../src/extension-downloads.cjs").ExtensionDownloads)(sendCommand, message => this._sendToCDPClient(message));',
   ],
   [
-    'this._extensionConnection.onmessage = (method, params2) => this._handler.handleExtensionEvent(method, params2);',
-    'this._extensionConnection.onmessage = (method, params2) => { if (!this._sparkclawDownloads.handleEvent(method, params2)) this._handler.handleExtensionEvent(method, params2); };',
+    'this._extensionConnection.onmessage = (method2, params2) => this._handler.handleExtensionEvent(method2, params2);',
+    'this._extensionConnection.onmessage = (method2, params2) => { if (!this._sparkclawDownloads.handleEvent(method2, params2)) this._handler.handleExtensionEvent(method2, params2); };',
   ],
   [
     'case "Browser.setDownloadBehavior": {\n            return {};\n          }',

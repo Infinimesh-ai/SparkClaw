@@ -7,8 +7,8 @@
 | Status | Runtime implementation completed on 2026-09-01; deployment defaults remain shadow with no repair or blocking qualifications |
 | Decision date | 2026-09-01 |
 | Scope | Governed PPTX mutations that can publish a new presentation |
-| Authoritative renderer | Gotenberg `8.36.0` with LibreOffice `26.2.5.2` |
-| Rasterizer | pypdfium2 `5.12.1` |
+| Authoritative renderer | Gotenberg `8.40.0` with LibreOffice `26.8.2.2` |
+| Rasterizer | pypdfium2 `5.15.2` |
 | Visual reviewer | Fast model resolved from the active Runtime profile |
 | Publication rule | Publish only the exact sealed candidate covered by the recorded evidence |
 | Decision owner | SparkClaw Workflow Runtime |
@@ -58,9 +58,9 @@ layout mechanics.
 The target Runtime path is implemented behind operator-owned rollout and
 qualification gates:
 
-- Compose runs the digest-pinned Gotenberg `8.36.0` image, and Gateway uses only
+- Compose runs the digest-pinned Gotenberg `8.40.0` image, and Gateway uses only
   its private LibreOffice conversion endpoint.
-- `pypdfium2==5.12.1` is installed in the document runtime and Gateway image.
+- `pypdfium2==5.15.2` is installed in the document runtime and Gateway image.
 - The existing ephemeral pre-approval candidate path invokes visual QA for all
   six governed PPTX mutations: `replace_text`, `add_slide`, `update_slide`,
   `update_deck`, `duplicate_slide`, and `delete_slide`.
@@ -488,9 +488,9 @@ Gateway sends each job-local candidate attempt to one private Gotenberg
 endpoint exactly once. The request cannot override the endpoint, LibreOffice
 options, font paths, or output location. The selected baseline is:
 
-- Gotenberg `8.36.0`, pinned by image manifest digest
-  `sha256:87c16b9f364279d321bc9772d31fa58aa6abe036423c270698bd636c3a8e9466`;
-- LibreOffice `26.2.5.2` inside that image;
+- Gotenberg `8.40.0`, pinned by image manifest digest
+  `sha256:53073e798c8ef39ea2187e44cb67bab77894ea2509100b94c4fe3b461f7b2996`;
+- LibreOffice `26.8.2.2` inside that image;
 - a read-only font bundle identified by a versioned manifest digest.
 
 Changing the Gotenberg digest, LibreOffice version, or font manifest changes the
@@ -547,7 +547,7 @@ page-pixel stability instead.
 
 ### 4. Rasterization
 
-pypdfium2 `5.12.1` reads bounded text/glyph evidence from and renders only the
+pypdfium2 `5.15.2` reads bounded text/glyph evidence from and renders only the
 selected pages of the same PDF. PNG output uses a fixed RGB scale, color policy,
 and encoder settings. The resolution must stay within the configured Fast image
 limit while retaining the smallest text size covered by the qualification
@@ -783,9 +783,9 @@ The versioned configuration surface is intentionally explicit:
 | `SPARKCLAW_PPTX_VISUAL_QA_REPAIR_QUALIFIED_OPERATIONS` | Comma-separated internal repair operations permitted in accepted plans | Empty |
 | `SPARKCLAW_PPTX_VISUAL_QA_BLOCKING_QUALIFIED_CLASSES` | Comma-separated severe classes allowed to block | Empty |
 | `SPARKCLAW_PPTX_VISUAL_QA_MAX_REPAIR_ATTEMPTS` | Repair attempts after the initial candidate, bounded to `0..2` | `2` |
-| `SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION` | Gotenberg release the deployment pins; verified against `GET /version` before each conversion window and recorded in the sealed manifest | `8.36.0` |
-| `SPARKCLAW_PPTX_VISUAL_QA_LIBREOFFICE_VERSION` | LibreOffice bundled in that Gotenberg image; recorded in the sealed manifest | `26.2.5.2` |
-| `SPARKCLAW_PPTX_VISUAL_QA_PDFIUM_VERSION` | pypdfium2 release the document runtime pins; verified against the analysis script's reported version and recorded in the sealed manifest | `5.12.1` |
+| `SPARKCLAW_PPTX_VISUAL_QA_GOTENBERG_VERSION` | Gotenberg release the deployment pins; verified against `GET /version` before each conversion window and recorded in the sealed manifest | `8.40.0` |
+| `SPARKCLAW_PPTX_VISUAL_QA_LIBREOFFICE_VERSION` | LibreOffice bundled in that Gotenberg image; recorded in the sealed manifest | `26.8.2.2` |
+| `SPARKCLAW_PPTX_VISUAL_QA_PDFIUM_VERSION` | pypdfium2 release the document runtime pins; verified against the analysis script's reported version and recorded in the sealed manifest | `5.15.2` |
 
 Load-time validation rejects unknown or duplicate classes/operations, a
 blocking class that is not also repair-qualified, an attempt limit outside

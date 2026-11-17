@@ -203,9 +203,9 @@ func Default() Config {
 				MaxPNGBytes:               12 << 20,
 				DiagnosticToleranceMilli:  2,
 				ReadinessTTLSeconds:       300,
-				GotenbergVersion:          "8.36.0",
-				LibreOfficeVersion:        "26.2.5.2",
-				PDFiumVersion:             "5.12.1",
+				GotenbergVersion:          "8.40.0",
+				LibreOfficeVersion:        "26.8.2.2",
+				PDFiumVersion:             "5.15.2",
 			},
 		},
 		Memory: MemoryConfig{

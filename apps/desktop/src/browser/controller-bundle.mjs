@@ -7,7 +7,7 @@ export const CONTROLLER_REQUIRED_FILES = ["package.json", "package-lock.json", "
   "src/controller-core.mjs", "src/mcp-client-core.mjs", "src/generic-operations.json",
   "bin/sparkclaw-electron-browser.mjs", "src/browser/protocol.mjs",
   "node_modules/@playwright/mcp/cli.js", "node_modules/playwright-core/lib/coreBundle.js"];
-export const CONTROLLER_VERSIONS = Object.freeze({ "@playwright/mcp": "0.0.80", playwright: "1.63.0-alpha-2026-08-31", "playwright-core": "1.63.0-alpha-2026-08-31" });
+export const CONTROLLER_VERSIONS = Object.freeze({ "@playwright/mcp": "0.0.85", playwright: "1.65.1", "playwright-core": "1.65.1" });
 const forbidden = /(?:^|\/)(?:app-cli[^/]*|ai-chat-export\.mjs|ai-platform-login\.mjs|mail-observer-feed\.mjs|application-hook\.cjs|provider-scripts|userscripts|\.git|\.env|\.cache)(?:\/|$)/u;
 
 export async function controllerBundleFiles(root) {

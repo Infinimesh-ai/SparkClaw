@@ -163,7 +163,11 @@ type recordingListener struct {
 	states []string
 }
 
-func (l *recordingListener) OnState(s string) { l.mu.Lock(); l.states = append(l.states, s); l.mu.Unlock() }
+func (l *recordingListener) OnState(s string) {
+	l.mu.Lock()
+	l.states = append(l.states, s)
+	l.mu.Unlock()
+}
 func (l *recordingListener) OnCapabilities(string) {}
 
 func TestOpenCallAndCloseWithoutRelaySession(t *testing.T) {
@@ -207,5 +211,13 @@ func TestOpenCallAndCloseWithoutRelaySession(t *testing.T) {
 	defer listener.mu.Unlock()
 	if len(listener.states) == 0 {
 		t.Fatal("no connection state reported")
+	}
+}
+
+func TestRequestsCarryTheBoundInstallation(t *testing.T) {
+	installation := NewInstallationID()
+	request, err := buildRequest(iscpworkbench.OperationPhoneSnapshotGet, "", "{}", "", installation)
+	if err != nil || request.InstallationID != installation || request.Profile != iscpworkbench.ProfileV2 {
+		t.Fatalf("request %+v %v", request, err)
 	}
 }

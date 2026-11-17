@@ -30,13 +30,16 @@ type StreamListener interface {
 // while the endpoint runs; after the app was suspended past expiry, the next
 // Open (or the running lifecycle) recovers with the enrolled device key.
 type Client struct {
-	endpoint *iscpworkbench.Endpoint
-	identity string
-	cancel   context.CancelFunc
-	done     chan struct{}
-	mu       sync.Mutex
-	streams  map[string]context.CancelFunc
-	closed   bool
+	endpoint     *iscpworkbench.Endpoint
+	identity     string
+	installation string
+	bindMu       sync.Mutex
+	bound        bool
+	cancel       context.CancelFunc
+	done         chan struct{}
+	mu           sync.Mutex
+	streams      map[string]context.CancelFunc
+	closed       bool
 }
 
 // Open loads helperConfig (from Enroll) and starts the endpoint in the
@@ -71,12 +74,24 @@ func Open(helperConfig string, listener Listener) (*Client, error) {
 	if err != nil {
 		return nil, errors.New("SparkClaw endpoint initialization failed")
 	}
-	endpoint.SetCapabilitiesHandler(func(c iscpworkbench.TransportCapabilities) {
-		raw, _ := json.Marshal(c)
-		listener.OnCapabilities(string(raw))
-	})
 	runCtx, runCancel := context.WithCancel(context.Background())
-	c := &Client{endpoint: endpoint, identity: string(identity), cancel: runCancel, done: make(chan struct{}), streams: map[string]context.CancelFunc{}}
+	c := &Client{endpoint: endpoint, identity: string(identity), installation: cfg.ExpectedInstallationID, cancel: runCancel, done: make(chan struct{}), streams: map[string]context.CancelFunc{}}
+	endpoint.SetCapabilitiesHandler(func(caps iscpworkbench.TransportCapabilities) {
+		raw, _ := json.Marshal(caps)
+		// Like the desktop, bind this installation before any business call:
+		// v2 operations are accepted only for the bound installation.
+		go func() {
+			if err := c.bindInstallation(runCtx); err != nil {
+				if runCtx.Err() == nil {
+					listener.OnState("installation_bind_failed")
+				}
+				return
+			}
+			if runCtx.Err() == nil {
+				listener.OnCapabilities(string(raw))
+			}
+		}()
+	})
 	go func() {
 		defer close(c.done)
 		err := endpoint.Run(runCtx)
@@ -87,6 +102,30 @@ func Open(helperConfig string, listener Listener) (*Client, error) {
 		}
 	}()
 	return c, nil
+}
+
+func (c *Client) bindInstallation(ctx context.Context) error {
+	c.bindMu.Lock()
+	defer c.bindMu.Unlock()
+	if c.bound {
+		return nil
+	}
+	if !iscpnodeenroll.ValidUUID(c.installation) {
+		return errors.New("profile has no installation")
+	}
+	body, _ := json.Marshal(map[string]any{"schema_version": 1, "installation_id": c.installation})
+	request := iscpworkbench.Request{Type: iscpworkbench.RequestType, Profile: iscpworkbench.ProfileV2, ID: iscpnodeenroll.NewUUID(), Operation: iscpworkbench.OperationBind, InstallationID: c.installation, Body: body}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	response, err := c.endpoint.Call(ctx, request)
+	if err != nil {
+		return err
+	}
+	if response.Status != 200 {
+		return errors.New("installation bind rejected: " + response.Error)
+	}
+	c.bound = true
+	return nil
 }
 
 // Phone clients serve no reverse (host-command) operations.
@@ -103,7 +142,7 @@ func (c *Client) IdentityJSON() string { return c.identity }
 // JSON is the workbench response (status, error_code, retryable, body). Only
 // invalid input returns an error; transport failures are typed responses.
 func (c *Client) Call(operation, paramsJSON, bodyJSON, operationID string, timeoutMillis int64) (string, error) {
-	request, err := buildRequest(operation, paramsJSON, bodyJSON, operationID)
+	request, err := buildRequest(operation, paramsJSON, bodyJSON, operationID, c.installation)
 	if err != nil {
 		return "", err
 	}
@@ -126,7 +165,7 @@ func (c *Client) StreamCall(streamID, paramsJSON, bodyJSON string, timeoutMillis
 	if listener == nil {
 		return "", errors.New("stream listener is required")
 	}
-	request, err := buildRequest(iscpworkbench.OperationExecutionProgressStream, paramsJSON, bodyJSON, "")
+	request, err := buildRequest(iscpworkbench.OperationExecutionProgressStream, paramsJSON, bodyJSON, "", c.installation)
 	if err != nil {
 		return "", err
 	}
@@ -195,8 +234,8 @@ func callContext(timeoutMillis int64) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), time.Duration(timeoutMillis)*time.Millisecond)
 }
 
-func buildRequest(operation, paramsJSON, bodyJSON, operationID string) (iscpworkbench.Request, error) {
-	request := iscpworkbench.Request{Type: iscpworkbench.RequestType, Profile: iscpworkbench.ProfileV2, ID: iscpnodeenroll.NewUUID(), Operation: operation, OperationID: operationID}
+func buildRequest(operation, paramsJSON, bodyJSON, operationID, installation string) (iscpworkbench.Request, error) {
+	request := iscpworkbench.Request{Type: iscpworkbench.RequestType, Profile: iscpworkbench.ProfileV2, ID: iscpnodeenroll.NewUUID(), Operation: operation, OperationID: operationID, InstallationID: installation}
 	if paramsJSON != "" {
 		if err := json.Unmarshal([]byte(paramsJSON), &request.Params); err != nil {
 			return request, errors.New("params must be a JSON object of strings")

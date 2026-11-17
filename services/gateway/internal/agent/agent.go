@@ -480,7 +480,7 @@ func (r Runtime) handleMessageWithMediaLocators(ctx context.Context, sessionID, 
 	if err != nil {
 		return Result{}, err
 	}
-	if route.Status == app.RouteClarify {
+	if route.Status == app.RouteClarify || route.Status == app.RouteBlocked && routeReasonCode(route.Reason) == "model_unavailable" {
 		run.MessageContext.Route = route
 		run.MessageContext.ReturnRoute = envelope.ReturnRoute
 		run.MessageContext.ExternalSendApproval = nil

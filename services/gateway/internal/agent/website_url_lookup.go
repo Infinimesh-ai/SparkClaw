@@ -38,7 +38,10 @@ var (
 	websiteQuestionNoise = regexp.MustCompile(`(?i)(?:怎么|如何|为什么|是什么|能否|是否|价格|多少钱|哪个|哪些|发送|转发|提交|打开|访问|文档[里中]|附件[里中]|聊天记录|\b(?:how|why|which|send|forward|publish|open|visit)\b)`)
 	websiteParenthetical = regexp.MustCompile(`\([^()\n]*\)|（[^（）\n]*）`)
 	websiteAnswerSuffix  = regexp.MustCompile(`(?i)(?:\s*[，,；;。]\s*(?:只(?:需|要)?(?:返回|给|提供)(?:我)?(?:官网|网站)?(?:首页)?(?:的)?(?:链接|网址)|(?:请)?(?:不要|不用|无需|不)打开(?:网页|网站)?|(?:just|only) (?:return|give me) the (?:url|link)|(?:do not|don't) open (?:it|the page)))+$`)
-	websiteDraftAction   = regexp.MustCompile(`(?i)填写|填入|输入|选择|勾选|选成|\b(?:fill|type|enter|select)\b`)
+	websiteDraftAction   = regexp.MustCompile(`(?i)填写|填入|填上|填好|写上|写入|输入|选择|勾选|选成|\b(?:fill|type|enter|select|put|write)\b`)
+	// A target that points at the conversation, the open page or the owner's
+	// own records is not a public site the model can know the address of.
+	websiteContextReference = regexp.MustCompile(`(?i)当前|目前|这(?:个|篇|条|页|里|些)|那(?:个|篇|条|页|里|些)|该(?:页|网站|网页|文章|链接)|此(?:页|网站|网页)|本页|上一?(?:条|个|次|封|篇)|刚才|刚刚|之前|前面|上面|昨天|今天|我(?:发|给|的)|你(?:发|给)|发(?:你|给你)|邀请|分享|网盘|订单|标签页|下载$|\b(?:current|this|that|these|those|my|our|your|last|previous|earlier|above|invite|invitation|share|shared|order|tab)\b`)
 )
 
 func isWebsiteURLQuestion(text string) bool {
@@ -52,7 +55,7 @@ func isWebsiteURLQuestion(text string) bool {
 		}
 		target := strings.TrimRight(strings.TrimSpace(match[1]), "，,")
 		outsideQualifier := websiteParenthetical.ReplaceAllString(target, "")
-		return !websiteQuestionNoise.MatchString(outsideQualifier) && !strings.ContainsAny(outsideQualifier, "，,；;。\n")
+		return !websiteQuestionNoise.MatchString(outsideQualifier) && !websiteContextReference.MatchString(target) && !strings.ContainsAny(outsideQualifier, "，,；;。\n")
 	}
 	return false
 }
@@ -171,6 +174,11 @@ func (r Runtime) resolveWebsiteURL(ctx context.Context, run app.AgentRun, route 
 		return route, err
 	}
 	if callErr != nil {
+		if modelrouter.IsUnavailable(callErr) {
+			// A model outage is reported as such, not as a missing address.
+			route.Status, route.Reason = app.RouteBlocked, routingFailureReason(callErr)
+			return route, nil
+		}
 		route.Status, route.Reason = app.RouteClarify, websiteURLUnavailable
 		return route, nil
 	}

@@ -149,3 +149,57 @@ func TestWebsiteURLClarificationAcceptsOwnerLink(t *testing.T) {
 		})
 	}
 }
+
+func TestWebsiteURLQuestionsIgnoreContextReferences(t *testing.T) {
+	for _, text := range []string{
+		"当前页面的网址是什么", "当前标签页的URL", "what is the current page's url", "上一条消息里的链接", "我昨天发你的链接",
+		"这篇文章的链接", "邀请链接", "网盘下载链接", "give me the link to my last order", "刚才那个网站的网址是什么？",
+	} {
+		if isWebsiteURLQuestion(text) {
+			t.Errorf("%q was answered from model knowledge instead of its context", text)
+		}
+	}
+}
+
+func TestWebsiteURLLookupOutageSaysTheModelIsUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	cfg := configtest.MustLoadDefault()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	runtime := Runtime{store: store.NewMemoryStore(), models: modelrouter.New(cfg), capabilities: capability.MustDefaultCatalog()}
+	for _, input := range []app.RouteDecision{
+		runtime.websiteURLAnswerRoute("苹果官网的网址是什么？"),
+		{Status: app.RouteMatched, Slots: app.RouteSlots{Operation: app.RouteOperationOpen, TargetKind: string(app.TargetKindPublicNamedTarget), TargetRef: "打开苹果官网"}},
+	} {
+		route, err := runtime.resolveWebsiteURL(t.Context(), app.AgentRun{ID: "run", SessionID: "session"}, input)
+		if err != nil || route.Status != app.RouteBlocked || routeReasonCode(route.Reason) != "model_unavailable" {
+			t.Fatalf("outage route = %#v, error = %v", route, err)
+		}
+		if got := routingFailureMessages[routeReasonCode(route.Reason)].text(true, false); got != "模型暂时不可用，请稍后重试。" {
+			t.Fatalf("outage reply = %q", got)
+		}
+	}
+}
+
+func TestWebsiteURLQuestionOutageRepliesThatTheModelIsUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	runtime, _, session, closeTools := newWorkflowE2ERuntime(t, nil)
+	defer closeTools()
+	cfg := agentTestConfig()
+	cfg.Model.Mock = false
+	cfg.Model.Fast.BaseURL = server.URL
+	runtime.models = modelrouter.New(cfg)
+	result, err := runtime.HandleMessage(t.Context(), session.ID, "苹果官网的网址是什么？")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Run.State != "blocked" || result.Message.Content != "模型暂时不可用，请稍后重试。" {
+		t.Fatalf("state %q message %q route %#v", result.Run.State, result.Message.Content, result.RouteDecision)
+	}
+}

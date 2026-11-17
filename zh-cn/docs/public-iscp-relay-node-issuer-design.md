@@ -543,6 +543,11 @@ Bridge”路线：那条路只能签一小时的 `text` 授权、不能续签，
   按已认证的 owner 返回与 Bridge `agent.snapshot.get.v1` /
   `agent.activity.list.v1` 完全相同的响应，现有手机页面无需改解析。其他功能使用
   常规 Workbench 操作。
+- **对话。** 手机与 SparkX 桌面端一样对话：对话历史只保存在手机上；每轮用
+  `execution.submit` 提交并附带最近的本地历史，经 `execution.progress.stream`
+  预览回复，从 `execution.lookup` 取经摘要校验的最终答案后用 `execution.ack`
+  确认；审批使用 `execution.approval`。移动库会先绑定安装实例，并提供
+  `CallEnvelope` / `StreamCallEnvelope` 设置请求外层字段。
 - **权限范围。** 手机获得签发器配置的同一份授权范围，与桌面端相同。Bridge 与
   JingSi 局域网路线保持不变。
 

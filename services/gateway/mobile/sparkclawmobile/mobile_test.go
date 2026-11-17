@@ -221,3 +221,22 @@ func TestRequestsCarryTheBoundInstallation(t *testing.T) {
 		t.Fatalf("request %+v %v", request, err)
 	}
 }
+
+func TestEnvelopeCarriesExecutionFields(t *testing.T) {
+	installation, requestID := NewInstallationID(), NewInstallationID()
+	body := `{"schema_version":2}`
+	request, err := requestWithEnvelope(iscpworkbench.OperationSubmit, `{"request_id":"`+requestID+`","input_digest":"`+strings.Repeat("a", 64)+`"}`, body, installation)
+	if err != nil || request.RequestID != requestID || request.InstallationID != installation || string(request.Body) != body {
+		t.Fatalf("submit envelope %+v %v", request, err)
+	}
+	if _, err := requestWithEnvelope(iscpworkbench.OperationSubmit, `{}`, body, installation); err == nil {
+		t.Fatal("execution request without request_id accepted")
+	}
+	if _, err := requestWithEnvelope(iscpworkbench.OperationSubmit, `{"unknown":1}`, body, installation); err == nil {
+		t.Fatal("unknown envelope field accepted")
+	}
+	approval, err := requestWithEnvelope(iscpworkbench.OperationExecutionApproval, `{"params":{"request_id":"`+requestID+`","approval_id":"a1"},"operation_id":"`+NewInstallationID()+`","expected_revision":"3"}`, `{"digest":"d","decision":"approve"}`, installation)
+	if err != nil || approval.ExpectedRevision != "3" || approval.Params["approval_id"] != "a1" {
+		t.Fatalf("approval envelope %+v %v", approval, err)
+	}
+}

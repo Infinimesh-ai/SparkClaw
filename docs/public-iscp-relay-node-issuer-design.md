@@ -679,6 +679,12 @@ to be pasted into `peers[]`.
   `agent.activity.list.v1` responses for the authenticated owner, so existing
   phone screens keep their parser. Other features use the normal Workbench
   operations.
+- **Chat.** Phones chat like SparkX desktop: the conversation stays on the
+  phone; each turn is `execution.submit` with recent local history, previews
+  through `execution.progress.stream`, takes the digest-checked final answer from
+  `execution.lookup` and acknowledges it with `execution.ack`; approvals use
+  `execution.approval`. The library binds the installation first and exposes
+  `CallEnvelope`/`StreamCallEnvelope` for request-envelope fields.
 - **Scope.** Phones receive the issuer's single approved scope list, the same as
   desktop. The Bridge and the JingSi LAN route stay unchanged.
 

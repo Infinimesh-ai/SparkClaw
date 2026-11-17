@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,7 @@ type Client struct {
 	endpoint     *iscpworkbench.Endpoint
 	identity     string
 	installation string
+	binding      string
 	bindMu       sync.Mutex
 	bound        bool
 	cancel       context.CancelFunc
@@ -75,7 +77,11 @@ func Open(helperConfig string, listener Listener) (*Client, error) {
 		return nil, errors.New("SparkClaw endpoint initialization failed")
 	}
 	runCtx, runCancel := context.WithCancel(context.Background())
-	c := &Client{endpoint: endpoint, identity: string(identity), installation: cfg.ExpectedInstallationID, cancel: runCancel, done: make(chan struct{}), streams: map[string]context.CancelFunc{}}
+	var binding []byte
+	if cfg.Binding != nil {
+		binding, _ = json.Marshal(map[string]string{"deployment_id": cfg.Binding.DeploymentID, "owner_id": cfg.Binding.OwnerID, "client_id": cfg.Binding.ClientID, "installation_id": cfg.ExpectedInstallationID})
+	}
+	c := &Client{endpoint: endpoint, identity: string(identity), installation: cfg.ExpectedInstallationID, binding: string(binding), cancel: runCancel, done: make(chan struct{}), streams: map[string]context.CancelFunc{}}
 	endpoint.SetCapabilitiesHandler(func(caps iscpworkbench.TransportCapabilities) {
 		raw, _ := json.Marshal(caps)
 		// Like the desktop, bind this installation before any business call:
@@ -173,6 +179,10 @@ func (c *Client) StreamCall(streamID, paramsJSON, bodyJSON string, timeoutMillis
 	if err := request.Validate(); err != nil {
 		return "", errors.New("invalid stream request")
 	}
+	return c.runStream(streamID, request, timeoutMillis, listener)
+}
+
+func (c *Client) runStream(streamID string, request iscpworkbench.Request, timeoutMillis int64, listener StreamListener) (string, error) {
 	ctx, cancel := callContext(timeoutMillis)
 	defer cancel()
 	c.mu.Lock()
@@ -198,6 +208,77 @@ func (c *Client) StreamCall(streamID, paramsJSON, bodyJSON string, timeoutMillis
 		}
 	}
 	return encodeResponse(response)
+}
+
+// BindingJSON returns {"deployment_id","owner_id","client_id","installation_id"}
+// for request bodies that must name the bound client (execution.submit).
+func (c *Client) BindingJSON() string { return c.binding }
+
+// envelope carries the request fields that live outside params and body.
+type envelope struct {
+	Params           map[string]string `json:"params,omitempty"`
+	OperationID      string            `json:"operation_id,omitempty"`
+	RequestID        string            `json:"request_id,omitempty"`
+	InputDigest      string            `json:"input_digest,omitempty"`
+	ExpectedRevision string            `json:"expected_revision,omitempty"`
+}
+
+func requestWithEnvelope(operation, envelopeJSON, bodyJSON, installation string) (iscpworkbench.Request, error) {
+	var e envelope
+	if envelopeJSON != "" {
+		decoder := json.NewDecoder(strings.NewReader(envelopeJSON))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&e); err != nil {
+			return iscpworkbench.Request{}, errors.New("envelope must be a JSON object with params, operation_id, request_id, input_digest or expected_revision")
+		}
+	}
+	request, err := buildRequest(operation, "", bodyJSON, e.OperationID, installation)
+	if err != nil && !strings.Contains(err.Error(), "invalid workbench request") {
+		return request, err
+	}
+	request.Params, request.RequestID, request.InputDigest, request.ExpectedRevision = e.Params, e.RequestID, e.InputDigest, e.ExpectedRevision
+	if err := request.Validate(); err != nil {
+		return request, errors.New("invalid workbench request: " + err.Error())
+	}
+	return request, nil
+}
+
+// CallEnvelope is Call with request-envelope fields. envelopeJSON may hold
+// params (object of strings), operation_id, request_id, input_digest and
+// expected_revision. bodyJSON is sent byte-for-byte, so input_digest may be the
+// SHA-256 of exactly these bytes.
+func (c *Client) CallEnvelope(operation, envelopeJSON, bodyJSON string, timeoutMillis int64) (string, error) {
+	request, err := requestWithEnvelope(operation, envelopeJSON, bodyJSON, c.installation)
+	if err != nil {
+		return "", err
+	}
+	if request.Operation == iscpworkbench.OperationExecutionProgressStream {
+		return "", errors.New("stream operation requires StreamCallEnvelope")
+	}
+	ctx, cancel := callContext(timeoutMillis)
+	defer cancel()
+	response, err := c.endpoint.Call(ctx, request)
+	if err != nil {
+		response = failedResponse(request, err, "ISCP workbench call failed")
+	}
+	return encodeResponse(response)
+}
+
+// StreamCallEnvelope runs execution.progress.stream for envelope.request_id.
+// streamID must be a fresh UUID different from the request ID.
+func (c *Client) StreamCallEnvelope(streamID, envelopeJSON, bodyJSON string, timeoutMillis int64, listener StreamListener) (string, error) {
+	if listener == nil {
+		return "", errors.New("stream listener is required")
+	}
+	request, err := requestWithEnvelope(iscpworkbench.OperationExecutionProgressStream, envelopeJSON, bodyJSON, c.installation)
+	if err != nil {
+		return "", err
+	}
+	request.ID = streamID
+	if err := request.Validate(); err != nil || request.RequestID == "" || request.RequestID == streamID {
+		return "", errors.New("invalid stream request: stream ID must be a UUID different from request_id")
+	}
+	return c.runStream(streamID, request, timeoutMillis, listener)
 }
 
 // CancelStream stops a running StreamCall.

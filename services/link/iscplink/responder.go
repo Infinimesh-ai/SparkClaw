@@ -43,6 +43,9 @@ type ResponderConfig struct {
 	// OnSession is called (on its own goroutine) for every established
 	// session. A newer session from the same device supersedes the older.
 	OnSession func(*PeerSession)
+	// OnUnknown is told about a device that presented a Grant but is not
+	// (yet) in the directory, so the backend can sync it at once.
+	OnUnknown func(deviceID string)
 	Now       func() time.Time
 }
 
@@ -203,6 +206,9 @@ func (r *Responder) receive(raw json.RawMessage) {
 		}
 		entry, ok := r.entry(sender)
 		if !ok {
+			if _, known := r.cfg.Directory.Lookup(sender); !known && r.cfg.OnUnknown != nil {
+				r.cfg.OnUnknown(sender)
+			}
 			r.sendReset(sender, env.SessionID, ResetRevoked, true)
 			return
 		}

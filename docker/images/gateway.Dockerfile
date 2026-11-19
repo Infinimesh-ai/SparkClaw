@@ -2,9 +2,12 @@ FROM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.work ./
 COPY services/gateway/go.mod services/gateway/go.mod
+COPY services/link/go.mod services/link/go.mod
 COPY services/gateway services/gateway
+COPY services/link services/link
 RUN go build -o /out/sparkclaw ./services/gateway/cmd/sparkclaw \
-    && go build -o /out/iscp-bridge ./services/gateway/cmd/iscp-bridge
+    && go build -o /out/iscp-bridge ./services/gateway/cmd/iscp-bridge \
+    && go build -o /out/link-connector ./services/link/cmd/link-connector
 
 FROM node:26-trixie-slim
 WORKDIR /app
@@ -23,6 +26,7 @@ RUN npm ci --omit=dev \
     && useradd --create-home --uid 10001 sparkclaw
 COPY --from=build /out/sparkclaw /usr/local/bin/sparkclaw
 COPY --from=build /out/iscp-bridge /usr/local/bin/iscp-bridge
+COPY --from=build /out/link-connector /usr/local/bin/link-connector
 COPY configs /app/configs
 COPY scripts/browser_controller_smoke.mjs /app/scripts/browser_controller_smoke.mjs
 RUN chmod -R a+rX /app/configs /app/scripts

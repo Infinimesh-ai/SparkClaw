@@ -193,6 +193,26 @@ type Connector struct {
 	directory map[string]consoleapi.DeviceRecord
 	responder *iscplink.Responder
 	lanMod    time.Time
+	syncNow   chan struct{}
+	lastEager time.Time
+}
+
+// requestSync asks for an immediate directory sync (a device that just
+// joined), at most every few seconds.
+func (c *Connector) requestSync() {
+	c.mu.Lock()
+	recent := time.Since(c.lastEager) < 3*time.Second
+	if !recent {
+		c.lastEager = time.Now()
+	}
+	c.mu.Unlock()
+	if recent {
+		return
+	}
+	select {
+	case c.syncNow <- struct{}{}:
+	default:
+	}
 }
 
 // Run serves until ctx ends.
@@ -217,7 +237,7 @@ func Run(ctx context.Context, opts Options) error {
 	if dev.Identity.DeviceID != m.Device.DeviceID {
 		return errors.New("host key does not match the membership")
 	}
-	c := &Connector{opts: opts, log: opts.Logger, membership: m, device: dev, console: consoleapi.NewClient(m.ConsoleURL, m.ConsoleTLSPin), directory: map[string]consoleapi.DeviceRecord{}}
+	c := &Connector{opts: opts, log: opts.Logger, membership: m, device: dev, console: consoleapi.NewClient(m.ConsoleURL, m.ConsoleTLSPin), directory: map[string]consoleapi.DeviceRecord{}, syncNow: make(chan struct{}, 1)}
 	var cached consoleapi.Directory
 	if readJSON(filepath.Join(opts.StateDir, DirectoryFile), &cached) == nil {
 		c.applyDirectory(cached)
@@ -229,7 +249,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	resp, err := iscplink.NewResponder(iscplink.ResponderConfig{Relay: rc, Device: dev, Signer: func() identity.DeviceIdentity { return m.Signer }, Directory: c, OnSession: func(s *iscplink.PeerSession) { c.serveSession(ctx, s) }})
+	resp, err := iscplink.NewResponder(iscplink.ResponderConfig{Relay: rc, Device: dev, Signer: func() identity.DeviceIdentity { return m.Signer }, Directory: c, OnSession: func(s *iscplink.PeerSession) { c.serveSession(ctx, s) }, OnUnknown: func(string) { c.requestSync() }})
 	if err != nil {
 		return err
 	}
@@ -284,6 +304,8 @@ func (c *Connector) syncLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
+			c.syncOnce(ctx)
+		case <-c.syncNow:
 			c.syncOnce(ctx)
 		}
 	}

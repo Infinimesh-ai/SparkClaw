@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/self-hosted-console-design.md)
 
-Date: 2026-11-19. Status: target design, not implemented, not deployed.
+Date: 2026-11-19. Status: C0–C2 implemented and deployed on TEST1 (section 9); C3 waits for the real console.
 
 This document covers only the console side: domains, device binding, and the issuance of access credentials and Grants. How devices and the backend communicate is in [Client link layer design](client-link-layer-design.md). The two documents are maintained separately.
 
@@ -182,3 +182,62 @@ These are not resolved now and are adjusted in C3 according to the real console:
 
 - Opening a new external port on TEST1 is a public-ingress change and needs approval before it is done.
 - When the node issuer and the control forwarder are switched off.
+
+## 9. Implementation (2026-11-19)
+
+| Phase | State |
+|---|---|
+| C0 | Done. The access credential, the device-facing interface and the four adapter operations are fixed in `services/link/consoleapi` |
+| C1 | Done. Implemented in `services/link/devconsole` rather than by changing the ISCP reference trust root: it reuses the ISCP identity and Grant primitives, and its signer key is persistent |
+| C2 | Done. Pages and deployment on TEST1 |
+| C3 | Not started: it needs the real console |
+
+**Code and commands**
+- `services/link/devconsole` and `cmd/dev-console`: the console.
+- `services/link/consoleapi`: the adapter devices and the backend use.
+- `services/link/cmd/link-connector`: the backend side. `join` and `run`.
+
+**Access credential**
+- One-time, with a 12-digit code shown as `1234 5678 9012`.
+- Only the code's digest is stored.
+- The full text, `sparkclaw-link-v1.<base64url JSON>`, carries the console address, its TLS pin, the code, the target device type and the expiry.
+- A device whose trust configuration already names the console may enter the code alone; the watch does.
+- Valid 10, 15 or 30 minutes.
+
+**Grants**
+- Permission `sparkclaw.link`, valid 72 hours, renewed when a third of the lifetime (at most 24 hours) remains.
+- Renewal authorization runs 90 days from joining, and can be re-authorized on the device page.
+- Each renewal is proven with the device's own key.
+- Revoking a device raises its revocation epoch, so older Grants stop working at once.
+
+**Relay registration**
+- The console registers each joining device at the TEST1 Relay with the Relay's operator token.
+- This needed one Relay change, ISCP `59057fe`, so that such devices get duplex-capable, refreshable credentials.
+- The node-authority file is unchanged.
+- When a device's Relay refresh credential has lapsed, the console registers it again on request (`/v1/link/relay-access`).
+
+**Sign-in**
+- A single administrator password.
+- Operator scripts use an API token, of which only the hash is stored.
+- No ITES.
+
+**Pages**
+- Rendered by the server with the official console's stylesheet and wording.
+- Domains, overview, devices, device detail (Grant, renewal, revoke), 配对 (issue a credential, QR code and code shown once), and audit.
+
+**Deployment**
+
+| Item | Value |
+|---|---|
+| Service | `sparkclaw-dev-console` on TEST1 |
+| User | `sparkclaw-console` |
+| Data directory | `/var/lib/sparkclaw-dev-console` |
+| Listens on | `10.20.0.20:18450` |
+| Public address | `https://210.16.177.239:18450`, through the PVE forwarding unit `pve-sparkclaw-console-18450` |
+| TLS pin | `wASUGRi9ViqrMbUgnpOLj3ZyQ87VtzHiDn6Rah2Ofg8` |
+
+The backend `SparkClaw work2` is the `domain_host` of the domain 我的 SparkClaw.
+
+**Differences from the design**
+- The console stores its state in a JSON file rather than PostgreSQL, because it is single-user and development-only.
+- The admin JSON interface is shaped like the official `/v1` interface but adds `PATCH /v1/domains/{d}` for renaming and suspending.

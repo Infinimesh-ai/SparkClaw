@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/self-hosted-console-design.md)
 
-日期：2026-11-19。状态：目标设计，未实现，未部署。
+日期：2026-11-19。状态：C0–C2 已实现并部署在 TEST1（见第 9 节）；C3 待接入真实官网。
 
 本文只讲官网这一侧：域、设备绑定、接入凭据和授权的签发。设备与后端之间怎么通信见[三端连接层设计](client-link-layer-design.md)，两份文档分开维护。
 
@@ -182,3 +182,68 @@ C1 完成后连接层就可以开始联调，不必等页面。
 
 - TEST1 新开对外端口属于公网入口变更，实施前需要批准。
 - node issuer 和控制转发器的停用时间。
+
+## 9. 实现情况（2026-11-19）
+
+| 阶段 | 状态 |
+|---|---|
+| C0 | 已完成。接入凭据、设备侧接口和适配层的四项操作定稿在 `services/link/consoleapi` |
+| C1 | 已完成。没有改造 ISCP 的参考信任根，而是在 `services/link/devconsole` 中实现：沿用 ISCP 的身份和 Grant 原语，签名密钥持久保存 |
+| C2 | 已完成。页面已实现，并已部署到 TEST1 |
+| C3 | 未开始，需等真实官网 |
+
+**代码与命令**
+
+- `services/link/devconsole` 与 `cmd/dev-console`：官网本身。
+- `services/link/consoleapi`：设备和后端使用的适配层。
+- `services/link/cmd/link-connector`：后端一侧，提供 `join` 和 `run` 两个子命令。
+
+**接入凭据**
+
+- 一次性使用，带 12 位数字码，显示为 `1234 5678 9012`。服务端只保存码的摘要。
+- 完整文本为 `sparkclaw-link-v1.<base64url JSON>`，内含官网地址、TLS 指纹、数字码、目标设备类型和到期时间。
+- 信任配置里已写明官网的设备（例如手表）可以只输入数字码。
+- 有效期可选 10、15 或 30 分钟。
+
+**Grant**
+
+- 权限为 `sparkclaw.link`，有效期 72 小时。剩余三分之一有效期（最多 24 小时）时续期。
+- 续期授权自加入起 90 天有效，可在设备详情页重新授权。
+- 每次续期都要用设备自己的私钥证明身份。
+- 撤销设备会提高它的撤销纪元，旧 Grant 立即失效。
+
+**Relay 注册**
+
+- 官网用 Relay 的运维令牌，把加入的设备注册到 TEST1 的 Relay。
+- 为此对 Relay 改了一处（ISCP `59057fe`），使这类设备拿到支持双工、可以刷新的凭据。
+- 节点授权文件没有改动。
+- 设备的 Relay 刷新凭据过期后，可以请求官网重新注册（`/v1/link/relay-access`）。
+
+**登录**
+
+- 只有一个管理员密码。
+- 运维脚本用 API 令牌，服务端只保存令牌的哈希。
+- 不使用 ITES。
+
+**页面**
+
+- 由服务端渲染，沿用官方官网的样式和文案。
+- 包括：域、概览、设备、设备详情（Grant、续期、撤销）、配对（签发凭据，二维码和数字码只显示一次）、审计。
+
+**部署**
+
+| 项目 | 值 |
+|---|---|
+| 服务 | TEST1 上的 `sparkclaw-dev-console` |
+| 运行用户 | `sparkclaw-console` |
+| 数据目录 | `/var/lib/sparkclaw-dev-console` |
+| 监听地址 | `10.20.0.20:18450` |
+| 对外地址 | `https://210.16.177.239:18450`，经 PVE 转发单元 `pve-sparkclaw-console-18450` |
+| TLS 指纹 | `wASUGRi9ViqrMbUgnpOLj3ZyQ87VtzHiDn6Rah2Ofg8` |
+
+后端 `SparkClaw work2` 是域"我的 SparkClaw"的 `domain_host`。
+
+**与设计的差异**
+
+- 官网状态存放在 JSON 文件里，没有用 PostgreSQL，因为它只给一个人用，且只用于开发。
+- 管理用的 JSON 接口形式与官方 `/v1` 一致，另外加了 `PATCH /v1/domains/{d}`，用于改名和暂停。

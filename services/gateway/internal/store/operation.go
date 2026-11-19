@@ -108,6 +108,11 @@ const (
 	OperationConversationMessageHead     StoreOperation = "conversation.message_event_head"
 	OperationConversationMessagesAfter   StoreOperation = "conversation.message_events_after"
 	OperationConversationCountVisible    StoreOperation = "conversation.count_visible_messages"
+	OperationConversationSyncChanges     StoreOperation = "conversation_sync.session_changes"
+	OperationConversationSyncHeader      StoreOperation = "conversation_sync.session_header"
+	OperationConversationSyncPage        StoreOperation = "conversation_sync.message_page"
+	OperationConversationSyncArchive     StoreOperation = "conversation_sync.set_archived"
+	OperationConversationSyncFindClient  StoreOperation = "conversation_sync.find_client_message"
 	OperationRunFeedbackSave             StoreOperation = "run_feedback.save"
 	OperationRunFeedbackList             StoreOperation = "run_feedback.list"
 	OperationRunSave                     StoreOperation = "run.save"
@@ -449,6 +454,26 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationConversationMessagesAfter: {
 		ID: OperationConversationMessagesAfter, Repository: "ConversationRepository",
 		Method: "MessageEventsAfter", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConversationSyncChanges: {
+		ID: OperationConversationSyncChanges, Repository: "ConversationSyncRepository",
+		Method: "SessionChanges", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConversationSyncHeader: {
+		ID: OperationConversationSyncHeader, Repository: "ConversationSyncRepository",
+		Method: "SessionHeader", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConversationSyncPage: {
+		ID: OperationConversationSyncPage, Repository: "ConversationSyncRepository",
+		Method: "ListMessagePage", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConversationSyncArchive: {
+		ID: OperationConversationSyncArchive, Repository: "ConversationSyncRepository",
+		Method: "SetSessionArchived", Mode: operationWrite, Timeout: timeoutTransaction,
+	},
+	OperationConversationSyncFindClient: {
+		ID: OperationConversationSyncFindClient, Repository: "ConversationSyncRepository",
+		Method: "FindMessageByClientID", Mode: operationRead, Timeout: timeoutRead,
 	},
 	OperationConversationCountVisible: {
 		ID: OperationConversationCountVisible, Repository: "ConversationRepository",

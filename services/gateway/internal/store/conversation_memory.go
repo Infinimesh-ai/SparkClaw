@@ -38,6 +38,9 @@ func (s *MemoryStore) AddMessage(ctx context.Context, message app.Message) (app.
 	if err := validatePersistedSession(message.SessionID, session); err != nil {
 		return app.Message{}, storeError(ctx, OperationConversationAddMessage, StoreErrorCorrupt, err)
 	}
+	session.LastSeq++
+	message.Seq = session.LastSeq
+	session.Preview = sessionPreview(message.Content)
 	s.messages[message.SessionID] = append(s.messages[message.SessionID], cloneMessage(message))
 	slices.SortFunc(s.messages[message.SessionID], compareMessagesAscending)
 	session.UpdatedAt = nextSessionTime(message.CreatedAt, session.UpdatedAt, s.sessionWriteHighWater[session.ID])
@@ -45,6 +48,7 @@ func (s *MemoryStore) AddMessage(ctx context.Context, message app.Message) (app.
 	if !session.Hidden && (session.Title == "" || session.Title == "New SparkClaw Session") {
 		session.Title = deriveTitle(message.Content)
 	}
+	s.bumpSessionRevisionLocked(&session)
 	s.sessions[message.SessionID] = session
 	s.appendEventLocked("message.created", message.SessionID, message.RunID, cloneMessage(message))
 	return cloneMessage(message), nil

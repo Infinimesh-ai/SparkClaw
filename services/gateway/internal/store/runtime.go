@@ -42,6 +42,7 @@ type repositorySet struct {
 	deliveryRecord      DeliveryRecordRepository
 	externalChat        ExternalChatRepository
 	mcp                 MCPRepository
+	conversationSync    ConversationSyncRepository
 }
 
 type Runtime struct {
@@ -82,6 +83,7 @@ func NewRuntime(ctx context.Context, opts RuntimeOptions) (*Runtime, error) {
 	case BackendMemory:
 		memory := NewMemoryStoreWithOptions(timeouts)
 		runtime.repositories = newRepositorySet(memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory, memory)
+		runtime.repositories.conversationSync = memory
 		runtime.probe = func(context.Context) error { return probeMemoryStore(memory) }
 		runtime.closeBackend = func() error { return nil }
 	case BackendFile:
@@ -96,6 +98,7 @@ func NewRuntime(ctx context.Context, opts RuntimeOptions) (*Runtime, error) {
 		file.timeouts.supervisor = supervisor
 		file.inner.operationTimeouts.supervisor = supervisor
 		runtime.repositories = newRepositorySet(file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file, file)
+		runtime.repositories.conversationSync = file
 		runtime.probe = func(ctx context.Context) error { return probeFileStore(ctx, file) }
 		runtime.closeBackend = func() error { return nil }
 	case BackendPostgres:
@@ -104,6 +107,7 @@ func NewRuntime(ctx context.Context, opts RuntimeOptions) (*Runtime, error) {
 			return nil, err
 		}
 		runtime.repositories = newRepositorySet(postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres, postgres)
+		runtime.repositories.conversationSync = postgres
 		runtime.probe = func(ctx context.Context) error { return probePostgresStore(ctx, postgres) }
 		runtime.closeBackend = func() error {
 			postgres.Close()
@@ -165,11 +169,16 @@ func (r *Runtime) CredentialRepository() CredentialRepository     { return r.rep
 func (r *Runtime) ConnectorRepository() ConnectorRepository       { return r.repositories.connector }
 func (r *Runtime) SessionRepository() SessionRepository           { return r.repositories.session }
 func (r *Runtime) ConversationRepository() ConversationRepository { return r.repositories.conversation }
-func (r *Runtime) RunRepository() RunRepository                   { return r.repositories.run }
-func (r *Runtime) DocumentRepository() DocumentRepository         { return r.repositories.document }
-func (r *Runtime) ApprovalRepository() ApprovalRepository         { return r.repositories.approval }
-func (r *Runtime) AuditRepository() AuditRepository               { return r.repositories.audit }
-func (r *Runtime) EvaluationRepository() EvaluationRepository     { return r.repositories.evaluation }
+
+// ConversationSyncRepository serves link-layer conversation sync.
+func (r *Runtime) ConversationSyncRepository() ConversationSyncRepository {
+	return r.repositories.conversationSync
+}
+func (r *Runtime) RunRepository() RunRepository               { return r.repositories.run }
+func (r *Runtime) DocumentRepository() DocumentRepository     { return r.repositories.document }
+func (r *Runtime) ApprovalRepository() ApprovalRepository     { return r.repositories.approval }
+func (r *Runtime) AuditRepository() AuditRepository           { return r.repositories.audit }
+func (r *Runtime) EvaluationRepository() EvaluationRepository { return r.repositories.evaluation }
 func (r *Runtime) ArtifactMetadataRepository() ArtifactMetadataRepository {
 	return r.repositories.artifactMetadata
 }

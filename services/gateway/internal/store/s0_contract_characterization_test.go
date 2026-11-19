@@ -196,7 +196,7 @@ func s4RepositoryLikeType(expression ast.Expr) bool {
 
 func TestS0SnapshotShapeCharacterization(t *testing.T) {
 	want := []string{
-		"MedicineBoxes:medicine_boxes,omitempty", "WorkbenchDrafts:workbench_drafts,omitempty", "EmailRecords:email_management_records,omitempty", "Sessions:sessions", "Clients:clients", "OwnerProfile:owner_profile", "OwnerProfiles:owner_profiles,omitempty",
+		"MedicineBoxes:medicine_boxes,omitempty", "WorkbenchDrafts:workbench_drafts,omitempty", "EmailRecords:email_management_records,omitempty", "Sessions:sessions", "SessionRevision:session_revision,omitempty", "SessionTombstones:session_tombstones,omitempty", "Clients:clients", "OwnerProfile:owner_profile", "OwnerProfiles:owner_profiles,omitempty",
 		"PairingCodes:pairing_codes", "ISCPOnboardings:iscp_onboardings,omitempty", "MCPAccessTickets:mcp_access_tickets,omitempty",
 		"MCPBindings:mcp_bindings,omitempty", "MCPOperations:mcp_operations,omitempty", "Messages:messages", "RunFeedback:run_feedback",
 		"Runs:runs", "ModelCalls:model_calls", "ToolCalls:tool_calls", "DocumentRecords:document_records,omitempty", "Approvals:approvals",

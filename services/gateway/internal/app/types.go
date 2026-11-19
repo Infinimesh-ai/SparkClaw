@@ -573,6 +573,10 @@ type Message struct {
 	RequestedMedia   []MessageMediaLocator `json:"requested_media,omitempty"`
 	FilesUnavailable bool                  `json:"files_unavailable,omitempty"`
 	Clarification    *clarification.Record `json:"clarification,omitempty"`
+	// Seq is monotonic within a conversation (link-layer paging).
+	Seq int64 `json:"seq,omitempty"`
+	// ClientMessageID is the sending client's idempotency key.
+	ClientMessageID string `json:"client_message_id,omitempty"`
 }
 
 type MessageAttachment struct {
@@ -611,6 +615,19 @@ type Session struct {
 	Hidden        bool      `json:"hidden,omitempty"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
+	// Link-layer sync header (docs/client-link-layer-design.md 4.1).
+	Revision int64  `json:"revision,omitempty"`
+	LastSeq  int64  `json:"last_seq,omitempty"`
+	Preview  string `json:"preview,omitempty"`
+	Archived bool   `json:"archived,omitempty"`
+}
+
+// SessionChange is one entry of the conversation change feed: a current
+// header or a deletion tombstone.
+type SessionChange struct {
+	Session   Session
+	Deleted   bool
+	DeletedAt time.Time
 }
 
 type Client struct {

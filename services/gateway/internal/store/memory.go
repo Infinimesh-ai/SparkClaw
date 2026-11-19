@@ -15,6 +15,8 @@ type MemoryStore struct {
 	operationTimeouts                 OperationTimeouts
 	workbenchDrafts                   map[string]app.WorkbenchDraft
 	sessions                          map[string]app.Session
+	sessionRevision                   int64
+	sessionTombstones                 map[string]app.SessionChange
 	sessionWriteHighWater             map[string]time.Time
 	sessionNow                        func() time.Time
 	clients                           map[string]app.Client
@@ -90,6 +92,7 @@ func NewMemoryStoreWithOptions(timeouts OperationTimeouts) *MemoryStore {
 		operationTimeouts:                 normalizeOperationTimeouts(timeouts),
 		workbenchDrafts:                   map[string]app.WorkbenchDraft{},
 		sessions:                          map[string]app.Session{},
+		sessionTombstones:                 map[string]app.SessionChange{},
 		sessionWriteHighWater:             map[string]time.Time{},
 		sessionNow:                        time.Now,
 		clients:                           map[string]app.Client{},

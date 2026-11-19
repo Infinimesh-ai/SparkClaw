@@ -49,12 +49,12 @@ func (s *PostgresStore) AddMessage(ctx context.Context, message app.Message) (ap
 		return app.Message{}, conversationBusinessError(ctx, OperationConversationAddMessage, StoreErrorCorrupt, session, transaction, release, err)
 	}
 	stored, err := scanMessage(transaction.QueryRow(ctx, `
-		INSERT INTO messages (id, session_id, run_id, role, content, attachments, requested_media, created_at, clarification, files_unavailable)
-		VALUES ($1, $2, nullif($3, ''), $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO messages (id, session_id, run_id, role, content, attachments, requested_media, created_at, clarification, files_unavailable, client_message_id)
+		VALUES ($1, $2, nullif($3, ''), $4, $5, $6, $7, $8, $9, $10, nullif($11, ''))
 		ON CONFLICT (id) DO NOTHING
 		RETURNING id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at, clarification, files_unavailable
 	`, candidate.ID, candidate.SessionID, candidate.RunID, candidate.Role, candidate.Content,
-		mustJSON(candidate.Attachments), mustJSON(candidate.RequestedMedia), candidate.CreatedAt, mustJSON(candidate.Clarification), candidate.FilesUnavailable))
+		mustJSON(candidate.Attachments), mustJSON(candidate.RequestedMedia), candidate.CreatedAt, mustJSON(candidate.Clarification), candidate.FilesUnavailable, candidate.ClientMessageID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		existing, readErr := scanMessage(transaction.QueryRow(ctx, `
 			SELECT id, session_id, coalesce(run_id, ''), role, content, attachments, requested_media, created_at, clarification, files_unavailable

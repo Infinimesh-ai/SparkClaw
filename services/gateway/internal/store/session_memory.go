@@ -37,6 +37,8 @@ func (s *MemoryStore) createSession(ctx context.Context, operation StoreOperatio
 		return app.Session{}, storeError(ctx, operation, StoreErrorConflict, errors.New("session ID already exists"))
 	}
 	s.sessionWriteHighWater[session.ID] = session.UpdatedAt
+	s.bumpSessionRevisionLocked(&session)
+	delete(s.sessionTombstones, session.ID)
 	s.sessions[session.ID] = session
 	s.appendAuditLocked("session.created", session.ID, "", "system", "Session created", map[string]any{"title": session.Title, "owner_id": session.OwnerID})
 	s.appendEventLocked("session.created", session.ID, "", session)
@@ -191,6 +193,7 @@ func (s *MemoryStore) UpdateSessionTitle(ctx context.Context, id, title string) 
 	session.Title = title
 	session.UpdatedAt = nextSessionTime(s.sessionNow(), session.UpdatedAt, s.sessionWriteHighWater[id])
 	s.sessionWriteHighWater[id] = session.UpdatedAt
+	s.bumpSessionRevisionLocked(&session)
 	s.sessions[id] = session
 	s.appendAuditLocked("session.updated", id, "", "owner", "Session renamed", map[string]any{"title": title})
 	s.appendEventLocked("session.updated", id, "", session)
@@ -254,6 +257,8 @@ func (s *MemoryStore) deleteSession(ctx context.Context, id string, mcpInvocatio
 	}
 	delete(s.workbenchDrafts, workbenchDraftKey(session.OwnerID, id))
 	delete(s.sessions, id)
+	s.sessionRevision++
+	s.sessionTombstones[id] = app.SessionChange{Session: app.Session{ID: id, OwnerID: session.OwnerID, Revision: s.sessionRevision}, Deleted: true, DeletedAt: normalizeSessionTime(s.sessionNow())}
 	delete(s.messages, id)
 	delete(s.toolCallIDsBySession, id)
 	delete(s.episodeIDsBySession, id)

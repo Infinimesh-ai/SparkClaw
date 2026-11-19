@@ -199,6 +199,7 @@ type backend struct {
 	store.DeliveryRecordRepository
 	store.ExternalChatRepository
 	store.MCPRepository
+	store.ConversationSyncRepository
 }
 
 func newStore(ctx context.Context, cfg config.Config) (*store.Runtime, error) {
@@ -238,6 +239,7 @@ func backendFromRuntime(runtime *store.Runtime) backend {
 		ConnectorRepository:           runtime.ConnectorRepository(),
 		SessionRepository:             runtime.SessionRepository(),
 		ConversationRepository:        runtime.ConversationRepository(),
+		ConversationSyncRepository:    runtime.ConversationSyncRepository(),
 		RunRepository:                 runtime.RunRepository(),
 		DocumentRepository:            runtime.DocumentRepository(),
 		ApprovalRepository:            runtime.ApprovalRepository(),

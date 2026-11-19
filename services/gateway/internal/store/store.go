@@ -119,6 +119,23 @@ type SessionRepository interface {
 	DeleteSession(context.Context, string) (app.Session, error)
 }
 
+// ConversationSyncRepository serves the link layer's backend-authoritative
+// conversation sync (docs/client-link-layer-design.md section 4): a change
+// feed by session revision, paging by message sequence and archive state.
+type ConversationSyncRepository interface {
+	// SessionChanges returns the owner's sessions (and deletion tombstones)
+	// whose revision is greater than cursor, ordered by revision.
+	SessionChanges(ctx context.Context, ownerID string, cursor int64, limit int) ([]app.SessionChange, error)
+	// SessionHeader returns a session with its sync fields.
+	SessionHeader(ctx context.Context, id string) (app.Session, bool, error)
+	// ListMessagePage returns up to limit messages, oldest first, with
+	// seq < beforeSeq (0 = latest) or seq > afterSeq when afterSeq > 0.
+	// more reports whether older messages exist before the page.
+	ListMessagePage(ctx context.Context, sessionID string, beforeSeq, afterSeq int64, limit int) ([]app.Message, bool, error)
+	SetSessionArchived(ctx context.Context, id string, archived bool) (app.Session, error)
+	FindMessageByClientID(ctx context.Context, sessionID, clientMessageID string) (app.Message, bool, error)
+}
+
 type ConversationRepository interface {
 	AddMessage(context.Context, app.Message) (app.Message, error)
 	ListMessages(context.Context, string) ([]app.Message, error)

@@ -66,6 +66,7 @@ type Repository interface {
 	store.DeliveryRecordRepository
 	store.ExternalChatRepository
 	store.MCPRepository
+	store.ConversationSyncRepository
 	DeleteMCPInvocationSession(context.Context, string) (app.Session, error)
 	ListEmailMailboxes(context.Context, string) ([]app.EmailMailbox, error)
 }

@@ -657,6 +657,11 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 		OperationMCPOperationFindIdempotency: {ID: OperationMCPOperationFindIdempotency, Repository: "MCPRepository", Method: "FindMCPOperationByIdempotency", Mode: operationRead, Timeout: timeoutRead},
 		OperationMCPOperationList:            {ID: OperationMCPOperationList, Repository: "MCPRepository", Method: "ListMCPOperations", Mode: operationRead, Timeout: timeoutRead},
 		OperationMCPOperationUpdate:          {ID: OperationMCPOperationUpdate, Repository: "MCPRepository", Method: "UpdateMCPOperation", Mode: operationWrite, Timeout: timeoutTransaction},
+		OperationConversationSyncChanges:     {ID: OperationConversationSyncChanges, Repository: "ConversationSyncRepository", Method: "SessionChanges", Mode: operationRead, Timeout: timeoutRead},
+		OperationConversationSyncHeader:      {ID: OperationConversationSyncHeader, Repository: "ConversationSyncRepository", Method: "SessionHeader", Mode: operationRead, Timeout: timeoutRead},
+		OperationConversationSyncPage:        {ID: OperationConversationSyncPage, Repository: "ConversationSyncRepository", Method: "ListMessagePage", Mode: operationRead, Timeout: timeoutRead},
+		OperationConversationSyncArchive:     {ID: OperationConversationSyncArchive, Repository: "ConversationSyncRepository", Method: "SetSessionArchived", Mode: operationWrite, Timeout: timeoutTransaction},
+		OperationConversationSyncFindClient:  {ID: OperationConversationSyncFindClient, Repository: "ConversationSyncRepository", Method: "FindMessageByClientID", Mode: operationRead, Timeout: timeoutRead},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

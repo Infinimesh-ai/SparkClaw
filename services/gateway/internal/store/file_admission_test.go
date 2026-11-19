@@ -31,6 +31,8 @@ var migratedFileAdmissions = map[string]string{
 	"CreateSession": "admitMigrated", "CreateSessionWithScope": "admitMigrated",
 	"ListSessions": "admitMigrated", "GetSession": "admitMigrated",
 	"UpdateSessionTitle": "admitMigrated", "DeleteSession": "admitMigrated",
+	"SessionChanges": "admitMigrated", "SessionHeader": "admitMigrated", "ListMessagePage": "admitMigrated",
+	"SetSessionArchived": "admitMigrated", "FindMessageByClientID": "admitMigrated",
 	"DeleteMCPInvocationSession": "admitMigrated",
 	"AddMessage":                 "admitMigrated", "ListMessages": "admitMigrated", "ListRecentMessages": "admitMigrated", "CountVisibleMessages": "admitMigrated",
 	"MessageEventHead": "admitMigrated", "MessageEventsAfter": "admitMigrated",

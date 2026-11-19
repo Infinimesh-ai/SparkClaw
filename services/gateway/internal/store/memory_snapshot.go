@@ -16,6 +16,8 @@ func (s *MemoryStore) snapshot() Snapshot {
 		WorkbenchDrafts:       cloneWorkbenchDrafts(s.workbenchDrafts),
 		EmailRecords:          cloneEmailRecords(s.emailRecords),
 		Sessions:              cloneMap(s.sessions),
+		SessionRevision:       s.sessionRevision,
+		SessionTombstones:     cloneMap(s.sessionTombstones),
 		Clients:               cloneClientMap(s.clients),
 		OwnerProfile:          cloneOwnerProfile(s.ownerProfile),
 		OwnerProfiles:         cloneOwnerProfileMap(s.ownerProfiles),
@@ -132,6 +134,8 @@ func (s *MemoryStore) loadSnapshot(snapshot Snapshot) {
 	s.mcpBindings = cloneMCPBindingMap(ensureMap(snapshot.MCPBindings))
 	s.mcpOperations = cloneMCPOperationMap(ensureMap(snapshot.MCPOperations))
 	s.messages = cloneMessageMap(ensureSliceMap(snapshot.Messages))
+	s.sessionRevision = snapshot.SessionRevision
+	s.sessionTombstones = ensureMap(snapshot.SessionTombstones)
 	s.runFeedback = ensureSliceMap(snapshot.RunFeedback)
 	s.runs = ensureMap(snapshot.Runs)
 	s.modelCalls = ensureMap(snapshot.ModelCalls)

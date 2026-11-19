@@ -44,6 +44,8 @@ type Snapshot struct {
 	WorkbenchDrafts       map[string]app.WorkbenchDraft        `json:"workbench_drafts,omitempty"`
 	EmailRecords          map[string]EmailRecord               `json:"email_management_records,omitempty"`
 	Sessions              map[string]app.Session               `json:"sessions"`
+	SessionRevision       int64                                `json:"session_revision,omitempty"`
+	SessionTombstones     map[string]app.SessionChange         `json:"session_tombstones,omitempty"`
 	Clients               map[string]app.Client                `json:"clients"`
 	OwnerProfile          app.OwnerProfile                     `json:"owner_profile"`
 	OwnerProfiles         map[string]app.OwnerProfile          `json:"owner_profiles,omitempty"`
@@ -296,6 +298,9 @@ func NewFileStoreWithOptions(opts FileStoreOptions) (*FileStore, error) {
 			return nil, fmt.Errorf("validate medicine state: %w", err)
 		}
 		inner.loadSnapshot(snapshot)
+		inner.mu.Lock()
+		inner.backfillConversationSyncLocked()
+		inner.mu.Unlock()
 		if err := inner.validateSessionState(); err != nil {
 			return nil, fmt.Errorf("validate session state: %w", err)
 		}

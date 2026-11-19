@@ -1,0 +1,47 @@
+{
+  "version": "sparkclaw.link.v1",
+  "frames": {
+    "valid": [
+      {"type": "hello", "id": "hello", "hello": {"versions": ["sparkclaw.link.v1"], "profile": "duplex", "device": {"class": "phone", "conditions": {"attachments": true, "screen": "small"}}}},
+      {"type": "request", "id": "c1", "op": "sync.changes", "params": {"cursor": 0}},
+      {"type": "response", "id": "c1", "ok": true, "result": {"sessions": [], "cursor": 0}},
+      {"type": "response", "id": "c2", "ok": false, "error": {"code": "unsupported_capability", "message": "x"}},
+      {"type": "event", "id": "e1", "subscription": "run:s_1", "topic": "run", "data": {"session_id": "s_1", "kind": "delta", "text": "你"}},
+      {"type": "cancel", "id": "c3"}
+    ],
+    "invalid": [
+      {"type": "request", "id": "", "op": "ping"},
+      {"type": "request", "id": "c1"},
+      {"type": "response", "id": "c1"},
+      {"type": "response", "id": "c1", "ok": false},
+      {"type": "event", "id": "e1"},
+      {"type": "hello", "id": "h"},
+      {"type": "telemetry", "id": "t1"}
+    ]
+  },
+  "availability": [
+    {"conditions": {"browser_surface": true, "attachments": true, "microphone": true, "screen": "large"}, "profile": "duplex", "includes": ["message.send", "run.subscribe", "object.read", "object.upload.begin", "domain.call"], "excludes": []},
+    {"conditions": {"attachments": true, "microphone": true, "screen": "small"}, "profile": "duplex", "includes": ["message.send", "run.subscribe", "object.read"], "excludes": []},
+    {"conditions": {"microphone": true, "screen": "tiny"}, "profile": "pull", "includes": ["message.send", "run.status", "approval.resolve", "domain.call", "sync.changes", "session.messages"], "excludes": ["run.subscribe", "run.unsubscribe", "object.read", "object.upload.begin", "object.upload.chunk", "object.upload.commit"]}
+  ],
+  "reverse": [
+    {"op": "browser.controller.execute", "conditions": {"browser_surface": true}, "allowed": true},
+    {"op": "browser.controller.execute", "conditions": {"attachments": true}, "allowed": false},
+    {"op": "mcd.checkout.prepare", "conditions": {"browser_surface": true}, "allowed": true},
+    {"op": "made.up.reverse", "conditions": {"browser_surface": true}, "allowed": false}
+  ],
+  "credentials": {
+    "codes": [
+      {"input": "1234 5678 9012", "code": "123456789012", "display": "1234 5678 9012"},
+      {"input": "1234-5678-9012", "code": "123456789012"},
+      {"input": "12345678901", "error": true},
+      {"input": "1234 5678 901x", "error": true}
+    ],
+    "full": {
+      "credential": {"v": 1, "console": "https://210.16.177.239:18450", "tls_pin": "wASUGRi9ViqrMbUgnpOLj3ZyQ87VtzHiDn6Rah2Ofg8", "code": "123456789012", "type": "phone", "exp": "2026-11-19T12:30:00Z"},
+      "prefix": "sparkclaw-link-v1."
+    },
+    "join_challenge": {"code": "123456789012", "challenge": "sparkclaw.console.join:"}
+  },
+  "lan": {"path": "/link/v1", "subprotocol": "sparkclaw.link.lan.v1", "challenge_prefix": "sparkclaw.link.lan:"}
+}

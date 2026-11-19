@@ -171,7 +171,9 @@ func (f fileRelayStore) LoadRelayCredentials() (relay.Credentials, error) {
 	err = json.Unmarshal(raw, &c)
 	return c, err
 }
-func (f fileRelayStore) SaveRelayCredentials(c relay.Credentials) error { return WritePrivate(f.path, c) }
+func (f fileRelayStore) SaveRelayCredentials(c relay.Credentials) error {
+	return WritePrivate(f.path, c)
+}
 
 // Options builds LinkClient options from the stored state; the caller adds
 // callbacks and reverse operations.

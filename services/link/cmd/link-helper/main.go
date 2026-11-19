@@ -100,12 +100,22 @@ func main() {
 	h.send(map[string]any{"event": "hello", "version": contract.Version})
 	in := bufio.NewScanner(os.Stdin)
 	in.Buffer(make([]byte, 64*1024), contract.MaxFrameBytes+64*1024)
+	var wg sync.WaitGroup
 	for in.Scan() {
 		var msg inbound
 		if err := json.Unmarshal(in.Bytes(), &msg); err != nil {
 			continue
 		}
-		go h.handle(msg)
+		wg.Add(1)
+		go func() { defer wg.Done(); h.handle(msg) }()
+	}
+	// stdin closed: the main process is gone. Finish replies already in
+	// flight, then stop.
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
 	}
 	h.closeClient()
 }

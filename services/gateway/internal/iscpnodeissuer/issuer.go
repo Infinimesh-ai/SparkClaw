@@ -502,38 +502,14 @@ func (i *Issuer) Registry(ctx context.Context) (PeerRegistry, error) {
 		return out, e
 	}
 	for _, s := range rows {
-		if s.Device == nil {
+		grant, ok, err := projectedGrant(s)
+		if err != nil {
+			return out, err
+		}
+		if !ok {
 			continue
 		}
-		op := s.Operations[s.BoundOperation]
-		if op == nil || op.Result == nil {
-			continue
-		}
-		result := op.Result
-		grant := result.Grant
-		for _, o := range s.Operations {
-			if o.Grant != nil && o.Grant.NotBefore.After(grant.NotBefore) {
-				grant = *o.Grant
-			}
-		}
-		if s.Control != nil {
-			// ControlV2 orders issuance by its durable generation. Its whole-
-			// second NotBefore may precede the enrollment's fractional timestamp,
-			// and multiple completed generations may share the same timestamp.
-			var latestGeneration uint64
-			for _, record := range s.Control.Records {
-				if record.State == "succeeded" && record.Result != nil && record.Result.Payload.Body.Grant != nil {
-					generation, err := record.Generation.Uint64()
-					if err != nil || generation == 0 || record.Result.Payload.CredentialGeneration != record.Generation {
-						return out, ErrInvalid
-					}
-					if generation > latestGeneration {
-						latestGeneration = generation
-						grant = *record.Result.Payload.Body.Grant
-					}
-				}
-			}
-		}
+		result := s.Operations[s.BoundOperation].Result
 		out.Peers = append(out.Peers, RegistryPeer{*s.Device, grant, result.Binding, result.Scopes, result.InstallationID, s.Revision, s.State == "revoked"})
 	}
 	sort.Slice(out.Peers, func(a, b int) bool { return out.Peers[a].Identity.DeviceID < out.Peers[b].Identity.DeviceID })

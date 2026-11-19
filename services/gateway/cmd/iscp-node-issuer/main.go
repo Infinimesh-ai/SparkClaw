@@ -56,6 +56,7 @@ func run() error {
 	activateHistory := flag.String("activate-control-history", "", "explicit maintenance: original invitation ID for a fresh v2 namespace")
 	activateWriter := flag.Bool("activate-control-writer", false, "explicit maintenance: fence legacy issuer writers")
 	evidence := flag.String("activation-evidence-sha256", "", "operator supplied maintenance evidence digest")
+	compactHistory := flag.Bool("compact-control-history", false, "explicit maintenance: retire terminal acknowledged control history beyond the retention bound")
 	create := flag.Bool("create-invitation", false, "create one invitation on private stdout")
 	name := flag.String("name", "SparkX", "Client name")
 	key := flag.String("idempotency-key", "", "stable request key")
@@ -63,14 +64,14 @@ func run() error {
 	scopes := flag.String("scopes", "settings.read,settings.write", "approved comma separated operation scopes")
 	flag.Parse()
 	maintenance := *activateWriter || *activateHistory != ""
-	if *path == "" || flag.NArg() != 0 || *activateWriter && *activateHistory != "" || maintenance && *create || maintenance && !n.ValidActivationEvidence(*evidence) || !maintenance && *evidence != "" {
+	if *path == "" || flag.NArg() != 0 || *activateWriter && *activateHistory != "" || maintenance && *create || maintenance && !n.ValidActivationEvidence(*evidence) || !maintenance && *evidence != "" || *compactHistory && (maintenance || *create) {
 		return n.ErrInvalid
 	}
 	var cfg config
 	if e := ctl.ReadPrivate(*path, &cfg); e != nil {
 		return e
 	}
-	if cfg.SchemaVersion != 1 || !filepath.IsAbs(cfg.Directory) || *activateHistory != "" && !cfg.ControlV2 || cfg.ControlV2 && !maintenance && !*create && cfg.ControlBind == "" {
+	if cfg.SchemaVersion != 1 || !filepath.IsAbs(cfg.Directory) || (*activateHistory != "" || *compactHistory) && !cfg.ControlV2 || cfg.ControlV2 && !maintenance && !*create && !*compactHistory && cfg.ControlBind == "" {
 		return n.ErrInvalid
 	}
 	st, e := os.Lstat(cfg.Directory)
@@ -149,6 +150,14 @@ func run() error {
 	}
 	if *activateHistory != "" {
 		return issuer.ActivateControlHistory(ctx, *activateHistory, *evidence)
+	}
+	if *compactHistory {
+		// Counts only: no identifiers, Grants or credentials reach stdout.
+		report, err := issuer.CompactControlHistory(ctx)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(os.Stdout).Encode(report)
 	}
 	if *create {
 		credential, e := issuer.CreateInvitation(ctx, *name, time.Duration(*ttl)*time.Second, strings.Split(*scopes, ","), *key)

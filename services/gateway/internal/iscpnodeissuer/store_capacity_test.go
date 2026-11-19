@@ -91,7 +91,7 @@ func TestIssuerStateOpenReadsExistingHistoryAboveFourMiB(t *testing.T) {
 		t.Fatal("truncated ciphertext accepted")
 	}
 }
-func TestIssuerControlAdmissionPast1024RetainsHistoryAndReplayIdentity(t *testing.T) {
+func TestIssuerControlAdmissionPast1024BoundsHistoryAndKeepsReplayIdentity(t *testing.T) {
 	ctx := context.Background()
 	f, r, st := largeIssuanceHistory(t)
 	if e := f.store.Update(ctx, st.Credential.InvitationID, func(s *State) error { *s = *st; return nil }); e != nil {
@@ -112,8 +112,10 @@ func TestIssuerControlAdmissionPast1024RetainsHistoryAndReplayIdentity(t *testin
 		t.Fatal("replay issued a different result")
 	}
 	got, _ := f.store.Read(ctx, st.Credential.InvitationID)
-	if len(got.Control.Records) != 1301 || len(got.Control.Parents) != 1301 || got.Control.Generation != "1302" {
-		t.Fatal("automatic pruning or duplicate issuance occurred")
+	// Admission retires terminal acknowledged history beyond the bound in the
+	// same transaction; the new in-flight record and the generation survive.
+	if len(got.Control.Records) != ControlHistoryKeep || len(got.Control.Parents) != ControlHistoryKeep || got.Control.Generation != "1302" || got.Control.RetiredRecords != 1301-ControlHistoryKeep || got.Control.Records[r.Key.StorageKey()] == nil {
+		t.Fatal("history not bounded or duplicate issuance occurred")
 	}
 }
 

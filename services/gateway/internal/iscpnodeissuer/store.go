@@ -41,6 +41,9 @@ type ControlState struct {
 	Generation         control.Counter            `json:"credential_generation"`
 	Records            map[string]*control.Record `json:"records"`
 	Parents            map[string]*ControlParent  `json:"parents"`
+	// RetiredRecords counts superseded renewal/recovery Records retired by
+	// pruneControlHistory. Older binaries ignore the field.
+	RetiredRecords uint64 `json:"retired_records,omitempty"`
 }
 type ControlParent struct {
 	ChildAck         *control.Ack         `json:"child_ack,omitempty"`

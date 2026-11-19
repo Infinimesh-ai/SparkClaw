@@ -177,6 +177,7 @@ func (i *Issuer) Execute(ctx context.Context, r control.Request, actor identity.
 				return err
 			}
 			ledger.Records[r.Key.StorageKey()] = &control.Record{Key: r.Key, Intent: *r.Intent, SemanticDigest: r.SemanticDigest, State: "failed", Version: "1", Generation: r.Intent.Preconditions.CredentialGeneration, Result: &result, CreatedAt: now}
+			pruneControlHistory(ledger)
 			out.Result = &result
 			return nil
 		}
@@ -197,6 +198,7 @@ func (i *Issuer) Execute(ctx context.Context, r control.Request, actor identity.
 		ledger.Generation = generation
 		ledger.Records[r.Key.StorageKey()] = record
 		ledger.Parents[r.Key.StorageKey()] = &ControlParent{Grant: &grant, ChildIndex: "0"}
+		pruneControlHistory(ledger)
 		if r.Intent.Kind == "credential.renew" {
 			res, e := control.NewResult(control.ResultPayload{Key: r.Key, SemanticDigest: r.SemanticDigest, ResultVersion: "1", State: "succeeded", CompletedAt: now, CredentialGeneration: generation, Body: control.ResultBody{Grant: &grant}}, i.cfg.Issuer)
 			if e != nil {

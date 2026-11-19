@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { Language } from "../i18n";
 import type { SettingsAccess } from "../components/panels/settings";
-import { surfaceEnabled } from "./capability";
+import { operationBackend, surfaceEnabled } from "./capability";
 import type { DesktopConnectionStatus } from "./types";
 
 export function iscpSettingsUnavailable(language: Language) {
@@ -13,7 +13,7 @@ export function desktopSettingsAccess(connection: DesktopConnectionStatus | unde
   const backendLoginNotice = language === "zh"
     ? "此连接需要复用后端浏览器的登录态，请在后台完成登录绑定。"
     : "This connection uses the backend browser’s saved sign-in session. Complete sign-in in the backend.";
-  const access = connection?.backend?.transport === "iscp"
+  const access = connection && operationBackend(connection)
     ? iscpTransportSettingsAccess(connection, language)
     : { connectorsAvailable: true, unavailable: {} };
   return {
@@ -22,8 +22,8 @@ export function desktopSettingsAccess(connection: DesktopConnectionStatus | unde
     emailLoginAvailable: false,
     aiPlatformLoginNotice: backendLoginNotice,
     aiPlatformLoginAvailable: false,
-    aiPlatformStatusAvailable: connection?.backend?.transport !== "iscp",
-    mcpLANOrigin: connection?.backend?.transport !== "iscp" && connection?.backend?.origin
+    aiPlatformStatusAvailable: !operationBackend(connection),
+    mcpLANOrigin: !operationBackend(connection) && connection?.backend?.origin
       ? connection.backend.origin : null,
   };
 }
@@ -37,7 +37,8 @@ function iscpTransportSettingsAccess(connection: DesktopConnectionStatus, langua
     bindingsUnavailable: surfaceEnabled(connection, "settings_bindings") ? undefined : unavailable,
     clientDeletionAvailable: surfaceEnabled(connection, "settings_devices_delete"),
     unavailable: {
-      ...(!surfaceEnabled(connection, "settings_devices") ? { clients: unavailable } : {}), "tool-policy": unavailable,
+      ...(!surfaceEnabled(connection, "settings_devices") ? { clients: connection.backend?.transport === "link"
+        ? (language === "zh" ? "设备在 SparkClaw 控制台加入和移除。" : "Devices join and are removed on the SparkClaw console.") : unavailable } : {}), "tool-policy": unavailable,
       ...(!surfaceEnabled(connection, "settings_connectors") ? { messaging: unavailable } : {}),
       ...(!surfaceEnabled(connection, "settings_browser_control") ? { "browser-control": unavailable } : {}),
       ...(!surfaceEnabled(connection, "settings_mcp_access") ? { "external-mcp": unavailable } : {}),
@@ -55,6 +56,9 @@ function iscpTransportSettingsAccess(connection: DesktopConnectionStatus, langua
 
 export function ISCPDeviceAuthorization({ connection, language }: { connection: DesktopConnectionStatus; language: Language }) {
   const zh = language === "zh";
+  // A link device's membership belongs to the SparkClaw console, where it is
+  // removed; the original section stays with its action disabled.
+  const consoleManaged = connection.backend?.transport === "link";
   const [review, setReview] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -67,13 +71,15 @@ export function ISCPDeviceAuthorization({ connection, language }: { connection: 
   }
   return <section className="settingsSurfaceSection">
     <h2>{zh ? "此设备授权" : "This device authorization"}</h2>
-    <p className="settingsSurfaceHint">{zh ? "此设备授权一直有效，直至手动删除。删除后不能继续调用，历史仍保存在本机。" : "This device remains authorized until you delete its authorization. Deletion stops access and retains local history."}</p>
-    {connection.authorization_revision && <p className="settingsSurfaceHint">{zh ? "当前授权版本：" : "Current authorization revision: "}{connection.authorization_revision}</p>}
+    <p className="settingsSurfaceHint">{consoleManaged
+      ? (zh ? "此设备已加入 SparkClaw 控制台的域，在控制台移除前一直有效。对话保存在后端。" : "This device stays joined to its SparkClaw console domain until it is removed on the console. Conversations are kept on the backend.")
+      : (zh ? "此设备授权一直有效，直至手动删除。删除后不能继续调用，历史仍保存在本机。" : "This device remains authorized until you delete its authorization. Deletion stops access and retains local history.")}</p>
+    {!consoleManaged && connection.authorization_revision && <p className="settingsSurfaceHint">{zh ? "当前授权版本：" : "Current authorization revision: "}{connection.authorization_revision}</p>}
     {review ? <div role="region" aria-label={zh ? "删除授权确认" : "Authorization deletion confirmation"}>
       <p>{zh ? "确认永久删除此设备的当前授权？完成后需安装新的授权配置才能重新连接。" : "Permanently delete this device’s current authorization? Reconnecting afterward requires newly installed authorization."}</p>
       <div className="buttonRow textActions"><button type="button" className="ghost" disabled={busy} onClick={() => setReview(false)}>{zh ? "取消" : "Cancel"}</button>
         <button type="button" className="reject" disabled={busy} onClick={() => void remove()}>{zh ? "确认删除授权" : "Confirm deletion"}</button></div>
-    </div> : <button type="button" className="reject" disabled={busy || !window.sparkclawDesktop?.deleteAuthorization} onClick={() => setReview(true)}>{zh ? "删除此设备授权" : "Delete this device authorization"}</button>}
+    </div> : <button type="button" className="reject" disabled={busy || consoleManaged || !window.sparkclawDesktop?.deleteAuthorization} onClick={() => setReview(true)}>{zh ? "删除此设备授权" : "Delete this device authorization"}</button>}
     {error && <p className="compactError" role="alert">{error}</p>}
   </section>;
 }

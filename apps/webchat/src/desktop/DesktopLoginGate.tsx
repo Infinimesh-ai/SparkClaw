@@ -34,6 +34,35 @@ const copy = {
   },
 } as const;
 
+// The same entry, worded for a device that joins its backend's console
+// domain with a SparkClaw access credential (link layer).
+const linkCopy = {
+  en: {
+    description: "Enter the SparkClaw access credential issued for this device on the SparkClaw console.",
+    backend: "Backend", deployment: "Domain",
+    credential: "Access credential", credentialHelp: "The credential names the console and its domain. This device creates its own key when it joins; the credential works once.",
+    source: "Issue a desktop access credential on the SparkClaw console, then paste it here. It expires after a short time.",
+    storage: "The device key stays in this app's private storage. Conversations are kept on the backend and cached on this device.",
+    locked: "Enter this device's access credential to continue.", incomplete_setup: "Enter a SparkClaw access credential to join this device to your backend.",
+    service_unavailable: "The backend is unreachable. Check the network and reconnect. This device stays joined.",
+    invalid_authentication: "This device was removed or its credential was rejected. Issue a new access credential on the console and join again.",
+    authorization_revoked: "This device was removed from the SparkClaw console. Issue a new access credential and join again. Reconnecting cannot restore it. Cached conversations are retained.",
+    actionFailed: "The access credential is invalid, expired or already used, or the console could not be reached. Check it and try again.",
+  },
+  zh: {
+    description: "输入在 SparkClaw 控制台为这台设备签发的访问凭据。",
+    backend: "后端", deployment: "域",
+    credential: "访问凭据", credentialHelp: "凭据指明控制台及其域。加入时这台设备会生成自己的密钥；凭据只能使用一次。",
+    source: "在 SparkClaw 控制台签发桌面端访问凭据，然后粘贴到这里。凭据会在短时间后过期。",
+    storage: "设备密钥保存在应用的私有存储中。对话保存在后端，这台设备只做缓存。",
+    locked: "输入这台设备的访问凭据以继续。", incomplete_setup: "输入 SparkClaw 访问凭据，让这台设备加入你的后端。",
+    service_unavailable: "后端暂时无法连接。请检查网络后重新连接，这台设备仍保持加入状态。",
+    invalid_authentication: "此设备已被移除或凭据被拒绝。请在控制台签发新的访问凭据并重新加入。",
+    authorization_revoked: "此设备已从 SparkClaw 控制台移除。请签发新的访问凭据并重新加入，重新连接无法恢复。已缓存的对话仍会保留。",
+    actionFailed: "访问凭据无效、已过期或已被使用，或无法连接控制台。请检查后重试。",
+  },
+} as const;
+
 export function DesktopLoginGate({ children }: { children: ReactNode }) {
   const desktop = desktopCapability();
   const [language, setLanguage] = useState<Language>(initialLanguage);
@@ -41,7 +70,9 @@ export function DesktopLoginGate({ children }: { children: ReactNode }) {
   const [credential, setCredential] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const text = copy[language];
+  // A desktop without a configured backend joins through the link layer.
+  const link = !status?.backend || status.backend.transport === "link";
+  const text = link ? { ...copy[language], ...linkCopy[language] } : copy[language];
   const revoked = status?.state === "invalid_authentication" && status.transport_stage === "authorization_revoked";
 
   useEffect(() => {
@@ -86,8 +117,8 @@ export function DesktopLoginGate({ children }: { children: ReactNode }) {
       {status?.authorization_deletion?.state==='revoked'&&desktop.checkNewAuthorization&&<button type="button" disabled={busy} onClick={()=>void action(()=>desktop.checkNewAuthorization!())}>{language==='zh'?'检查新安装的授权':'Check newly installed authorization'}</button>}
       {status?.test_mode && status.transport_stage && <p role="status">ISCP: {status.transport_stage}</p>}
       {status?.backend && <dl className="desktopLoginIdentity">
-        <dt>{text.backend}</dt><dd>{status.backend.origin}</dd>
-        <dt>{text.deployment}</dt><dd>{status.backend.deployment_id}</dd>
+        <dt>{text.backend}</dt><dd>{link ? status.backend.host_name || status.backend.deployment_id : status.backend.origin}</dd>
+        <dt>{text.deployment}</dt><dd>{link ? status.backend.domain_name || status.backend.domain_id : status.backend.deployment_id}</dd>
         {status.backend.owner_id && <><dt>{text.owner}</dt><dd>{status.backend.owner_id}</dd></>}
         {status.backend.tls_certificate_sha256 && <><dt>{text.certificate}</dt><dd>{status.backend.tls_certificate_sha256}</dd></>}
       </dl>}

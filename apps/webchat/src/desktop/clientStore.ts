@@ -13,7 +13,7 @@ export type LocalSchedule = { request_id: string; schedule_id: string; due_at: s
 export type ScheduleViewFilter = { date_start: string; date_end: string; timezone: string };
 export type SchedulePresentation = ScheduleViewFilter & { schema_version: 1; type: 'schedule.show'; action_id: string; request_id: string; local_conversation_id: string; expires_at: string };
 export type SchedulePresentationReceipt = 'shown' | 'failed' | 'skipped';
-export type LocalConversationContent = { messages: LocalMessage[]; tasks: LocalTask[]; files: LocalFile[]; schedules?: LocalSchedule[];
+export type LocalConversationContent = { messages: LocalMessage[]; tasks: LocalTask[]; files: LocalFile[]; schedules?: LocalSchedule[]; has_older?: boolean;
   client_actions?: Array<SchedulePresentation & { state: 'pending' | 'claimed' | SchedulePresentationReceipt }> };
 export type ClientStoreAPI = {
   schemaVersion: 1;
@@ -22,6 +22,11 @@ export type ClientStoreAPI = {
   create: (title: string, autoTitle?: boolean) => Promise<LocalConversation>;
   remove: (id: string) => Promise<{ deleted: true; cleanup_pending?: boolean } | { deleted: false; reason: "pending_execution" }>;
   rename: (id: string, title: string) => Promise<LocalConversation>;
+  // Backend-mirrored conversations keep their archive state on the backend
+  // and page older messages on demand.
+  archive?: (id: string, archived: boolean) => Promise<{ archived: boolean }>;
+  archivedIDs?: () => Promise<string[] | null>;
+  loadOlder?: (id: string) => Promise<{ has_older: boolean }>;
   read: (id: string) => Promise<LocalConversationContent>;
   draft: (id: string) => Promise<LocalDraft>;
   saveDraft: (id: string, content: string, localFileIDs: string[], revision: number, expectedScope: string, recordingRequestID?: string) => Promise<LocalDraft>;

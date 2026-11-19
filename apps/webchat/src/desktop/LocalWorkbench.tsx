@@ -18,7 +18,7 @@ import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workb
 import { MailWorkspaceContext } from "./MailWorkspaceContext";
 import type {} from "./mailCapability";
 import { ISCPDeviceAuthorization, desktopSettingsAccess, iscpSettingsUnavailable } from "./iscpSettings";
-import { surfaceEnabled } from "./capability";
+import { operationBackend, surfaceEnabled } from "./capability";
 import { api } from "../api/client";
 import { InspectorColumn, type PanelTab } from "../components/inspector";
 import { InspectorResizeHandle, useInspectorWidth } from "../components/inspectorResize";
@@ -117,7 +117,9 @@ export function LocalWorkbench() {
   const [connection, setConnection] = useState<DesktopConnectionStatus>();
   const mailScope = mailEditorScope(connection);
   const lastMailScope = useRef("");
-  const iscp = connection?.backend?.transport === "iscp";
+  // Every desktop backend is reached through per-surface operations (the
+  // link layer); availability follows the reported surfaces.
+  const iscp = operationBackend(connection);
   const capabilities = {
     files: surfaceEnabled(connection, "files"), mail: surfaceEnabled(connection, "mail_popup"),
     browser: surfaceEnabled(connection, "browser"), speech: surfaceEnabled(connection, "speech_recording"),
@@ -212,19 +214,25 @@ export function LocalWorkbench() {
   };
   const reload = useCallback(async () => { setConversations(await store.list()); }, [store]);
   const refreshGlobal = useCallback(async () => {
-    const config = await api.config();
-    setRuntimeConfig(config);
     if (iscp) {
-      const [status, owner, connectorList, bindingList] = await Promise.all([
-        api.ready(), api.owner(),
+      // The owner is required; configuration and readiness are read when the
+      // backend offers them, and the pages that show them keep their own
+      // unavailable state otherwise.
+      const [config, status, owner, connectorList, bindingList] = await Promise.allSettled([
+        api.config(), api.ready(), api.owner(),
         capabilities.settingsConnectors ? api.connectors() : null,
         capabilities.settingsBindings ? api.notificationBindings() : null,
       ]);
-      setReady(status); setOwnerProfile(owner);
-      if (connectorList) setConnectors(connectorList.connectors);
-      if (bindingList) setNotificationBindings(bindingList.bindings);
+      if (config.status === "fulfilled") setRuntimeConfig(config.value);
+      if (status.status === "fulfilled") setReady(status.value);
+      if (owner.status === "rejected") throw owner.reason;
+      setOwnerProfile(owner.value);
+      if (connectorList.status === "fulfilled" && connectorList.value) setConnectors(connectorList.value.connectors);
+      if (bindingList.status === "fulfilled" && bindingList.value) setNotificationBindings(bindingList.value.bindings);
       return;
     }
+    const config = await api.config();
+    setRuntimeConfig(config);
     const results = await Promise.allSettled([
       api.ready(), api.owner(), api.clients(), api.connectors(), api.notificationBindings(), api.approvals(),
       api.memoryCandidates(), api.memories(), api.evalRuns(), api.artifacts(), api.traces()
@@ -311,6 +319,31 @@ export function LocalWorkbench() {
     return () => { active = false; unsubscribe?.(); window.clearInterval(timer); if (paint !== undefined) window.cancelAnimationFrame(paint); };
   }, [selected, store, surfaceError, readContent]);
 
+  // Conversations change on the backend too (other devices, sync); the list
+  // follows the store's change notifications.
+  useEffect(() => {
+    let timer: number | undefined;
+    const unsubscribe = store.onChange?.(() => {
+      if (timer !== undefined) return;
+      timer = window.setTimeout(() => { timer = undefined; void reload().catch(() => undefined); }, 300);
+    });
+    return () => { unsubscribe?.(); if (timer !== undefined) window.clearTimeout(timer); };
+  }, [store, reload]);
+  // Older messages are fetched when the reader reaches the top of the cache.
+  const olderLoading = useRef(false);
+  useEffect(() => {
+    const list = messageScroll.listRef.current;
+    if (!list || !selected || !content.has_older || !store.loadOlder) return;
+    const id = selected;
+    const near = () => {
+      if (olderLoading.current || list.scrollTop > 48) return;
+      olderLoading.current = true;
+      void store.loadOlder!(id).then(() => readContent(id)).catch(() => undefined).finally(() => { olderLoading.current = false; });
+    };
+    list.addEventListener("scroll", near, { passive: true });
+    if (list.scrollHeight <= list.clientHeight) near();
+    return () => list.removeEventListener("scroll", near);
+  }, [selected, content.has_older, store, readContent, messageScroll.listRef]);
   const voiceDraftPersistence = useMemo(() => new VoiceDraftPersistence(), [store, localScopeKey]);
   const applyVoiceTranscript = useCallback(async (result: { text: string; request_id: string }, anchor: VoiceDraftAnchor) => {
     return voiceDraftPersistence.apply(JSON.stringify([anchor.sessionId, result.request_id]), () => {
@@ -691,7 +724,7 @@ export function LocalWorkbench() {
             enabled={!busy && connection?.state === "connected" && capabilities.approvals} onDecide={decideApproval} />}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
           filesEnabled={capabilities.files} mailEnabled={capabilities.mail && connection?.state === "connected"}
-          canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready && (!iscp || Boolean(runtimeConfig && ready && ownerProfile))}
+          canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready && (!iscp || Boolean(ownerProfile))}
           onInputChange={(value) => { draftRef.current = value; setDraft(value); }}
           onUploadDocument={saveFile}
           onChooseDocument={() => setDocumentPickerOpen(true)}

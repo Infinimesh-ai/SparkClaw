@@ -56,7 +56,11 @@ export type DesktopState = {
 
 export type DesktopBackendDescriptor = {
   schema_version: 1 | 2 | 3;
-  transport?: "iscp";
+  transport?: "iscp" | "link";
+  // Link backends: the console domain and the bound backend's name.
+  domain_name?: string;
+  host_name?: string;
+  device_name?: string;
   client_id?: string;
   domain_id?: string;
   initiator_device_id?: string;

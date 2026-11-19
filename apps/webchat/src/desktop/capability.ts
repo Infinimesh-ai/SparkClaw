@@ -14,8 +14,16 @@ export function desktopSpeechBase() {
   return desktopCapability()?.speechBase ?? "";
 }
 
+// Whether the backend is reached through operations whose availability the
+// main process reports per surface: the link layer, or the previous ISCP
+// helper that only the qualification launcher still configures.
+export function operationBackend(connection: import("./types").DesktopConnectionStatus | undefined) {
+  const transport = connection?.backend?.transport;
+  return transport === "link" || transport === "iscp";
+}
+
 export function surfaceEnabled(connection: import("./types").DesktopConnectionStatus | undefined, surface: string) {
   if (!connection) return false;
-  if (connection.backend?.transport !== "iscp") return true;
+  if (!operationBackend(connection)) return true;
   return connection.capabilities?.surfaces?.[surface]?.enabled === true;
 }

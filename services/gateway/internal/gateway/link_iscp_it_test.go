@@ -198,6 +198,22 @@ func TestLinkOverRealRelayWithConsoleAndConnector(t *testing.T) {
 	if stored, ok, _ := b.server.store.GetSession(ctx, h.ID); !ok || stored.OwnerID != app.DefaultOwnerID {
 		t.Fatal("conversation not stored on the backend")
 	}
+	// A change made elsewhere is announced over ISCP as a sync event.
+	for len(events) > 0 {
+		<-events
+	}
+	if _, err := b.server.store.CreateSession(ctx, "Made on the host"); err != nil {
+		t.Fatal(err)
+	}
+	syncDeadline := time.After(10 * time.Second)
+	for synced := false; !synced; {
+		select {
+		case f := <-events:
+			synced = f.Topic == contract.TopicSync
+		case <-syncDeadline:
+			t.Fatal("no sync event over ISCP")
+		}
+	}
 
 	// Revoke on the console: the connector syncs, closes the session and the
 	// Gateway refuses the device.

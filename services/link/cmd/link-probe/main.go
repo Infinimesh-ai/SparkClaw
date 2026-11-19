@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
@@ -32,7 +33,7 @@ type state struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: link-probe {join|chat|sync} -state FILE ...")
+		fmt.Fprintln(os.Stderr, "usage: link-probe {join|chat|sync|delete} -state FILE ...")
 		os.Exit(2)
 	}
 	cmd := os.Args[1]
@@ -57,7 +58,7 @@ func main() {
 		raw, _ := json.MarshalIndent(st, "", " ")
 		check(os.WriteFile(*path, raw, 0o600))
 		fmt.Printf("joined %s as %s; host %v; grant %v\n", m.DomainID, dev.Identity.DeviceID, m.Host != nil, m.Grant != nil)
-	case "chat", "sync":
+	case "chat", "sync", "delete":
 		var st state
 		raw, err := os.ReadFile(*path)
 		check(err)
@@ -94,6 +95,16 @@ func main() {
 		var changes contract.SyncChangesResult
 		check(c.Request(ctx, contract.OpSyncChanges, contract.SyncChangesParams{}, &changes))
 		fmt.Printf("sync: %d conversations, cursor %d\n", len(changes.Sessions), changes.Cursor)
+		if cmd == "delete" {
+			// -session takes a comma-separated list of conversation ids.
+			for _, id := range strings.Split(*session, ",") {
+				if id = strings.TrimSpace(id); id != "" {
+					check(c.Request(ctx, contract.OpSessionDelete, contract.SessionRef{SessionID: id}, nil))
+					fmt.Println("deleted", id)
+				}
+			}
+			return
+		}
 		if cmd == "sync" {
 			for _, h := range changes.Sessions {
 				fmt.Printf("  %s %q seq=%d deleted=%v\n", h.ID, h.Title, h.LastSeq, h.Deleted)

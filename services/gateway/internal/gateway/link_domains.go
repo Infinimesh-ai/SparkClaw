@@ -61,6 +61,34 @@ func (s *Server) linkDomainNames() []string {
 	return out
 }
 
+// The presentation reads the desktop's original screens use, answered in
+// the domain result shape {status, body}.
+func (s *Server) registerLinkPresentation() {
+	result := func(status int, body any) linkBridgeResult {
+		return linkBridgeResult{Status: status, Body: mustRaw(body)}
+	}
+	registerLinkDomain("presentation", map[string]linkDomainMethod{
+		"presentation.config": {Call: func(ctx context.Context, req *link.Request, _ json.RawMessage) (any, error) {
+			view, err := s.configView(ctx, req.Principal.OwnerID)
+			if err != nil {
+				return result(503, map[string]string{"error": "configuration unavailable"}), nil
+			}
+			return result(200, view), nil
+		}},
+		"presentation.ready": {Call: func(ctx context.Context, _ *link.Request, _ json.RawMessage) (any, error) {
+			status, payload := s.readinessView(ctx)
+			return result(status, payload), nil
+		}},
+		"presentation.owner": {Call: func(ctx context.Context, req *link.Request, _ json.RawMessage) (any, error) {
+			profile, _, err := s.ownerProfileFor(ctx, linkRequestPrincipal(req))
+			if err != nil {
+				return result(503, map[string]string{"error": "owner unavailable"}), nil
+			}
+			return result(200, profile), nil
+		}},
+	})
+}
+
 func (s *Server) linkDomainCall(ctx context.Context, req *link.Request) (any, error) {
 	p, err := link.DecodeParams[contract.DomainCallParams](req)
 	if err != nil {

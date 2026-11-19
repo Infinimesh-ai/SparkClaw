@@ -283,6 +283,8 @@ type DeviceDescribeResult struct {
 	Features  []string  `json:"features"`
 	Domains   []string  `json:"domains,omitempty"`
 	Backend   string    `json:"backend,omitempty"`
+	// DeploymentID is the backend installation's persistent identity.
+	DeploymentID string `json:"deployment_id,omitempty"`
 }
 
 // ProjectionParams reads a device projection.

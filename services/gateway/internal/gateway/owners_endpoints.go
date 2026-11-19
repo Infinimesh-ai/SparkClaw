@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"regexp"
@@ -179,13 +180,16 @@ func (s *Server) patchOwnerProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) ownerProfileForRequest(r *http.Request) (app.OwnerProfile, bool, error) {
-	principal := principalForRequest(r)
+	return s.ownerProfileFor(r.Context(), principalForRequest(r))
+}
+
+func (s *Server) ownerProfileFor(ctx context.Context, principal requestPrincipal) (app.OwnerProfile, bool, error) {
 	if strings.TrimSpace(principal.ClientID) == "" {
-		profile, err := s.store.GetOwnerProfile(r.Context())
+		profile, err := s.store.GetOwnerProfile(ctx)
 		return profile, err == nil, err
 	}
 	ownerID := principal.OwnerID
-	profile, found, err := s.store.GetOwnerProfileByID(r.Context(), ownerID)
+	profile, found, err := s.store.GetOwnerProfileByID(ctx, ownerID)
 	if err != nil || found {
 		return profile, found, err
 	}

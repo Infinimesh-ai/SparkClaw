@@ -3,13 +3,14 @@ package gateway
 import (
 	"bytes"
 	"context"
-	"errors"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -388,6 +389,15 @@ func TestLinkDomainCallBridge(t *testing.T) {
 	if res.Status != 200 {
 		t.Fatalf("notifications.list %+v", res)
 	}
+	for _, m := range []string{"presentation.config", "presentation.ready", "presentation.owner"} {
+		if err := desk.Request(ctx, contract.OpDomainCall, contract.DomainCallParams{Domain: "presentation", Method: m}, &out); err != nil {
+			t.Fatal(m, err)
+		}
+		_ = json.Unmarshal(out.Result, &res)
+		if res.Status != 200 || len(res.Body) < 3 {
+			t.Fatalf("%s %+v", m, res)
+		}
+	}
 	// Replaced and console-owned operations are refused with a reason.
 	err := desk.Request(ctx, contract.OpDomainCall, contract.DomainCallParams{Domain: "execution", Method: "execution.submit"}, nil)
 	if contract.AsError(err).Code != contract.CodeUnsupportedCapability {
@@ -413,8 +423,10 @@ func TestLinkReverseCallsReachTheDesktopBrowser(t *testing.T) {
 	desk, err := linkclient.New(linkclient.Options{Device: dev, Host: consoleapi.Host{DeviceID: b.host.Identity.DeviceID, Identity: b.host.Identity, LAN: b.lan}, Describe: contract.Device{Class: contract.ClassDesktop, Conditions: contract.Conditions{BrowserSurface: true, Attachments: true, Screen: contract.ScreenLarge}},
 		Reverse: []string{"browser.controller.status", "mcd.orders.query"},
 		OnReverse: func(_ context.Context, op string, params json.RawMessage) (any, error) {
-			served <- op + " " + string(params)
-			return map[string]any{"state": "available", "op": op}, nil
+			var req linkReverseRequest
+			_ = json.Unmarshal(params, &req)
+			served <- op + " " + string(req.Body)
+			return map[string]any{"status": 200, "body": map[string]any{"state": "available", "op": op}}, nil
 		}})
 	if err != nil {
 		t.Fatal(err)
@@ -436,7 +448,7 @@ func TestLinkReverseCallsReachTheDesktopBrowser(t *testing.T) {
 		return e == nil
 	})
 	resp, err := peer.Command(ctx, "browser.controller.status", json.RawMessage(`{"probe":1}`))
-	if err != nil || resp.Status != 200 {
+	if err != nil || resp.Status != 200 || !strings.Contains(string(resp.Body), `"available"`) {
 		t.Fatalf("reverse call %+v %v", resp, err)
 	}
 	if got := <-served; got != `browser.controller.status {"probe":1}` {

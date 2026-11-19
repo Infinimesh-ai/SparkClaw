@@ -39,6 +39,7 @@ func (s *Server) registerLinkHandlers(svc *link.Service) {
 	svc.Handle(contract.OpDomainCall, s.linkDomainCall)
 	svc.Handle(contract.OpProjectionSnapshot, s.linkProjectionSnapshot)
 	svc.Handle(contract.OpProjectionActivity, s.linkProjectionActivity)
+	s.registerLinkPresentation()
 }
 
 func linkTime(t time.Time) string {
@@ -91,7 +92,7 @@ func trimForWatch(text string, limit int) string {
 }
 
 func (s *Server) linkDeviceDescribe(ctx context.Context, req *link.Request) (any, error) {
-	return contract.DeviceDescribeResult{Principal: req.Principal.Principal, Features: s.link.service.Features(req.Principal.Conditions, req.Principal.Profile), Domains: s.linkDomainNames(), Backend: "sparkclaw"}, nil
+	return contract.DeviceDescribeResult{Principal: req.Principal.Principal, Features: s.link.service.Features(req.Principal.Conditions, req.Principal.Profile), Domains: s.linkDomainNames(), Backend: "sparkclaw", DeploymentID: s.cfg.Gateway.DeploymentID}, nil
 }
 
 func (s *Server) linkSyncChanges(ctx context.Context, req *link.Request) (any, error) {

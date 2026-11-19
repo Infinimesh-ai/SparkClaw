@@ -15,17 +15,26 @@ import (
 )
 
 func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
-	principal := principalForRequest(r)
-	toolsConfig, err := s.publicToolsConfig(r.Context(), principal.OwnerID)
+	view, err := s.configView(r.Context(), principalForRequest(r).OwnerID)
 	if err != nil {
 		writeConnectorError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, http.StatusOK, view)
+}
+
+// configView is the public configuration for an owner (host WebChat and
+// the link layer).
+func (s *Server) configView(ctx context.Context, ownerID string) (map[string]any, error) {
+	toolsConfig, err := s.publicToolsConfig(ctx, ownerID)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
 		"gateway":             publicGatewayConfig(s.cfg.Gateway),
 		"model":               publicModelConfig(s.cfg.Model),
 		"speech":              publicSpeechConfig(s.cfg.Speech),
-		"iscp_pairing":        s.iscpPairing.Status(r.Context()),
+		"iscp_pairing":        s.iscpPairing.Status(ctx),
 		"mcp_servers":         publicMCPServersConfig(s.cfg.MCPServers),
 		"workspaces":          s.cfg.Workspaces,
 		"security":            s.cfg.Security,
@@ -38,7 +47,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		"memory":              s.cfg.Memory,
 		"runtime":             s.cfg.Runtime,
 		"tool_policy":         toolPolicySummary(s.cfg.Security, s.tools.Definitions()),
-	})
+	}, nil
 }
 
 func (s *Server) listMCPServers(w http.ResponseWriter, _ *http.Request) {

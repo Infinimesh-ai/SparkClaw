@@ -636,43 +636,43 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
+	status, payload := s.readinessView(r.Context())
+	writeJSON(w, status, payload)
+}
+
+// readinessView reports readiness (host WebChat and the link layer).
+func (s *Server) readinessView(ctx context.Context) (int, map[string]any) {
 	var storeStatus *store.RuntimeStatus
 	if s.storeRuntime != nil {
 		status := s.storeRuntime.Status()
 		storeStatus = &status
 		if !status.Ready {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "store": status})
-			return
+			return http.StatusServiceUnavailable, map[string]any{"ok": false, "store": status}
 		}
 	}
 	credentialVaultStatus := map[string]any{"ready": true, "state": "ready"}
 	if s.credentialVault != nil {
 		if err := s.credentialVault.Ready(); err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			return http.StatusServiceUnavailable, map[string]any{
 				"ok": false, "credential_vault": map[string]any{"ready": false, "state": "unavailable"},
-			})
-			return
+			}
 		}
 	}
 	if err := os.MkdirAll(s.cfg.Storage.TraceDir, 0o755); err != nil {
-		writeError(w, http.StatusServiceUnavailable, err)
-		return
+		return http.StatusServiceUnavailable, map[string]any{"error": err.Error()}
 	}
 	if err := os.MkdirAll(s.cfg.Workspaces.DefaultRoot, 0o755); err != nil {
-		writeError(w, http.StatusServiceUnavailable, err)
-		return
+		return http.StatusServiceUnavailable, map[string]any{"error": err.Error()}
 	}
 	if artifactBackend(s.cfg) == "filesystem" || artifactBackend(s.cfg) == "local" || artifactBackend(s.cfg) == "" {
 		if err := os.MkdirAll(s.cfg.Storage.ArtifactDir, 0o755); err != nil {
-			writeError(w, http.StatusServiceUnavailable, err)
-			return
+			return http.StatusServiceUnavailable, map[string]any{"error": err.Error()}
 		}
 	}
-	speechStatus := s.speech.Status(r.Context())
-	residentServices, err := s.residentServiceStatuses(r.Context(), speechStatus)
+	speechStatus := s.speech.Status(ctx)
+	residentServices, err := s.residentServiceStatuses(ctx, speechStatus)
 	if err != nil {
-		writeSessionStoreError(w, err)
-		return
+		return http.StatusServiceUnavailable, map[string]any{"error": "store unavailable"}
 	}
 	payload := map[string]any{
 		"ok":                true,
@@ -695,5 +695,5 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	if storeStatus != nil {
 		payload["store"] = storeStatus
 	}
-	writeJSON(w, http.StatusOK, payload)
+	return http.StatusOK, payload
 }

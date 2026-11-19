@@ -108,13 +108,16 @@ export class LinkAuth {
   #adopt(summary) {
     this.summary = summary;
     this.installationID = linkInstallationID(summary.device_id);
-    const hostID = summary.host_device_id || summary.domain_id;
+    // The backend's deployment id (from device.describe, remembered for
+    // offline starts) scopes the local cache; the host device id stands
+    // in until the first description.
+    const known = this.#knownIdentity();
+    const hostID = (known?.device_id === summary.device_id && known.deployment_id) || summary.host_device_id || summary.domain_id;
     this.descriptor = Object.freeze({ schemaVersion: 3, transport: "link", origin: LINK_ORIGIN, deploymentID: hostID, ownerID: undefined,
       clientID: `link-${summary.device_id}`, deviceID: summary.device_id, domainID: summary.domain_id, domainName: summary.domain_name,
       hostName: summary.host_name || "", deviceName: summary.device_name || "", console: summary.console || "" });
     // The last verified owner lets cached conversations open while the
     // backend is offline; it is replaced by every device.describe.
-    const known = this.#knownIdentity();
     if (known?.device_id === summary.device_id && typeof known.owner_id === "string" && known.owner_id) {
       this.descriptor = Object.freeze({ ...this.descriptor, ownerID: known.owner_id });
       this.connection = Object.freeze({ schema_version: 3, transport: "link", origin: LINK_ORIGIN, deploymentID: hostID, ownerID: known.owner_id,
@@ -125,10 +128,10 @@ export class LinkAuth {
 
   #identityFile() { return path.join(this.stateDirectory, "link-identity.json"); }
   #knownIdentity() { try { return JSON.parse(fs.readFileSync(this.#identityFile(), "utf8")); } catch { return undefined; } }
-  #saveIdentity(ownerID) {
+  #saveIdentity(ownerID, deploymentID) {
     try {
       const filename = this.#identityFile(), temporary = `${filename}.${crypto.randomUUID()}.tmp`;
-      fs.writeFileSync(temporary, JSON.stringify({ device_id: this.descriptor.deviceID, owner_id: ownerID }), { mode: 0o600 });
+      fs.writeFileSync(temporary, JSON.stringify({ device_id: this.descriptor.deviceID, owner_id: ownerID, ...(deploymentID ? { deployment_id: deploymentID } : {}) }), { mode: 0o600 });
       fs.renameSync(temporary, filename);
     } catch { /* the identity is re-verified on the next connection */ }
   }
@@ -184,11 +187,12 @@ export class LinkAuth {
       this.principal = described.principal;
       this.features = described.features || [];
       this.domains = described.domains || [];
-      const identity = { deploymentID: this.descriptor.deploymentID, ownerID: described.principal.owner_id, clientID: this.descriptor.clientID };
-      const changed = this.connection?.ownerID !== identity.ownerID || this.connection?.clientID !== identity.clientID;
+      const deploymentID = typeof described.deployment_id === "string" && described.deployment_id ? described.deployment_id : this.descriptor.deploymentID;
+      const identity = { deploymentID, ownerID: described.principal.owner_id, clientID: this.descriptor.clientID };
+      const changed = this.connection?.ownerID !== identity.ownerID || this.connection?.clientID !== identity.clientID || this.connection?.deploymentID !== identity.deploymentID;
       this.connection = Object.freeze({ schema_version: 3, transport: "link", origin: LINK_ORIGIN, ...identity, identityVerified: true, binding: this.descriptor.deviceID });
-      this.descriptor = Object.freeze({ ...this.descriptor, ownerID: identity.ownerID });
-      if (changed) { this.#saveIdentity(identity.ownerID); await this.onIdentity(this.identity()); }
+      this.descriptor = Object.freeze({ ...this.descriptor, ownerID: identity.ownerID, deploymentID });
+      if (changed) { this.#saveIdentity(identity.ownerID, deploymentID); await this.onIdentity(this.identity()); }
       await this.#startPipeline();
       if (!this.link.online) { this.#set("service_unavailable"); return; }
       this.generation++;

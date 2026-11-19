@@ -29,7 +29,10 @@ func validateWorkbenchInput(input webMessageInput) error {
 }
 
 func (s *Server) webMessageIngress(ctx context.Context, r *http.Request, session app.Session, target app.EndpointID, clientTimezone string) (app.MessageIngressContext, error) {
-	principal := principalForRequest(r)
+	return s.webMessageIngressFor(ctx, principalForRequest(r), session, target, clientTimezone)
+}
+
+func (s *Server) webMessageIngressFor(ctx context.Context, principal requestPrincipal, session app.Session, target app.EndpointID, clientTimezone string) (app.MessageIngressContext, error) {
 	ownerID := strings.TrimSpace(session.OwnerID)
 	if ownerID == "" {
 		ownerID = app.DefaultOwnerID

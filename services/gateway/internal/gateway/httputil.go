@@ -69,11 +69,16 @@ func (s *Server) sessionIDVisibleToOwner(ctx context.Context, sessionID, ownerID
 }
 
 func (s *Server) sessionForRequest(ctx context.Context, r *http.Request, sessionID string) (app.Session, bool, error) {
+	return s.sessionForPrincipal(ctx, principalForRequest(r), sessionID)
+}
+
+// sessionForPrincipal resolves a session visible to an authenticated
+// principal; HTTP and link entries share it.
+func (s *Server) sessionForPrincipal(ctx context.Context, principal requestPrincipal, sessionID string) (app.Session, bool, error) {
 	session, found, err := s.store.GetSession(ctx, strings.TrimSpace(sessionID))
 	if err != nil || !found {
 		return app.Session{}, false, err
 	}
-	principal := principalForRequest(r)
 	if strings.TrimSpace(principal.ClientID) != "" && sessionOwnerID(session) != principal.OwnerID {
 		return app.Session{}, false, nil
 	}

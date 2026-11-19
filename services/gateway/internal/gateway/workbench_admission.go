@@ -52,7 +52,10 @@ type workbenchRequestStatus struct {
 }
 
 func workbenchBinding(r *http.Request, session app.Session, requestID string) execution.WorkbenchBinding {
-	principal := principalForRequest(r)
+	return workbenchBindingFor(principalForRequest(r), session, requestID)
+}
+
+func workbenchBindingFor(principal requestPrincipal, session app.Session, requestID string) execution.WorkbenchBinding {
 	return execution.WorkbenchBinding{OwnerID: principal.OwnerID, ActorID: principal.ActorID, ClientID: principal.ClientID, WorkspaceID: execution.Digest([]byte(filepath.Clean(session.WorkspaceRoot))), SessionID: session.ID, RequestID: requestID}
 }
 
@@ -82,13 +85,20 @@ func (s *Server) admittedWorkbenchResult(ctx context.Context, binding execution.
 }
 
 func (s *Server) admitWorkbenchMessage(r *http.Request, session app.Session, input webMessageInput, ingress app.MessageIngressContext) (*workbenchAdmission, *workbenchRequestStatus, error) {
+	return s.admitWorkbenchMessageFor(r.Context(), principalForRequest(r), session, input, ingress, "")
+}
+
+// admitWorkbenchMessageFor admits one owner message for a principal. The
+// host WebChat and the link layer share it; clientMessageID is the link
+// client's idempotency key, recorded on the stored user message.
+func (s *Server) admitWorkbenchMessageFor(requestCtx context.Context, principal requestPrincipal, session app.Session, input webMessageInput, ingress app.MessageIngressContext, clientMessageID string) (*workbenchAdmission, *workbenchRequestStatus, error) {
 	if input.DraftRevision != nil && *input.DraftRevision < 0 {
 		return nil, nil, errors.New("draft_revision cannot be negative")
 	}
 	if !execution.UUID(input.RequestID) {
 		return nil, nil, errors.New("request_id must be a UUID")
 	}
-	binding := workbenchBinding(r, session, input.RequestID)
+	binding := workbenchBindingFor(principal, session, input.RequestID)
 	raw, err := json.Marshal(struct {
 		Input   webMessageInput           `json:"input"`
 		Ingress app.MessageIngressContext `json:"ingress"`
@@ -106,7 +116,7 @@ func (s *Server) admitWorkbenchMessage(r *http.Request, session app.Session, inp
 		if status.InputDigest != binding.InputDigest {
 			return nil, nil, execution.ErrConflict
 		}
-		previous, err := s.admittedWorkbenchResult(r.Context(), binding, status)
+		previous, err := s.admittedWorkbenchResult(requestCtx, binding, status)
 		return nil, &previous, err
 	} else if !errors.Is(lookupErr, execution.ErrNotFound) {
 		return nil, nil, lookupErr
@@ -136,14 +146,14 @@ func (s *Server) admitWorkbenchMessage(r *http.Request, session app.Session, inp
 	}
 	if lease == nil {
 		release()
-		previous, err := s.admittedWorkbenchResult(r.Context(), binding, status)
+		previous, err := s.admittedWorkbenchResult(requestCtx, binding, status)
 		return nil, &previous, err
 	}
 	admission := &workbenchAdmission{lease: lease, binding: binding, release: release, snapshot: snapshot}
 	// Preserve the submitted owner input before consuming its draft or sending
 	// acceptance. Runtime AddMessage is idempotent for this exact stable ID.
 	attachments := sanitizeMessageAttachments(input.Attachments)
-	message, err := s.store.AddMessage(lease.Context, app.Message{ID: lease.InputMessageID, SessionID: session.ID, Role: "user", Content: input.Content, Attachments: attachments, CreatedAt: time.Now().UTC()})
+	message, err := s.store.AddMessage(lease.Context, app.Message{ID: lease.InputMessageID, SessionID: session.ID, Role: "user", Content: input.Content, Attachments: attachments, CreatedAt: time.Now().UTC(), ClientMessageID: clientMessageID})
 	if err != nil || message.ID != lease.InputMessageID || message.SessionID != session.ID || message.Role != "user" || message.Content != input.Content || !slices.Equal(message.Attachments, attachments) {
 		admission.close()
 		if err == nil {

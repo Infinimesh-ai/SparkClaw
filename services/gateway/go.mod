@@ -3,6 +3,7 @@ module github.com/Chiiz0/SparkClaw/services/gateway
 go 1.27.4
 
 require (
+	github.com/Chiiz0/SparkClaw/services/link v0.0.0
 	github.com/Infinimesh-ai/ISCP v0.2.0-rc.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.13.0
@@ -22,3 +23,5 @@ require (
 	github.com/jackc/puddle/v2 v2.2.4 // indirect
 	golang.org/x/crypto v0.59.0 // indirect
 )
+
+replace github.com/Chiiz0/SparkClaw/services/link => ../link

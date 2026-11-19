@@ -126,6 +126,7 @@ type Server struct {
 	pairing                   *pairingCoordinator
 	clientIssuance            *clientIssuanceCoordinator
 	clientConnections         *clientConnectionRegistry
+	link                      *linkRuntime
 	workbenchEvents           *workbenchEventHub
 	workbenchEventMonitorOnce sync.Once
 	storeRuntime              StoreRuntimeMonitor

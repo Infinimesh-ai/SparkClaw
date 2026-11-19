@@ -246,78 +246,119 @@ func (s *Server) modifyHappyPlanApproval(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status app.ApprovalStatus) {
-	var input struct {
-		app.ApprovalInputSubmission
-		Note string `json:"note"`
-	}
+	var input approvalDecisionInput
 	decodeErr := readJSON(r, &input)
-	unlock := s.lockApproval(r.PathValue("id"))
-	defer unlock()
-	approval, ok, err := s.findApproval(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeApprovalStoreError(w, err)
+	outcome, err := s.resolveApprovalFor(r.Context(), principalForRequest(r), r.PathValue("id"), status, input, decodeErr)
+	var happy *happyPlanApprovalPending
+	if errors.As(err, &happy) {
+		s.resolveHappyPlanApproval(w, r, happy.approval, status, input.Note)
 		return
+	}
+	if err != nil {
+		writeApprovalFailure(w, err)
+		return
+	}
+	writeJSON(w, outcome.status, outcome.body)
+}
+
+type approvalDecisionInput struct {
+	app.ApprovalInputSubmission
+	Note string `json:"note"`
+}
+
+// approvalOutcome is a successful resolution: the HTTP status and body the
+// host WebChat receives, and the decided approval.
+type approvalOutcome struct {
+	status   int
+	body     map[string]any
+	approval app.Approval
+}
+
+// approvalFailure carries the exact HTTP failure of the original handler so
+// the HTTP entry stays unchanged, plus a status the link entry maps.
+type approvalFailure struct {
+	status int
+	cause  error
+	write  func(http.ResponseWriter)
+}
+
+func (e *approvalFailure) Error() string { return e.cause.Error() }
+func (e *approvalFailure) Unwrap() error { return e.cause }
+
+type happyPlanApprovalPending struct{ approval app.Approval }
+
+func (e *happyPlanApprovalPending) Error() string { return "Happy plan approvals resolve on the host WebChat" }
+
+func writeApprovalFailure(w http.ResponseWriter, err error) {
+	var failure *approvalFailure
+	if errors.As(err, &failure) && failure.write != nil {
+		failure.write(w)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err)
+}
+
+func approvalFail(status int, cause error, write func(http.ResponseWriter)) error {
+	return &approvalFailure{status: status, cause: cause, write: write}
+}
+
+// resolveApprovalFor decides an approval for a principal; the host WebChat
+// and the link layer share it.
+func (s *Server) resolveApprovalFor(requestCtx context.Context, principal requestPrincipal, approvalID string, status app.ApprovalStatus, input approvalDecisionInput, decodeErr error) (*approvalOutcome, error) {
+	ctx := requestCtx
+	unlock := s.lockApproval(approvalID)
+	defer unlock()
+	approval, ok, err := s.findApproval(ctx, approvalID)
+	if err != nil {
+		return nil, approvalFail(http.StatusServiceUnavailable, err, func(w http.ResponseWriter) { writeApprovalStoreError(w, err) })
 	}
 	if !ok {
-		writeError(w, http.StatusNotFound, errors.New("approval not found"))
-		return
+		return nil, approvalFail(http.StatusNotFound, errors.New("approval not found"), func(w http.ResponseWriter) { writeError(w, http.StatusNotFound, errors.New("approval not found")) })
 	}
-	if visible, visibilityErr := s.approvalVisibleToRequest(r.Context(), r, approval); visibilityErr != nil {
-		writeSessionStoreError(w, visibilityErr)
-		return
+	if visible, visibilityErr := s.approvalVisibleToPrincipal(ctx, principal, approval); visibilityErr != nil {
+		return nil, approvalFail(http.StatusServiceUnavailable, visibilityErr, func(w http.ResponseWriter) { writeSessionStoreError(w, visibilityErr) })
 	} else if !visible {
-		writeError(w, http.StatusNotFound, errors.New("approval not found"))
-		return
+		return nil, approvalFail(http.StatusNotFound, errors.New("approval not found"), func(w http.ResponseWriter) { writeError(w, http.StatusNotFound, errors.New("approval not found")) })
 	}
 	if approval.InputForm != nil && decodeErr != nil {
-		writeError(w, http.StatusBadRequest, decodeErr)
-		return
+		return nil, approvalFail(http.StatusBadRequest, decodeErr, func(w http.ResponseWriter) { writeError(w, http.StatusBadRequest, decodeErr) })
 	}
 	if approval.InputForm != nil && status == app.ApprovalStatusApproved {
 		if input.Digest != approval.InputFormDigest || input.SchemaVersion != app.ApprovalInputSchemaVersion {
-			writeError(w, http.StatusConflict, errors.New("approval input form changed or unsupported"))
-			return
+			return nil, approvalFail(http.StatusConflict, errors.New("approval input form changed or unsupported"), func(w http.ResponseWriter) { writeError(w, http.StatusConflict, errors.New("approval input form changed or unsupported")) })
 		}
 		if err := app.ValidateApprovalInputs(approval.InputForm, input.Inputs); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
+			return nil, approvalFail(http.StatusBadRequest, err, func(w http.ResponseWriter) { writeError(w, http.StatusBadRequest, err) })
 		}
 	}
 	if approval.InputForm != nil && approval.Status != app.ApprovalStatusPending {
 		// Reconcile identical submitted values without executing the continuation twice.
-		receipt, resolveErr := s.store.ResolveApprovalWithInputs(r.Context(), approval.ID, status, input.Note, input.ApprovalInputSubmission)
+		receipt, resolveErr := s.store.ResolveApprovalWithInputs(ctx, approval.ID, status, input.Note, input.ApprovalInputSubmission)
 		if resolveErr != nil {
-			writeApprovalStoreError(w, resolveErr)
-			return
+			return nil, approvalFail(http.StatusServiceUnavailable, resolveErr, func(w http.ResponseWriter) { writeApprovalStoreError(w, resolveErr) })
 		}
-		call, _, callErr := s.store.GetToolCall(r.Context(), approval.ToolCallID)
+		call, _, callErr := s.store.GetToolCall(ctx, approval.ToolCallID)
 		if callErr != nil {
-			writeSessionStoreError(w, callErr)
-			return
+			return nil, approvalFail(http.StatusServiceUnavailable, callErr, func(w http.ResponseWriter) { writeSessionStoreError(w, callErr) })
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"approval": receipt, "approval_status": receipt.Status, "tool_call": call, "replayed": true})
-		return
+		return &approvalOutcome{status: http.StatusOK, body: map[string]any{"approval": receipt, "approval_status": receipt.Status, "tool_call": call, "replayed": true}, approval: approval}, nil
 	}
 	if approval.Status != app.ApprovalStatusPending {
-		writeError(w, http.StatusBadRequest, errors.New("approval already resolved"))
-		return
+		return nil, approvalFail(http.StatusBadRequest, errors.New("approval already resolved"), func(w http.ResponseWriter) { writeError(w, http.StatusBadRequest, errors.New("approval already resolved")) })
 	}
 	mcpRun := false
-	if run, ok, err := s.store.GetRun(r.Context(), approval.RunID); err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
+	if run, ok, err := s.store.GetRun(ctx, approval.RunID); err != nil {
+		return nil, approvalFail(http.StatusInternalServerError, err, func(w http.ResponseWriter) { writeError(w, http.StatusInternalServerError, err) })
 	} else if ok && run.MessageContext != nil && run.MessageContext.MCP != nil {
 		mcpRun = true
 	}
 	if status == app.ApprovalStatusApproved {
-		if err := s.validateMCPApproval(r.Context(), approval); err != nil {
-			writeError(w, http.StatusConflict, err)
-			return
+		if err := s.validateMCPApproval(ctx, approval); err != nil {
+			return nil, approvalFail(http.StatusConflict, err, func(w http.ResponseWriter) { writeError(w, http.StatusConflict, err) })
 		}
 	}
 	if approval.Source == app.ApprovalSourceHappyTeamPlan {
-		s.resolveHappyPlanApproval(w, r, approval, status, input.Note)
-		return
+		return nil, &happyPlanApprovalPending{approval: approval}
 	}
 	var workbenchContinuation *workbenchAdmission
 	if !mcpRun && status == app.ApprovalStatusRejected {
@@ -325,56 +366,49 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 		// approval continuation or a fresh message mutating this session.
 		releaseSession := s.tryAdmitSessionMessage(approval.SessionID)
 		if releaseSession == nil {
-			writeWorkbenchAdmissionError(w, execution.ErrConflict)
-			return
+			return nil, approvalFail(http.StatusServiceUnavailable, execution.ErrConflict, func(w http.ResponseWriter) { writeWorkbenchAdmissionError(w, execution.ErrConflict) })
 		}
 		defer releaseSession()
 	}
 	if !mcpRun && status == app.ApprovalStatusApproved {
-		session, found, lookupErr := s.sessionForRequest(r.Context(), r, approval.SessionID)
+		session, found, lookupErr := s.sessionForPrincipal(ctx, principal, approval.SessionID)
 		if lookupErr != nil {
-			writeSessionStoreError(w, lookupErr)
-			return
+			return nil, approvalFail(http.StatusServiceUnavailable, lookupErr, func(w http.ResponseWriter) { writeSessionStoreError(w, lookupErr) })
 		}
 		if !found {
-			writeError(w, http.StatusNotFound, errors.New("session not found"))
-			return
+			return nil, approvalFail(http.StatusNotFound, errors.New("session not found"), func(w http.ResponseWriter) { writeError(w, http.StatusNotFound, errors.New("session not found")) })
 		}
 		ctx, finish := s.detachedExecutionContext()
 		defer finish()
-		workbenchContinuation, err = s.beginWorkbenchContinuation(ctx, workbenchBinding(r, session, ""), approval.RunID, true)
+		workbenchContinuation, err = s.beginWorkbenchContinuation(ctx, workbenchBindingFor(principal, session, ""), approval.RunID, true)
 		if err != nil {
-			writeWorkbenchAdmissionError(w, err)
-			return
+			return nil, approvalFail(http.StatusServiceUnavailable, err, func(w http.ResponseWriter) { writeWorkbenchAdmissionError(w, err) })
 		}
 		if workbenchContinuation != nil {
 			defer workbenchContinuation.close()
-			r = r.WithContext(workbenchContinuation.context())
+			ctx = workbenchContinuation.context()
 		}
 	}
-	candidate, err := s.store.ResolveApprovalWithInputs(r.Context(), approval.ID, status, input.Note, input.ApprovalInputSubmission)
-	approval, err = store.ReconcileApprovalWrite(r.Context(), s.store, candidate, err)
+	candidate, err := s.store.ResolveApprovalWithInputs(ctx, approval.ID, status, input.Note, input.ApprovalInputSubmission)
+	approval, err = store.ReconcileApprovalWrite(ctx, s.store, candidate, err)
 	if err != nil {
-		writeApprovalStoreError(w, err)
-		return
+		return nil, approvalFail(http.StatusServiceUnavailable, err, func(w http.ResponseWriter) { writeApprovalStoreError(w, err) })
 	}
 	if status == app.ApprovalStatusApproved && mcpRun && s.mcpAccess != nil {
-		operation, executionCtx, finishExecution, beginErr := s.mcpAccess.StartApprovalExecution(r.Context(), approval.RunID)
+		operation, executionCtx, finishExecution, beginErr := s.mcpAccess.StartApprovalExecution(ctx, approval.RunID)
 		if beginErr != nil {
-			s.refreshTrace(r.Context(), approval.RunID)
-			writeJSON(w, http.StatusOK, map[string]any{
+			s.refreshTrace(ctx, approval.RunID)
+			return &approvalOutcome{status: http.StatusOK, body: map[string]any{
 				"approval": approval, "approval_status": approval.Status, "execution_status": operation.State,
 				"execution_error": beginErr.Error(), "tool_call": nil, "workflow_result": nil, "delivery_receipt": nil,
-			})
-			return
+			}, approval: approval}, nil
 		}
 		s.startApprovedMCPExecution(approval, executionCtx, finishExecution)
-		s.refreshTrace(r.Context(), approval.RunID)
-		writeJSON(w, http.StatusAccepted, map[string]any{
+		s.refreshTrace(ctx, approval.RunID)
+		return &approvalOutcome{status: http.StatusAccepted, body: map[string]any{
 			"approval": approval, "approval_status": approval.Status, "execution_status": operation.State,
 			"operation": operation, "tool_call": nil, "workflow_result": nil, "delivery_receipt": nil,
-		})
-		return
+		}, approval: approval}, nil
 	}
 	var call *app.ToolCall
 	var workflowResult *app.WorkflowResult
@@ -382,87 +416,77 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	executionStatus := "not_started"
 	resumed := false
 	if status == app.ApprovalStatusApproved {
-		executed, err := s.runtime.ExecuteApprovedToolCall(r.Context(), approval)
+		executed, err := s.runtime.ExecuteApprovedToolCall(ctx, approval)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
+			return nil, approvalFail(http.StatusBadRequest, err, func(w http.ResponseWriter) { writeError(w, http.StatusBadRequest, err) })
 		}
 		call = &executed
 		executionStatus = "succeeded"
 		if executed.Status.Failed() {
 			executionStatus = "failed"
 		}
-		if result, ok, err := s.runtime.ResumeRunAfterApproval(r.Context(), approval.SessionID, approval.RunID); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
+		if result, ok, err := s.runtime.ResumeRunAfterApproval(ctx, approval.SessionID, approval.RunID); err != nil {
+			return nil, approvalFail(http.StatusBadRequest, err, func(w http.ResponseWriter) { writeError(w, http.StatusBadRequest, err) })
 		} else if ok {
 			resumed = true
 			workflowResult = result.WorkflowResult
 			if workflowResult != nil {
 				executionStatus = string(workflowResult.Status)
 			}
-			if receipt, err := s.deliverAgentResult(r.Context(), result); err != nil {
+			if receipt, err := s.deliverAgentResult(ctx, result); err != nil {
 				if workbenchContinuation != nil {
 					if finishErr := s.finishWorkbenchMessage(workbenchContinuation, result, nil, err); finishErr != nil {
-						writeConversationError(w, http.StatusServiceUnavailable, finishErr)
-						return
+						return nil, approvalFail(http.StatusServiceUnavailable, finishErr, func(w http.ResponseWriter) { writeConversationError(w, http.StatusServiceUnavailable, finishErr) })
 					}
 				}
-				writeError(w, http.StatusBadGateway, err)
-				return
+				return nil, approvalFail(http.StatusBadGateway, err, func(w http.ResponseWriter) { writeError(w, http.StatusBadGateway, err) })
 			} else {
 				deliveryReceipt = receipt
 			}
 		}
 	}
 	if status == app.ApprovalStatusRejected {
-		if rejected, ok, err := s.store.GetToolCall(r.Context(), approval.ToolCallID); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
+		if rejected, ok, err := s.store.GetToolCall(ctx, approval.ToolCallID); err != nil {
+			return nil, approvalFail(http.StatusInternalServerError, err, func(w http.ResponseWriter) { writeError(w, http.StatusInternalServerError, err) })
 		} else if ok {
 			now := time.Now().UTC()
 			rejected.Status = app.ToolCallStatusRejected
 			rejected.Error = "owner rejected approval"
 			rejected.CompletedAt = &now
-			persisted, saveErr := s.store.SaveToolCall(r.Context(), rejected)
-			persisted, saveErr = store.ReconcileToolCallWrite(r.Context(), s.store, persisted, saveErr)
+			persisted, saveErr := s.store.SaveToolCall(ctx, rejected)
+			persisted, saveErr = store.ReconcileToolCallWrite(ctx, s.store, persisted, saveErr)
 			if saveErr != nil {
-				writeError(w, http.StatusInternalServerError, saveErr)
-				return
+				return nil, approvalFail(http.StatusInternalServerError, saveErr, func(w http.ResponseWriter) { writeError(w, http.StatusInternalServerError, saveErr) })
 			}
 			rejected = persisted
 			call = &rejected
 		}
 	}
 	if !resumed {
-		if err := s.runtime.CompleteRunIfApprovalsResolved(r.Context(), approval.RunID); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
+		if err := s.runtime.CompleteRunIfApprovalsResolved(ctx, approval.RunID); err != nil {
+			return nil, approvalFail(http.StatusInternalServerError, err, func(w http.ResponseWriter) { writeError(w, http.StatusInternalServerError, err) })
 		}
 	}
 	if status == app.ApprovalStatusRejected && mcpRun && s.mcpAccess != nil {
-		if err := s.mcpAccess.FailApprovalExecution(r.Context(), approval.RunID, "approval_rejected", "The local owner rejected the pending action"); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
+		if err := s.mcpAccess.FailApprovalExecution(ctx, approval.RunID, "approval_rejected", "The local owner rejected the pending action"); err != nil {
+			return nil, approvalFail(http.StatusInternalServerError, err, func(w http.ResponseWriter) { writeError(w, http.StatusInternalServerError, err) })
 		}
 		executionStatus = string(app.MCPOperationFailed)
 	}
 	if workbenchContinuation != nil {
-		result, found, lookupErr := s.runtime.LookupRunResult(r.Context(), approval.SessionID, approval.RunID)
+		result, found, lookupErr := s.runtime.LookupRunResult(ctx, approval.SessionID, approval.RunID)
 		if lookupErr != nil || !found {
-			writeConversationError(w, http.StatusServiceUnavailable, errors.New("persisted approval result unavailable"))
-			return
+			return nil, approvalFail(http.StatusServiceUnavailable, errors.New("persisted approval result unavailable"), func(w http.ResponseWriter) { writeConversationError(w, http.StatusServiceUnavailable, errors.New("persisted approval result unavailable")) })
 		}
 		if finishErr := s.finishWorkbenchMessage(workbenchContinuation, result, nil, nil); finishErr != nil {
-			writeConversationError(w, http.StatusServiceUnavailable, finishErr)
-			return
+			return nil, approvalFail(http.StatusServiceUnavailable, finishErr, func(w http.ResponseWriter) { writeConversationError(w, http.StatusServiceUnavailable, finishErr) })
 		}
 	}
-	s.refreshTrace(r.Context(), approval.RunID)
-	writeJSON(w, http.StatusOK, map[string]any{
+	s.refreshTrace(ctx, approval.RunID)
+	return &approvalOutcome{status: http.StatusOK, body: map[string]any{
 		"approval": approval, "approval_status": approval.Status, "execution_status": executionStatus,
 		"tool_call": call, "workflow_result": workflowResult, "delivery_receipt": deliveryReceipt,
-	})
+	}, approval: approval}, nil
 }
 
 func (s *Server) startApprovedMCPExecution(approval app.Approval, executionCtx context.Context, finishExecution func()) {
@@ -595,6 +619,10 @@ func (s *Server) findApproval(ctx context.Context, id string) (app.Approval, boo
 }
 
 func (s *Server) approvalVisibleToRequest(ctx context.Context, r *http.Request, approval app.Approval) (bool, error) {
+	return s.approvalVisibleToPrincipal(ctx, principalForRequest(r), approval)
+}
+
+func (s *Server) approvalVisibleToPrincipal(ctx context.Context, principal requestPrincipal, approval app.Approval) (bool, error) {
 	sessionID := strings.TrimSpace(approval.SessionID)
 	if sessionID == "" && strings.TrimSpace(approval.RunID) != "" {
 		run, found, err := s.store.GetRun(ctx, approval.RunID)
@@ -606,9 +634,9 @@ func (s *Server) approvalVisibleToRequest(ctx context.Context, r *http.Request, 
 		}
 	}
 	if sessionID == "" {
-		return strings.TrimSpace(principalForRequest(r).ClientID) == "", nil
+		return strings.TrimSpace(principal.ClientID) == "", nil
 	}
-	_, visible, err := s.sessionForRequest(ctx, r, sessionID)
+	_, visible, err := s.sessionForPrincipal(ctx, principal, sessionID)
 	return visible, err
 }
 

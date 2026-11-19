@@ -1,6 +1,9 @@
 package contract
 
-import "sort"
+import (
+	"encoding/json"
+	"sort"
+)
 
 // Core operations (design section 4.2).
 const (
@@ -197,4 +200,27 @@ func ReverseOperations() []string {
 // operation names it calls (kept equal to the previous operation table).
 func RegisterReverseOperation(op string, req Requirement) {
 	reverseOperations[op] = req
+}
+
+// LAN connector constants (shared by the Gateway and clients).
+const (
+	LANPath            = "/link/v1"
+	LANProtocol        = "sparkclaw.link.lan.v1"
+	LANChallengePrefix = "sparkclaw.link.lan:"
+)
+
+// LANControl is the pre-link exchange on a LAN connection: the server sends
+// a challenge; the device answers with a proof (audience: the backend's
+// device id; challenge: LANChallengePrefix + nonce); the server replies
+// authenticated or error. Link frames follow.
+type LANControl struct {
+	Type      string          `json:"type"`
+	Version   string          `json:"version,omitempty"`
+	Host      string          `json:"host,omitempty"`
+	Nonce     string          `json:"nonce,omitempty"`
+	DeviceID  string          `json:"device_id,omitempty"`
+	Proof     json.RawMessage `json:"proof,omitempty"`
+	Code      string          `json:"code,omitempty"`
+	Message   string          `json:"message,omitempty"`
+	Principal *Principal      `json:"principal,omitempty"`
 }

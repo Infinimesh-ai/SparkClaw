@@ -356,3 +356,48 @@ func waitUntil(t *testing.T, d time.Duration, fn func() bool) {
 }
 
 var _ = sync.Mutex{}
+
+func TestLinkDomainCallBridge(t *testing.T) {
+	b := newLinkTestBackend(t)
+	desk, _, drec, _ := newLinkTestDevice(t, b, contract.ClassDesktop, contract.Conditions{Screen: contract.ScreenLarge, Attachments: true, BrowserSurface: true})
+	phone, _, prec, _ := newLinkTestDevice(t, b, contract.ClassPhone, contract.Conditions{Screen: contract.ScreenSmall})
+	writeLinkDirectory(t, b.stateDir, drec, prec)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	desk.Start(ctx)
+	phone.Start(ctx)
+	defer desk.Close()
+	defer phone.Close()
+	if desk.WaitReady(ctx) != nil || phone.WaitReady(ctx) != nil {
+		t.Fatal("not ready")
+	}
+	var out contract.DomainCallResult
+	if err := desk.Request(ctx, contract.OpDomainCall, contract.DomainCallParams{Domain: "settings", Method: "settings.owner.get"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var res linkBridgeResult
+	if err := json.Unmarshal(out.Result, &res); err != nil || res.Status != 200 || len(res.Body) == 0 {
+		t.Fatalf("settings.owner.get %+v %v %s", res, err, out.Result)
+	}
+	if err := desk.Request(ctx, contract.OpDomainCall, contract.DomainCallParams{Domain: "notifications", Method: "notifications.list", Args: json.RawMessage(`{"params":{"limit":"5"}}`)}, &out); err != nil {
+		t.Fatal(err)
+	}
+	_ = json.Unmarshal(out.Result, &res)
+	if res.Status != 200 {
+		t.Fatalf("notifications.list %+v", res)
+	}
+	// Replaced and console-owned operations are refused with a reason.
+	err := desk.Request(ctx, contract.OpDomainCall, contract.DomainCallParams{Domain: "execution", Method: "execution.submit"}, nil)
+	if contract.AsError(err).Code != contract.CodeUnsupportedCapability {
+		t.Fatalf("execution.submit through domain.call: %v", err)
+	}
+	// A phone has no built-in browser, so MCD selections are closed to it.
+	err = phone.Request(ctx, contract.OpDomainCall, contract.DomainCallParams{Domain: "mcd", Method: "mcd.session.status"}, nil)
+	if contract.AsError(err).Code != contract.CodeUnsupportedCapability {
+		t.Fatalf("phone mcd: %v", err)
+	}
+	var describe contract.DeviceDescribeResult
+	if err := desk.Request(ctx, contract.OpDeviceDescribe, nil, &describe); err != nil || len(describe.Domains) < 3 {
+		t.Fatalf("describe %+v %v", describe, err)
+	}
+}

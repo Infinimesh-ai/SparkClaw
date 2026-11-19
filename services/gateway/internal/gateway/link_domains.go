@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,9 +45,16 @@ func registerLinkDomain(domain string, methods map[string]linkDomainMethod) {
 
 func (s *Server) linkDomainNames() []string {
 	linkDomainsMu.RLock()
-	defer linkDomainsMu.RUnlock()
-	out := make([]string, 0, len(linkDomains))
+	seen := map[string]bool{}
 	for d := range linkDomains {
+		seen[d] = true
+	}
+	linkDomainsMu.RUnlock()
+	for _, op := range linkForwardOperations(contract.Conditions{BrowserSurface: true}) {
+		seen[strings.SplitN(op, ".", 2)[0]] = true
+	}
+	out := make([]string, 0, len(seen))
+	for d := range seen {
 		out = append(out, d)
 	}
 	sort.Strings(out)
@@ -62,7 +70,7 @@ func (s *Server) linkDomainCall(ctx context.Context, req *link.Request) (any, er
 	method, ok := linkDomains[p.Domain][p.Method]
 	linkDomainsMu.RUnlock()
 	if !ok {
-		return nil, link.Errorf(contract.CodeUnsupportedCapability, "domain method %s.%s is not available", p.Domain, p.Method)
+		return s.linkBridgeCall(ctx, req, p)
 	}
 	if !method.Mutation {
 		result, err := method.Call(ctx, req, p.Args)

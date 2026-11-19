@@ -434,3 +434,10 @@ func MCDCheckoutOperation(op string) bool {
 func withoutMCDCheckout(ops []string) []string {
 	return slices.DeleteFunc(slices.Clone(ops), MCDCheckoutOperation)
 }
+
+// ContextWithSession attaches an authenticated session to ctx. The link
+// layer uses it to run the business-domain adapters for a device it has
+// already authenticated, without an ISCP transport session.
+func ContextWithSession(ctx context.Context, info SessionInfo) context.Context {
+	return context.WithValue(ctx, sessionInfoKey{}, info)
+}

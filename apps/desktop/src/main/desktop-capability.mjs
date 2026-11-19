@@ -1,10 +1,11 @@
+import { operationTransport } from "./backend-transport.mjs";
 const INVOKE_CHANNEL = "sparkclaw-desktop:invoke";
 const STATE_CHANNEL = "sparkclaw-desktop:state";
 const TRUSTED_ORIGIN = "sparkclaw-app://workbench";
 
 export function isDesktopSessionAuthorized(auth) {
   return auth?.status.state === "connected" && Boolean(auth.connection) &&
-    (auth.descriptor?.transport !== "iscp" || (auth.connection.transport === "iscp" && auth.connection.identityVerified === true));
+    (!operationTransport(auth.descriptor) || (operationTransport(auth.connection) && auth.connection.identityVerified === true));
 }
 
 export class DesktopCapability {

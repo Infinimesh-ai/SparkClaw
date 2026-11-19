@@ -11,7 +11,7 @@ import { WORKBENCH_LIMITS } from "../shared/workbench-limits.mjs";
 import { calendarMissed, nextCalendarTime, parseScheduleRequest, recurrenceSpec, zonedTime } from "./local-schedule-time.mjs";
 import { initialQuestionTitle, migrateConversationTitles } from "./client-conversation-titles.mjs";
 
-export const CLIENT_SCHEMA_VERSION = 16;
+export const CLIENT_SCHEMA_VERSION = 17;
 export const CLIENT_LIMITS = WORKBENCH_LIMITS;
 const CONTEXT_RECORDS_SCHEMA = `CREATE TABLE message_clarifications(message_id TEXT PRIMARY KEY REFERENCES messages(id),record_json TEXT NOT NULL);
   CREATE TABLE handle_upload_intents(request_id TEXT NOT NULL REFERENCES tasks(request_id),file_id TEXT NOT NULL,
@@ -26,6 +26,20 @@ const MESSAGE_DELIVERIES_SCHEMA = `CREATE TABLE message_deliveries(message_id TE
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
+// Backend-mirrored conversations (link layer, design section 4). The backend
+// is the source of truth; these tables map its identities onto the local
+// cache rows and keep paging and run state.
+const LINK_CACHE_SCHEMA = `CREATE TABLE IF NOT EXISTS link_conversations(conversation_id TEXT PRIMARY KEY REFERENCES conversations(id),
+    remote_id TEXT UNIQUE NOT NULL, revision INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0,
+    last_seq INTEGER NOT NULL DEFAULT 0, preview TEXT NOT NULL DEFAULT '', running INTEGER NOT NULL DEFAULT 0,
+    more_before INTEGER NOT NULL DEFAULT 0, rename_pending INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS link_messages(message_id TEXT PRIMARY KEY REFERENCES messages(id), remote_id TEXT UNIQUE,
+    seq INTEGER, sort_key REAL NOT NULL, client_message_id TEXT, run_id TEXT, request_id TEXT, placeholder INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS link_attachments(id TEXT PRIMARY KEY, message_id TEXT NOT NULL REFERENCES messages(id),
+    object_id TEXT NOT NULL, name TEXT NOT NULL, size INTEGER NOT NULL, content_type TEXT NOT NULL DEFAULT '', sha256 TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL, UNIQUE(message_id,object_id));
+  CREATE TABLE IF NOT EXISTS link_tasks(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id), run_id TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '');`;
 const RECORDING_APPLICATIONS_SCHEMA = `CREATE TABLE recording_applications(scope TEXT NOT NULL, request_id TEXT NOT NULL,
   conversation_id TEXT NOT NULL, draft_revision INTEGER NOT NULL, PRIMARY KEY(scope,request_id));`;
 
@@ -50,7 +64,7 @@ export class ClientStore {
     try {
       this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
       const version = this.db.prepare("PRAGMA user_version").get().user_version;
-      if (![0, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
+      if (![0, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, CLIENT_SCHEMA_VERSION].includes(version)) throw new Error("ClientStore schema is unsupported; use this release's fresh workbench directory");
       if (version === 0) this.#initialize();
       if (version === 6) this.#transaction(() => {
         this.db.exec(`CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
@@ -106,6 +120,9 @@ export class ClientStore {
           ALTER TABLE execution_approvals ADD COLUMN input_values_json TEXT NOT NULL DEFAULT '';
           ALTER TABLE execution_approvals ADD COLUMN inputs_digest TEXT NOT NULL DEFAULT '';
           PRAGMA user_version=16;`);
+      });
+      if (version !== 0 && version < 17) this.#transaction(() => {
+        this.db.exec(`${LINK_CACHE_SCHEMA} PRAGMA user_version=17;`);
       });
       this.clientActions = new SchedulePresentations(this, scopeKey);
       // A renderer may have displayed a claimed action before a process crash.
@@ -170,6 +187,7 @@ export class ClientStore {
         CREATE TABLE execution_projection(request_id TEXT PRIMARY KEY REFERENCES tasks(request_id),revision INTEGER NOT NULL,termination_reason TEXT NOT NULL,approval_receipts TEXT NOT NULL,event_state TEXT NOT NULL);
         CREATE TABLE event_projection(scope TEXT PRIMARY KEY,cursor TEXT NOT NULL,revision INTEGER NOT NULL,snapshot TEXT NOT NULL,epoch TEXT NOT NULL DEFAULT '');
         CREATE INDEX conversations_by_scope ON conversations(scope, updated_at);
+        ${LINK_CACHE_SCHEMA}
         PRAGMA user_version=${CLIENT_SCHEMA_VERSION};
       `);
       this.db.prepare("INSERT INTO metadata VALUES('installation_id',?)").run(crypto.randomUUID());
@@ -215,7 +233,7 @@ export class ClientStore {
       const requests = "SELECT request_id FROM tasks WHERE conversation_id=?";
       const definitions = this.db.prepare(`SELECT DISTINCT s.schedule_id FROM schedules s JOIN tasks t
         ON t.request_id=s.request_id WHERE t.conversation_id=?`).all(conversationID);
-      for (const table of ["clarification_selections", "client_actions", "message_deliveries", "delivery_files", "deliveries", "execution_approvals", "execution_projection", "handle_upload_intents", "schedules"]) {
+      for (const table of ["clarification_selections", "client_actions", "message_deliveries", "delivery_files", "deliveries", "execution_approvals", "execution_projection", "handle_upload_intents", "schedules", "link_tasks"]) {
         this.db.prepare(`DELETE FROM ${table} WHERE request_id IN (${requests})`).run(conversationID);
       }
       for (const definition of definitions) {
@@ -224,6 +242,8 @@ export class ClientStore {
       }
       this.db.prepare("DELETE FROM message_clarifications WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(conversationID);
       this.db.prepare("DELETE FROM message_files WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)").run(conversationID);
+      for (const table of ["link_attachments", "link_messages"]) this.db.prepare(`DELETE FROM ${table} WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)`).run(conversationID);
+      this.db.prepare("DELETE FROM link_conversations WHERE conversation_id=?").run(conversationID);
       this.db.prepare("DELETE FROM metadata WHERE key IN (SELECT 'browser_page:' || id FROM tasks WHERE conversation_id=?)").run(conversationID);
       this.db.prepare("DELETE FROM metadata WHERE key IN (SELECT 'browser_view:' || id FROM tasks WHERE conversation_id=?)").run(conversationID);
       this.db.prepare("DELETE FROM metadata WHERE key IN (SELECT 'browser_ended:' || id FROM tasks WHERE conversation_id=?)").run(conversationID);
@@ -250,17 +270,25 @@ export class ClientStore {
     this.#conversation(scope, conversationID);
     return {
       client_actions: this.clientActions.list(conversationID),
-      messages: this.db.prepare(`SELECT m.id,m.role,m.content,m.created_at,d.request_id FROM messages m
-        LEFT JOIN message_deliveries d ON d.message_id=m.id WHERE m.conversation_id=? ORDER BY m.rowid`).all(conversationID).map(({ request_id, ...message }) => ({ ...message,
+      // Backend-mirrored messages follow their sequence; messages not yet
+      // confirmed by the backend follow in local order.
+      messages: this.db.prepare(`SELECT m.id,m.role,m.content,m.created_at,COALESCE(d.request_id,lm.request_id) AS request_id FROM messages m
+        LEFT JOIN message_deliveries d ON d.message_id=m.id LEFT JOIN link_messages lm ON lm.message_id=m.id WHERE m.conversation_id=?
+        ORDER BY CASE WHEN lm.sort_key IS NULL THEN 1 ELSE 0 END, lm.sort_key, m.rowid`).all(conversationID).map(({ request_id, ...message }) => ({ ...message,
         ...(request_id ? { request_id } : {}),
-        attachments: this.db.prepare("SELECT f.id AS artifact_id,f.name,f.size AS bytes FROM message_files m JOIN files f ON f.id=m.file_id WHERE m.message_id=? ORDER BY m.rowid").all(message.id)
-          .map(file => ({ ...file, rel_path: `local:${file.artifact_id}/${file.name}`, content_type: localContentType(file.name) })) })),
+        attachments: [...this.db.prepare("SELECT f.id AS artifact_id,f.name,f.size AS bytes FROM message_files m JOIN files f ON f.id=m.file_id WHERE m.message_id=? ORDER BY m.rowid").all(message.id)
+          .map(file => ({ ...file, rel_path: `local:${file.artifact_id}/${file.name}`, content_type: localContentType(file.name) })),
+          // Generated files stay on the backend until opened (design 3.10).
+          ...this.db.prepare(`SELECT a.id AS artifact_id,a.name,a.size AS bytes,a.content_type FROM link_attachments a WHERE a.message_id=?
+            AND NOT EXISTS (SELECT 1 FROM message_files mf WHERE mf.message_id=a.message_id AND mf.file_id=a.id) ORDER BY a.position`).all(message.id)
+            .map(file => ({ ...file, rel_path: `local:${file.artifact_id}/${file.name}`, content_type: file.content_type || localContentType(file.name) }))] })),
       tasks: this.db.prepare("SELECT id,request_id,status,explicitly_submitted,created_at FROM tasks WHERE conversation_id=? ORDER BY rowid").all(conversationID)
         .map((task) => ({ ...task, ...this.executionProjection(scope, task.request_id), approvals: this.approvals(scope, task.request_id) })),
       files: this.db.prepare("SELECT id,name,sha256,size,created_at FROM files WHERE conversation_id=? ORDER BY rowid").all(conversationID).map(file => ({ ...file, content_type: localContentType(file.name) })),
       schedules: this.db.prepare(`SELECT s.*,d.interval_ms,d.state AS definition_state FROM schedules s
         JOIN schedule_definitions d ON d.id=s.schedule_id JOIN tasks t ON t.request_id=s.request_id
         WHERE t.conversation_id=? ORDER BY s.rowid`).all(conversationID),
+      ...(this.db.prepare("SELECT more_before FROM link_conversations WHERE conversation_id=?").get(conversationID)?.more_before ? { has_older: true } : {}),
     };
   }
 
@@ -1052,6 +1080,282 @@ export class ClientStore {
     return { ...record, content };
   }
 
+  // ---- Link-layer cache (design section 4): the backend owns conversations.
+
+  // Old local conversations are not migrated (design premise 7). This runs
+  // once per installation, before the first backend sync, and keeps only the
+  // welcome draft, re-keyed to the joined identity without its local files.
+  linkCutover(scope) {
+    const key = scopeKey(scope);
+    if (this.db.prepare("SELECT 1 FROM metadata WHERE key='link_cutover'").get()) return false;
+    const files = this.db.prepare("SELECT id FROM files").all();
+    this.#transaction(() => {
+      const welcome = this.db.prepare("SELECT content,revision FROM drafts WHERE conversation_id='' AND content<>'' ORDER BY revision DESC LIMIT 1").get();
+      for (const table of ["clarification_selections", "client_actions", "message_clarifications", "handle_upload_intents", "message_deliveries", "delivery_files",
+        "deliveries", "execution_approvals", "execution_projection", "schedules", "schedule_definitions", "link_attachments", "link_messages", "link_tasks",
+        "link_conversations", "message_files", "tasks", "messages", "files", "recording_applications", "event_projection", "drafts", "conversations"]) this.db.exec(`DELETE FROM ${table}`);
+      if (welcome) this.db.prepare("INSERT INTO drafts VALUES(?,'',?,'[]',?)").run(key, welcome.content, welcome.revision);
+      this.db.exec("DELETE FROM metadata WHERE key LIKE 'browser_%' OR key LIKE 'execution_cancel:%' OR key LIKE 'link_cursor:%'");
+      this.db.prepare("INSERT INTO metadata VALUES('link_cutover',?)").run(new Date().toISOString());
+    });
+    for (const file of files) if (UUID.test(file.id)) fs.rmSync(path.join(this.filesRoot, file.id), { force: true });
+    return true;
+  }
+
+  // A joined link device uses the installation identity the backend derives
+  // for it, so domain state and reverse calls name the same installation.
+  setInstallationID(id) {
+    uuid(id);
+    if (id === this.installationID) return;
+    this.db.prepare("UPDATE metadata SET value=? WHERE key='installation_id'").run(id);
+    this.installationID = id;
+  }
+
+  linkCursor(scope) {
+    const row = this.db.prepare("SELECT value FROM metadata WHERE key=?").get(`link_cursor:${scopeKey(scope)}`);
+    return row ? Number(row.value) : 0;
+  }
+
+  setLinkCursor(scope, cursor) {
+    if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error("Invalid sync cursor");
+    this.db.prepare("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(`link_cursor:${scopeKey(scope)}`, String(cursor));
+  }
+
+  linkConversation(scope, conversationID) {
+    this.#conversation(scope, conversationID);
+    return this.db.prepare(`SELECT l.*,(SELECT MAX(seq) FROM link_messages lm JOIN messages m ON m.id=lm.message_id WHERE m.conversation_id=l.conversation_id) AS cached_seq,
+      (SELECT MIN(seq) FROM link_messages lm JOIN messages m ON m.id=lm.message_id WHERE m.conversation_id=l.conversation_id) AS oldest_seq
+      FROM link_conversations l WHERE l.conversation_id=?`).get(conversationID);
+  }
+
+  linkConversationByRemote(scope, remoteID) {
+    const row = this.db.prepare("SELECT l.conversation_id FROM link_conversations l JOIN conversations c ON c.id=l.conversation_id WHERE l.remote_id=? AND c.scope=?").get(remoteID, scopeKey(scope));
+    return row ? this.linkConversation(scope, row.conversation_id) : undefined;
+  }
+
+  archivedIDs(scope) {
+    return this.db.prepare("SELECT c.id FROM conversations c JOIN link_conversations l ON l.conversation_id=c.id WHERE c.scope=? AND c.hidden=0 AND l.archived=1 ORDER BY c.updated_at DESC")
+      .all(scopeKey(scope)).map(row => row.id);
+  }
+
+  // Applies one backend conversation header. Returns the local id, whether
+  // newer messages exist than the cache holds, and whether it was deleted.
+  applyLinkHeader(scope, header, { localID, title, titlePending = false } = {}) {
+    if (!header || typeof header.id !== "string" || !ID.test(header.id)) throw new Error("Invalid conversation header");
+    return this.#transaction(() => {
+      const existing = this.linkConversationByRemote(scope, header.id);
+      if (header.deleted) {
+        if (existing) this.#dropConversation(existing.conversation_id);
+        return { conversation_id: existing?.conversation_id, deleted: Boolean(existing) };
+      }
+      const now = new Date().toISOString();
+      const created = header.created_at || now, updated = header.updated_at || created;
+      let id = existing?.conversation_id;
+      if (!id) {
+        id = localID || linkUUID("conversation", header.id);
+        if (localID) this.#conversation(scope, localID);
+        else this.db.prepare("INSERT INTO conversations(id,scope,title,created_at,updated_at,hidden,title_pending) VALUES(?,?,?,?,?,0,?)")
+          .run(id, scopeKey(scope), boundedText(title ?? header.title ?? "", 320, "Conversation title").trim() || "New conversation", created, updated, titlePending ? 1 : 0);
+        this.db.prepare("INSERT INTO link_conversations(conversation_id,remote_id,more_before) VALUES(?,?,?)").run(id, header.id, header.last_seq > 0 ? 1 : 0);
+      } else {
+        const local = this.db.prepare("SELECT title_pending FROM conversations WHERE id=?").get(id);
+        const pending = this.db.prepare("SELECT rename_pending FROM link_conversations WHERE conversation_id=?").get(id);
+        // A local title the backend has not received yet stays visible.
+        if (!local.title_pending && !pending.rename_pending && typeof header.title === "string" && header.title.trim())
+          this.db.prepare("UPDATE conversations SET title=? WHERE id=?").run(boundedText(header.title, 320, "Conversation title").trim(), id);
+        this.db.prepare("UPDATE conversations SET updated_at=MAX(updated_at,?) WHERE id=?").run(updated, id);
+      }
+      this.db.prepare(`UPDATE link_conversations SET revision=MAX(revision,?),archived=?,last_seq=?,preview=?,running=? WHERE conversation_id=?`)
+        .run(header.revision || 0, header.archived ? 1 : 0, header.last_seq || 0, header.preview || "", header.running ? 1 : 0, id);
+      const row = this.linkConversation(scope, id);
+      return { conversation_id: id, deleted: false, stale: (row.last_seq || 0) > (row.cached_seq || 0) };
+    });
+  }
+
+  markLinkRename(scope, conversationID, pending) {
+    this.#conversation(scope, conversationID);
+    this.db.prepare("UPDATE link_conversations SET rename_pending=? WHERE conversation_id=?").run(pending ? 1 : 0, conversationID);
+  }
+
+  // Removes a conversation the backend deleted, whatever its local tasks.
+  removeLinkConversation(scope, conversationID) {
+    this.#conversation(scope, conversationID);
+    const files = this.#transaction(() => this.#dropConversation(conversationID));
+    for (const file of files) fs.rmSync(path.join(this.filesRoot, file.id), { force: true });
+  }
+
+  #dropConversation(conversationID) {
+    const files = this.db.prepare("SELECT id FROM files WHERE conversation_id=?").all(conversationID);
+    const requests = "SELECT request_id FROM tasks WHERE conversation_id=?";
+    for (const table of ["clarification_selections", "client_actions", "message_deliveries", "delivery_files", "deliveries", "execution_approvals", "execution_projection", "handle_upload_intents", "schedules", "link_tasks"])
+      this.db.prepare(`DELETE FROM ${table} WHERE request_id IN (${requests})`).run(conversationID);
+    for (const table of ["message_clarifications", "message_files", "link_attachments", "link_messages"])
+      this.db.prepare(`DELETE FROM ${table} WHERE message_id IN (SELECT id FROM messages WHERE conversation_id=?)`).run(conversationID);
+    this.db.prepare("DELETE FROM metadata WHERE key IN (SELECT 'browser_page:' || id FROM tasks WHERE conversation_id=? UNION SELECT 'browser_view:' || id FROM tasks WHERE conversation_id=? UNION SELECT 'browser_ended:' || id FROM tasks WHERE conversation_id=?)")
+      .run(conversationID, conversationID, conversationID);
+    for (const table of ["tasks", "messages", "files"]) this.db.prepare(`DELETE FROM ${table} WHERE conversation_id=?`).run(conversationID);
+    this.db.prepare("DELETE FROM drafts WHERE conversation_id=?").run(conversationID);
+    this.db.prepare("DELETE FROM link_conversations WHERE conversation_id=?").run(conversationID);
+    this.db.prepare("DELETE FROM conversations WHERE id=?").run(conversationID);
+    return files;
+  }
+
+  // Whether remove() would keep this conversation for an unresolved task.
+  removable(scope, conversationID) {
+    this.#conversation(scope, conversationID);
+    return !this.db.prepare(`SELECT 1 FROM tasks WHERE conversation_id=? AND
+      (submission_claim IS NOT NULL OR
+        (explicitly_submitted=1 AND status NOT IN ('delivered','failed','canceled','delivery_expired','delivery_too_large')) OR
+        (explicitly_submitted=0 AND status NOT IN ('awaiting_runtime','scheduled_local','schedule_missed','schedule_canceled')))
+      LIMIT 1`).get(conversationID);
+  }
+
+  // Caches one page of backend messages (oldest first). A local message the
+  // backend has now stored (same client_message_id) keeps its local row.
+  applyLinkMessages(scope, conversationID, messages, { more, oldestPage = false, requestID } = {}) {
+    this.#conversation(scope, conversationID);
+    if (!Array.isArray(messages)) throw new Error("Invalid message page");
+    return this.#transaction(() => {
+      let changed = false;
+      for (const m of messages) {
+        if (!m || typeof m.id !== "string" || !ID.test(m.id) || !Number.isSafeInteger(m.seq) || !["user", "assistant"].includes(m.role) || typeof m.content !== "string") continue;
+        const content = boundedText(m.content, CLIENT_LIMITS.resultBytes, "Message");
+        const known = this.db.prepare("SELECT message_id FROM link_messages WHERE remote_id=?").get(m.id);
+        if (known) {
+          const prior = this.db.prepare("SELECT content FROM messages WHERE id=?").get(known.message_id);
+          if (prior && prior.content !== content) { this.db.prepare("UPDATE messages SET content=? WHERE id=?").run(content, known.message_id); changed = true; }
+          continue;
+        }
+        changed = true;
+        let ownRequest = m.role === "user" && m.client_message_id && UUID.test(m.client_message_id) ? this.db.prepare("SELECT request_id,context_json FROM tasks WHERE request_id=? AND conversation_id=?").get(m.client_message_id, conversationID) : undefined;
+        if (ownRequest) {
+          const localID = JSON.parse(ownRequest.context_json).messages?.at(-1)?.id;
+          const linked = localID && this.db.prepare("SELECT remote_id FROM link_messages WHERE message_id=?").get(localID);
+          if (localID && this.db.prepare("SELECT 1 FROM messages WHERE id=? AND conversation_id=?").get(localID, conversationID) && !linked?.remote_id) {
+            if (linked) this.db.prepare("UPDATE link_messages SET remote_id=?,seq=?,sort_key=? WHERE message_id=?").run(m.id, m.seq, m.seq, localID);
+            else this.db.prepare("INSERT INTO link_messages(message_id,remote_id,seq,sort_key,client_message_id,request_id) VALUES(?,?,?,?,?,?)")
+              .run(localID, m.id, m.seq, m.seq, m.client_message_id, ownRequest.request_id);
+            continue;
+          }
+        }
+        let request = requestID;
+        if (!request && m.role === "assistant" && m.run_id) request = this.db.prepare("SELECT request_id FROM link_tasks WHERE run_id=?").get(m.run_id)?.request_id;
+        if (request) this.#dropPlaceholders(request);
+        const id = linkUUID("message", m.id);
+        this.db.prepare("INSERT OR IGNORE INTO messages VALUES(?,?,?,?,?)").run(id, conversationID, m.role, content, m.created_at || new Date().toISOString());
+        this.db.prepare("INSERT INTO link_messages(message_id,remote_id,seq,sort_key,client_message_id,run_id,request_id) VALUES(?,?,?,?,?,?,?)")
+          .run(id, m.id, m.seq, m.seq, m.client_message_id || null, m.run_id || null, m.role === "assistant" ? request || null : null);
+        (Array.isArray(m.attachments) ? m.attachments : []).forEach((a, position) => {
+          if (!a || typeof a.object_id !== "string" || !a.object_id || a.object_id.length > 4096 || typeof a.name !== "string") return;
+          try { validFileName(a.name); } catch { return; }
+          this.db.prepare("INSERT OR IGNORE INTO link_attachments VALUES(?,?,?,?,?,?,?,?)")
+            .run(linkUUID("object", `${conversationID}\u0000${a.object_id}`), id, a.object_id, a.name, Number.isSafeInteger(a.size) ? a.size : 0,
+              typeof a.content_type === "string" ? a.content_type.slice(0, 200) : "", typeof a.sha256 === "string" && /^[a-f0-9]{64}$/u.test(a.sha256) ? a.sha256 : "", position);
+        });
+      }
+      if (oldestPage) this.db.prepare("UPDATE link_conversations SET more_before=? WHERE conversation_id=?").run(more ? 1 : 0, conversationID);
+      return changed;
+    });
+  }
+
+  #dropPlaceholders(requestID) {
+    for (const row of this.db.prepare("SELECT message_id FROM link_messages WHERE request_id=? AND placeholder=1").all(requestID)) {
+      this.db.prepare("DELETE FROM link_messages WHERE message_id=?").run(row.message_id);
+      this.db.prepare("DELETE FROM messages WHERE id=?").run(row.message_id);
+    }
+  }
+
+  linkTask(scope, requestID) {
+    const task = this.request(scope, requestID);
+    const row = this.db.prepare("SELECT run_id,error FROM link_tasks WHERE request_id=?").get(requestID);
+    return { ...task, run_id: row?.run_id || "", link_error: row?.error || "" };
+  }
+
+  linkTaskByRun(scope, runID) {
+    const row = this.db.prepare("SELECT l.request_id FROM link_tasks l JOIN tasks t ON t.request_id=l.request_id JOIN conversations c ON c.id=t.conversation_id WHERE l.run_id=? AND c.scope=?").get(runID, scopeKey(scope));
+    return row ? this.linkTask(scope, row.request_id) : undefined;
+  }
+
+  // The backend admitted the message: record its run and mirror the user
+  // message it stored.
+  acceptLinkSend(scope, requestID, { runID, message }) {
+    const task = this.request(scope, requestID);
+    this.#transaction(() => {
+      this.db.prepare("INSERT INTO link_tasks(request_id,run_id) VALUES(?,?) ON CONFLICT(request_id) DO UPDATE SET run_id=excluded.run_id").run(requestID, runID || "");
+      if (["submission_pending", "awaiting_runtime"].includes(task.status)) this.db.prepare("UPDATE tasks SET status='running',updated_at=? WHERE request_id=?").run(new Date().toISOString(), requestID);
+      this.db.prepare("UPDATE schedules SET state='running' WHERE request_id=? AND state NOT IN ('run_now','missed')").run(requestID);
+      if (message) this.applyLinkMessages(scope, task.conversation_id, [message]);
+    });
+  }
+
+  // Records a run outcome: running, approval_pending or a terminal state.
+  // A completed run's reply is the backend's stored final message.
+  setLinkRunState(scope, requestID, state, { finalMessage, error } = {}) {
+    const task = this.request(scope, requestID);
+    const status = { running: "running", approval_pending: "approval_pending", completed: "delivered", failed: "failed", blocked: "failed", cancelled: "canceled" }[state];
+    if (!status) throw new Error("Invalid run state");
+    return this.#transaction(() => {
+      if (finalMessage) this.applyLinkMessages(scope, task.conversation_id, [finalMessage], { requestID });
+      if (["failed", "canceled"].includes(status) && error && !finalMessage && !this.db.prepare("SELECT 1 FROM link_messages WHERE request_id=? AND placeholder=0 AND remote_id IS NOT NULL AND message_id IN (SELECT id FROM messages WHERE role='assistant')").get(requestID)) {
+        this.#dropPlaceholders(requestID);
+        const id = crypto.randomUUID();
+        // An unconfirmed user message keeps its place ahead of the failure.
+        const top = () => this.db.prepare("SELECT MAX(sort_key) AS k FROM link_messages lm JOIN messages m ON m.id=lm.message_id WHERE m.conversation_id=?").get(task.conversation_id)?.k ?? 0;
+        const localID = JSON.parse(task.context_json).messages?.at(-1)?.id;
+        if (localID && this.db.prepare("SELECT 1 FROM messages WHERE id=?").get(localID) && !this.db.prepare("SELECT 1 FROM link_messages WHERE message_id=?").get(localID))
+          this.db.prepare("INSERT INTO link_messages(message_id,sort_key,client_message_id,request_id) VALUES(?,?,?,?)").run(localID, top() + 0.25, requestID, requestID);
+        const sort = (this.db.prepare("SELECT sort_key FROM link_messages WHERE message_id=?").get(localID)?.sort_key ?? top()) + 0.125;
+        this.db.prepare("INSERT INTO messages VALUES(?,?,?,?,?)").run(id, task.conversation_id, "assistant", boundedText(String(error), 4096, "Run error"), new Date().toISOString());
+        this.db.prepare("INSERT INTO link_messages(message_id,sort_key,request_id,placeholder) VALUES(?,?,?,1)").run(id, sort, requestID);
+      }
+      this.db.prepare("INSERT INTO link_tasks(request_id,error) VALUES(?,?) ON CONFLICT(request_id) DO UPDATE SET error=excluded.error").run(requestID, error ? String(error).slice(0, 4096) : "");
+      if (task.explicitly_submitted || status !== "running") this.db.prepare("UPDATE tasks SET status=?,explicitly_submitted=1,submission_claim=NULL,updated_at=? WHERE request_id=?").run(status, new Date().toISOString(), requestID);
+      this.db.prepare("UPDATE schedules SET state=? WHERE request_id=? AND state NOT IN ('run_now','missed')").run(status === "delivered" ? "completed" : status, requestID);
+      if (status === "delivered") this.db.prepare("UPDATE conversations SET updated_at=? WHERE id=?").run(new Date().toISOString(), task.conversation_id);
+      return this.request(scope, requestID);
+    });
+  }
+
+  linkReplied(scope, requestID) {
+    this.request(scope, requestID);
+    return Boolean(this.db.prepare(`SELECT 1 FROM link_messages lm JOIN messages m ON m.id=lm.message_id
+      WHERE lm.request_id=? AND lm.placeholder=0 AND m.role='assistant'`).get(requestID));
+  }
+
+  titlePending(scope, conversationID) {
+    this.#conversation(scope, conversationID);
+    return this.db.prepare("SELECT title_pending FROM conversations WHERE id=?").get(conversationID).title_pending === 1;
+  }
+
+  // Tasks this device sent whose run may still be in progress.
+  linkPending(scope) {
+    return this.db.prepare(`SELECT t.request_id FROM tasks t JOIN conversations c ON c.id=t.conversation_id
+      WHERE c.scope=? AND t.explicitly_submitted=1 AND t.status IN ('submission_pending','accepted','running','approval_pending','cancel_pending') ORDER BY t.rowid`).all(scopeKey(scope));
+  }
+
+  linkAttachment(scope, attachmentID) {
+    uuid(attachmentID);
+    return this.db.prepare(`SELECT a.*,m.conversation_id FROM link_attachments a JOIN messages m ON m.id=a.message_id JOIN conversations c ON c.id=m.conversation_id
+      WHERE a.id=? AND c.scope=?`).get(attachmentID, scopeKey(scope));
+  }
+
+  // Stores a downloaded backend attachment under its stable attachment id.
+  saveLinkAttachment(scope, attachmentID, bytes) {
+    const row = this.linkAttachment(scope, attachmentID);
+    if (!row) throw new Error("Attachment not found");
+    if (!(bytes instanceof Uint8Array) || bytes.byteLength > CLIENT_LIMITS.fileBytes) throw new Error("Attachment exceeds the local file limit");
+    if (row.sha256 && hash(bytes) !== row.sha256) throw new Error("Attachment digest mismatch");
+    if (this.db.prepare("SELECT 1 FROM files WHERE id=?").get(attachmentID)) return;
+    const pending = path.join(this.filesRoot, `.pending-${attachmentID}`), destination = path.join(this.filesRoot, attachmentID);
+    const fd = fs.openSync(pending, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+    try { fs.writeFileSync(fd, bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(pending, destination); syncDirectory(this.filesRoot);
+    this.#transaction(() => {
+      this.db.prepare("INSERT INTO files VALUES(?,?,?,?,?,?)").run(attachmentID, row.conversation_id, row.name, hash(bytes), bytes.byteLength, new Date().toISOString());
+      this.db.prepare("INSERT OR IGNORE INTO message_files VALUES(?,?)").run(row.message_id, attachmentID);
+    });
+  }
+
   close() { this.db.close(); }
 
   #conversation(scope, id) {
@@ -1135,6 +1439,13 @@ function scopeKey(value) {
 function boundedText(value, bytes, label) {
   if (typeof value !== "string" || Buffer.byteLength(value) > bytes || value.includes("\u0000")) throw new Error(`${label} is invalid or oversized`);
   return value;
+}
+// A stable local UUID for a backend identity (conversation, message, object).
+export function linkUUID(kind, value) {
+  const b = crypto.createHash("sha256").update(`sparkclaw-link-${kind}\u0000${value}`).digest().subarray(0, 16);
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Buffer.from(b).toString("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 function uuid(value) { if (typeof value !== "string" || !UUID.test(value)) throw new Error("Invalid local identifier"); }
 function hash(value) { return crypto.createHash("sha256").update(value).digest("hex"); }

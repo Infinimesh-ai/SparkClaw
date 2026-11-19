@@ -77,6 +77,10 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   await assert.rejects(auditPackage(context), /executable ISCP helper/);
   await fs.chmod(helperPath, 0o755);
   await assert.rejects(auditPackage(context), /ENOENT/);
+  const linkHelperPath = path.join(resources, "link-helper");
+  await fs.writeFile(linkHelperPath, "synthetic link helper", { mode: 0o600 });
+  await assert.rejects(auditPackage(context), /executable link helper/);
+  await fs.chmod(linkHelperPath, 0o755);
   await syntheticControllerBundle(path.join(resources, "browser-controller"));
   await assert.rejects(auditPackageReal(context),/ENOENT/);
   await auditPackage(context);
@@ -84,6 +88,7 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   assert.equal(result.platform, "darwin"); assert.equal(result.ui_files, 2);
   assert.equal(result.mcd_runtime.manifest_sha256,'synthetic-only');
   assert.match(result.iscp_helper_sha256, /^[a-f0-9]{64}$/u);
+  assert.match(result.link_helper_sha256, /^[a-f0-9]{64}$/u);
   assert.equal(result.browser_controller.protocol, "browser.controller.v1");
   assert.match(result.browser_controller.manifest_sha256, /^[a-f0-9]{64}$/u);
   await fs.writeFile(path.join(resources, "webchat", "backend.json"), "{}");

@@ -4,8 +4,10 @@ import { localContentType } from "./client-store.mjs";
 const CHANNEL = "sparkclaw-client-store:invoke";
 
 export class ClientStoreCapability {
-  constructor({ ipcMain, window, store, execution, schedules, getIdentity, exportFile, getCapabilities = () => undefined }) {
-    Object.assign(this, { ipcMain, window, store, execution, schedules, getIdentity, exportFile, getCapabilities });
+  // conversations, when present, makes the backend authoritative: create,
+  // rename, delete and archive go to it first and reads refresh the cache.
+  constructor({ ipcMain, window, store, execution, schedules, conversations, getIdentity, exportFile, getCapabilities = () => undefined }) {
+    Object.assign(this, { ipcMain, window, store, execution, schedules, conversations, getIdentity, exportFile, getCapabilities });
   }
   start() {
     this.ipcMain.handle(CHANNEL, (event, request) => this.dispatch(event, request));
@@ -43,17 +45,34 @@ export class ClientStoreCapability {
       case "create":
         keys(request, ["title", ...(Object.hasOwn(request, "auto_title") ? ["auto_title"] : [])]);
         if (Object.hasOwn(request, "auto_title") && typeof request.auto_title !== "boolean") throw new Error("Automatic conversation title flag is invalid");
+        if (typeof request.title !== "string") throw new Error("Conversation title is invalid");
+        if (this.conversations) return this.conversations.create(scope, request.title, request.auto_title ?? false);
         return this.store.create(scope, request.title, false, request.auto_title ?? false);
       case "remove":
         keys(request, ["conversation_id"]);
+        if (this.conversations) return this.conversations.remove(scope, request.conversation_id);
         return this.store.remove(scope, request.conversation_id);
       case "rename":
         keys(request, ["conversation_id", "title"]);
+        if (typeof request.title !== "string" || !request.title.trim()) throw new Error("Conversation title is empty");
+        if (this.conversations) return this.conversations.rename(scope, request.conversation_id, request.title);
         return this.store.rename(scope, request.conversation_id, request.title);
+      case "archive":
+        keys(request, ["conversation_id", "archived"]);
+        if (!this.conversations) throw new Error("Archiving is kept on this device");
+        if (typeof request.archived !== "boolean") throw new Error("Archive flag is invalid");
+        return this.conversations.archive(scope, request.conversation_id, request.archived);
+      case "archivedIDs":
+        keys(request, []);
+        return this.conversations ? this.conversations.archivedIDs(scope) : null;
+      case "loadOlder":
+        keys(request, ["conversation_id"]);
+        return this.conversations ? this.conversations.loadOlder(scope, request.conversation_id) : { has_older: false };
       case "read":
         keys(request, ["conversation_id"]);
         {
           const content = this.store.read(scope, request.conversation_id);
+          this.conversations?.touch(scope, request.conversation_id);
           if (this.execution) content.tasks = content.tasks.map((task) => {
             const projection = this.execution.progressProjection?.(scope, task.request_id);
             const progress = typeof this.execution.progressProjection === "function" ? projection?.content : this.execution.progressContent?.(scope, task.request_id);
@@ -83,12 +102,19 @@ export class ClientStoreCapability {
         keys(request, ["conversation_id", "draft_conversation_id", "revision", "expected_scope"]);
         verifyDraftScope();
         {
+          const autoTitle = this.conversations && this.store.titlePending(scope, request.conversation_id);
           const queued = this.store.enqueueDraft(scope, request.conversation_id, request.draft_conversation_id, request.revision, capabilities?.files === true);
+          if (autoTitle && this.store.linkConversation(scope, request.conversation_id)) this.store.markLinkRename(scope, request.conversation_id, true);
           return { ...queued, draft: draftResult(queued.draft) };
         }
       case "enqueue":
         keys(request, ["conversation_id", "content", ...(Object.hasOwn(request, "local_file_ids") ? ["local_file_ids"] : [])]);
-        return this.store.enqueue(scope, request.conversation_id, request.content, request.local_file_ids, undefined, undefined, undefined, capabilities?.files === true);
+        {
+          const autoTitle = this.conversations && this.store.titlePending(scope, request.conversation_id);
+          const task = this.store.enqueue(scope, request.conversation_id, request.content, request.local_file_ids, undefined, undefined, undefined, capabilities?.files === true);
+          if (autoTitle && this.store.linkConversation(scope, request.conversation_id)) this.store.markLinkRename(scope, request.conversation_id, true);
+          return task;
+        }
       case "submit":
       case "reconcile":
       case "cancel":
@@ -157,10 +183,12 @@ export class ClientStoreCapability {
         return this.store.saveFile(scope, request.conversation_id, request.name, request.bytes);
       case "exportFile":
         keys(request, ["file_id"]);
+        await this.conversations?.ensureFile(scope, request.file_id);
         return this.exportFile(this.store.file(scope, request.file_id));
       case "readFile":
         keys(request, ["file_id"]);
         {
+          await this.conversations?.ensureFile(scope, request.file_id);
           const file = this.store.file(scope, request.file_id);
           return { name: file.name, content_type: localContentType(file.name), bytes: new Uint8Array(file.content) };
         }

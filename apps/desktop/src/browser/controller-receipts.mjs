@@ -1,4 +1,5 @@
 import { ID, HASH } from "./controller-wire.mjs";
+import { operationTransport } from "../main/backend-transport.mjs";
 
 // Shared content-free fence/reconciliation ownership survives transport cutover.
 export async function refreshBrowserFences(owner, conflict) {
@@ -40,6 +41,6 @@ export async function reconcileBrowserFence(owner, commandID, digest, outcome) {
   }
 
 function invokeBrowserReceipt(owner, operation, body, installationID) {
-  if (owner.auth.descriptor?.transport !== "iscp") throw new Error("Browser reconciliation requires ISCP");
+  if (!operationTransport(owner.auth.descriptor)) throw new Error("Browser reconciliation requires the backend link");
   return owner.auth.invokeISCP(operation, body, { installationID, timeoutMS: owner.receiptTimeoutMS });
 }

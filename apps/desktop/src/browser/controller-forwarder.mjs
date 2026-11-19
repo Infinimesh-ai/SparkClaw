@@ -7,6 +7,7 @@ import { latencyNow, traceLatency } from "../main/latency-trace.mjs";
 import { refreshBrowserFences, reconcileBrowserFence } from "./controller-receipts.mjs";
 import { CONTROLLER_OPERATIONS, ID, exactObject, validateControllerBinding, validateControllerRequest, validateControllerLease,
   sameControllerBinding, sameControllerLease, wireBytes, positive } from "./controller-wire.mjs";
+import { operationTransport } from "../main/backend-transport.mjs";
 
 const PROFILE = "sparkclaw.workbench.transport.v2";
 const WIRE_LIMIT = 63488;
@@ -126,7 +127,7 @@ export class BrowserControllerForwarder {
 
   #authorized(session, bootstrap = false) {
     const manifest = this.auth.transport?.capabilities;
-    return this.scope && this.auth.descriptor?.transport === "iscp" && this.auth.status.state === "connected" &&
+    return this.scope && operationTransport(this.auth.descriptor) && this.auth.status.state === "connected" &&
       this.scope.owner_id === this.auth.connection?.ownerID && this.scope.client_id === this.auth.connection?.clientID &&
       ID.test(session?.session_id) && Number.isSafeInteger(session?.authorization_revision) && session.authorization_revision > 0 &&
       manifest?.session_id === session.session_id && manifest.authorization_revision === session.authorization_revision &&

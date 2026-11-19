@@ -94,6 +94,11 @@ export async function auditPackageWithRuntime(context,verifyMCD) {
   const helperInfo = await fs.lstat(helper);
   if (!helperInfo.isFile() || helperInfo.isSymbolicLink() || !(helperInfo.mode & 0o111)) throw new Error("Installation package requires an executable ISCP helper");
   const helperSHA256 = crypto.createHash("sha256").update(await fs.readFile(helper)).digest("hex");
+  // The link-layer client process (services/link/cmd/link-helper).
+  const linkHelper = path.join(resources, "link-helper");
+  const linkHelperInfo = await fs.lstat(linkHelper);
+  if (!linkHelperInfo.isFile() || linkHelperInfo.isSymbolicLink() || !(linkHelperInfo.mode & 0o111)) throw new Error("Installation package requires an executable link helper");
+  const linkHelperSHA256 = crypto.createHash("sha256").update(await fs.readFile(linkHelper)).digest("hex");
   const entries = await walk(webchat);
   if (!entries.includes("index.html") || entries.some((entry) => privatePattern.test(entry) || !/\.(?:html|js|css|png|svg|webp|woff2|json|ico)$/iu.test(entry))) {
     throw new Error("Installation package WebChat resources are outside the built UI allowlist");
@@ -117,6 +122,7 @@ export async function auditPackageWithRuntime(context,verifyMCD) {
     ui_files: entries.length,
     preview_files: previewEntries.length,
     iscp_helper_sha256: helperSHA256,
+    link_helper_sha256: linkHelperSHA256,
     ...(mcdRuntime ? { mcd_runtime: mcdRuntime } : {}),
     browser_controller: { protocol: controller.protocol, source_revision: controller.source_revision,
       versions: controller.versions, files: Object.keys(controller.files).length, bytes: controller.bytes, manifest_sha256: controllerManifestSHA256 },

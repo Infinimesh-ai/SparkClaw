@@ -32,6 +32,10 @@ import { adapterSecretPath, adapterSocketPath } from "../browser/protocol.mjs";
 import { BrowserPresentation } from "./presentation.mjs";
 import { DesktopCapability, isDesktopSessionAuthorized } from "./desktop-capability.mjs";
 import { DesktopAuth, authorizeWorkbenchSender } from "./desktop-auth.mjs";
+import { LinkAuth } from "./link-auth.mjs";
+import { LinkConversations } from "./link-conversations.mjs";
+import { operationTransport } from "./backend-transport.mjs";
+import os from "node:os";
 import { traceISCPRead } from "./iscp-read-diagnostics.mjs";
 import { prepareDefaultLatencyTrace } from "./latency-trace-directory.mjs";
 import { SecureCredentialStore } from "./secure-credential-store.mjs";
@@ -166,19 +170,10 @@ async function start() {
   browserSession.protocol.handle("sparkclaw-internal", internalProtocolHandler);
   const qualificationPaths = qualification ? await localBackendPaths().catch(() => undefined) : undefined;
   if (!qualification) localStore = new ClientStore(path.join(app.getPath("userData"), "workbench"));
-  desktopAuth = new DesktopAuth({
-    installationID: localStore?.installationID,
-    readLocalFile: (scope, id, byteLimit) => localStore.file(scope, id, byteLimit),
-    vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
-    descriptorPath: path.join(app.getPath("userData"), "backend.json"),
-    qualificationPaths,
-    qualification,
-    requireLAN: process.platform === "darwin" && !qualification,
-    fetcher: electronNet.fetch,
-    iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP,
-    launchSelectionPath: path.join(launchSelectionDirectory, "iscp-launch-profile.json"), userDataDirectory: app.getPath("userData"),
-    packaged: app.isPackaged, resourcesPath: process.resourcesPath,
-    browserRuntimeAvailable: false,
+  // A desktop joins its backend through the link layer (design P3). The
+  // previous descriptor/HTTPS/ISCP-helper connection remains only for the
+  // isolated qualification launcher's fixtures.
+  const authCallbacks = {
     onCapabilitiesChanged: publishBackendState,
     onChange: (status) => {
       if (quitting) return;
@@ -188,14 +183,14 @@ async function start() {
         void iscpRecording?.start().catch(() => {});
         if(status.capabilities?.events)iscpEvents?.start();else iscpEvents?.close();
         scheduleClient?.start();
-        if (status.backend?.transport !== "iscp" || status.capabilities?.surfaces?.medicine_box_read?.enabled) medicineClient?.start();
+        if (!operationTransport(status.backend) || status.capabilities?.surfaces?.medicine_box_read?.enabled) medicineClient?.start();
         else medicineClient?.close();
-        if (status.backend?.transport !== "iscp" || status.capabilities?.mail === true) mailClient?.start();
+        if (!operationTransport(status.backend) || status.capabilities?.mail === true) mailClient?.start();
         else mailClient?.close();
-        if (status.backend?.transport === "iscp") void prepareBrowserHostScope().catch(() => {});
+        if (operationTransport(status.backend)) void prepareBrowserHostScope().catch(() => {});
         else void browserHost?.suspend().catch(() => {});
       } else {
-        const temporaryStreamLoss = status.backend?.transport === "iscp" && !desktopAuth.authorizationRevoked &&
+        const temporaryStreamLoss = operationTransport(status.backend) && !desktopAuth.authorizationRevoked &&
           ["reconnecting", "service_unavailable"].includes(status.state);
         if (temporaryStreamLoss) executionClient?.pauseProgress({ authorityExpired: desktopAuth.transportStage === "authorization_expired" });
         else executionClient?.close();
@@ -227,6 +222,35 @@ async function start() {
       await adapter?.close().catch(() => {});
       adapter = undefined;
     },
+  };
+  if (!qualification) desktopAuth = new LinkAuth({
+    stateDirectory: path.join(app.getPath("userData"), "link"), userDataDirectory: app.getPath("userData"),
+    vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
+    readLocalFile: (scope, id, byteLimit) => localStore.file(scope, id, byteLimit),
+    appVersion: app.getVersion(), hostName: os.hostname().replace(/\.local$/u, ""),
+    packaged: app.isPackaged, resourcesPath: process.resourcesPath,
+    // The backend derives one installation per link device.
+    onJoined: (installationID) => {
+      localStore.setInstallationID(installationID);
+      if (mailClient) mailClient.installationID = installationID;
+      if (medicineClient) medicineClient.installationID = installationID;
+    },
+    ...authCallbacks,
+  });
+  else desktopAuth = new DesktopAuth({
+    installationID: localStore?.installationID,
+    readLocalFile: (scope, id, byteLimit) => localStore.file(scope, id, byteLimit),
+    vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
+    descriptorPath: path.join(app.getPath("userData"), "backend.json"),
+    qualificationPaths,
+    qualification,
+    requireLAN: process.platform === "darwin" && !qualification,
+    fetcher: electronNet.fetch,
+    iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP,
+    launchSelectionPath: path.join(launchSelectionDirectory, "iscp-launch-profile.json"), userDataDirectory: app.getPath("userData"),
+    packaged: app.isPackaged, resourcesPath: process.resourcesPath,
+    browserRuntimeAvailable: false,
+    ...authCallbacks,
   });
   await desktopAuth.initialize();
   const trustedHandler = (channel, handler) => ipcMain.handle(channel, (event, ...args) => {
@@ -237,7 +261,7 @@ async function start() {
     vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "mcd"), safeStorage }),
     context: () => {
       const d = desktopAuth.descriptor;
-      if (process.platform !== "darwin" || d?.transport !== "iscp") return undefined;
+      if (process.platform !== "darwin" || !operationTransport(d)) return undefined;
       const connected=desktopAuth.status.state==='connected' && desktopAuth.status.capabilities?.surfaces?.mcd_selection?.enabled;
       return { deployment_id: d.deploymentID, owner_id: d.ownerID, client_id: d.clientID,
         installation_id: localStore?.installationID, operations: connected ? desktopAuth.transport?.capabilities?.operations : [], cart_enabled: desktopAuth.status.capabilities?.surfaces?.mcd_cart?.enabled === true };
@@ -260,7 +284,7 @@ async function start() {
     },
   });
   mcdHost = new MCDHost({ session: mcdSession, context: () => {
-    if (process.platform !== 'darwin' || desktopAuth.status.state !== 'connected' || desktopAuth.descriptor?.transport !== 'iscp') return undefined;
+    if (process.platform !== 'darwin' || desktopAuth.status.state !== 'connected' || !operationTransport(desktopAuth.descriptor)) return undefined;
     return { ...desktopAuth.transport?.capabilities, installation_id: localStore?.installationID };
   }, approvals: (binding,requestID) => localStore.approvals({deployment_id:binding.deployment_id,owner_id:binding.owner_id,client_id:binding.client_id},requestID), call: (request, options) => callMCDHelper(app.isPackaged ? path.join(process.resourcesPath, 'ezmcd', 'bin', 'python3') : path.resolve(MODULE_DIR, '../../../../.cache/ezmcd-adapter/venv/bin/python'), request, { role: 'host', verifyBundle: app.isPackaged, ...options }) });
   trustedHandler("sparkclaw-mcd:status", () => mcdSession.status());
@@ -353,10 +377,21 @@ async function start() {
     const localChanged = () => {
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-client-store:changed");
     };
-    executionClient = new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged,
-      onCancelTask: binding => browserHost?.cancelTask?.(binding),
-      onTaskTerminal: (binding, reason) => browserHost?.endTask(binding, reason) }).start();
-    iscpEvents = new ISCPEventClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity,
+    // Conversations are the backend's; the local store is their cache.
+    executionClient = desktopAuth instanceof LinkAuth
+      ? new LinkConversations({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged,
+        onCancelTask: binding => browserHost?.cancelTask?.(binding),
+        onTaskTerminal: (binding, reason) => browserHost?.endTask(binding, reason) })
+      : new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged,
+        onCancelTask: binding => browserHost?.cancelTask?.(binding),
+        onTaskTerminal: (binding, reason) => browserHost?.endTask(binding, reason) });
+    if (desktopAuth.status.state === "connected" || !(desktopAuth instanceof LinkAuth)) executionClient.start();
+    // Business invalidations (mail, medicine, settings) still arrive as
+    // events.*; link runs are reconciled by run.status, not by snapshots.
+    const eventStore = executionClient instanceof LinkConversations
+      ? new Proxy(localStore, { get: (target, key) => key === "pending" ? () => [] : typeof target[key] === "function" ? target[key].bind(target) : target[key] })
+      : localStore;
+    iscpEvents = new ISCPEventClient({ auth: desktopAuth, store: eventStore, execution: executionClient, getIdentity: localIdentity,
       onEvents: (event) => { localChanged(); if (event.categories.includes("medicine")) void medicineClient?.sync().catch(() => {}); if(window&&!window.isDestroyed())window.webContents.send("sparkclaw-backend-events",event); } });
     if(desktopAuth.status.capabilities?.events)iscpEvents.start();
     scheduleClient = new ScheduleClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity, onChange: localChanged }).start();
@@ -367,24 +402,25 @@ async function start() {
       store: mailStore, localStore, getConnection: () => desktopAuth.connection,
       getFetch: () => desktopAuth.authorizedFetch.bind(desktopAuth),
       getFileFetch: () => desktopAuth.authorizedMailFileFetch.bind(desktopAuth),
-      preferCurrentFiles: () => desktopAuth.descriptor?.transport !== 'iscp' || desktopAuth.status.capabilities?.surfaces?.mail_popup?.enabled === true,
+      preferCurrentFiles: () => !operationTransport(desktopAuth.descriptor) || desktopAuth.status.capabilities?.surfaces?.mail_popup?.enabled === true,
       installationID: localStore.installationID,
     });
-    if (desktopAuth.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.mail === true)) mailClient.start();
+    if (desktopAuth.status.state === "connected" && (!operationTransport(desktopAuth.descriptor) || desktopAuth.status.capabilities?.mail === true)) mailClient.start();
     else mailClient.close();
     mailCapability = new MailSyncCapability({ ipcMain, window, client: mailClient, getCapabilities: () => desktopAuth.status.capabilities }).start();
     }
     medicineStore = new MedicineStore(path.join(app.getPath("userData"), "workbench", "medicine"));
     medicineClient = new MedicineSyncClient({ store: medicineStore, getConnection: () => desktopAuth.connection,
       getFetch: () => desktopAuth.authorizedFetch.bind(desktopAuth), installationID: localStore.installationID,
-      canWrite: () => desktopAuth.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.surfaces?.medicine_box_write?.enabled === true),
+      canWrite: () => desktopAuth.status.state === "connected" && (!operationTransport(desktopAuth.descriptor) || desktopAuth.status.capabilities?.surfaces?.medicine_box_write?.enabled === true),
       onChange: () => { if(window&&!window.isDestroyed())window.webContents.send("sparkclaw-medicine-box:changed"); } });
-    if (desktopAuth.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.surfaces?.medicine_box_read?.enabled)) medicineClient.start();
+    if (desktopAuth.status.state === "connected" && (!operationTransport(desktopAuth.descriptor) || desktopAuth.status.capabilities?.surfaces?.medicine_box_read?.enabled)) medicineClient.start();
     medicineCapability = new MedicineBoxCapability({ ipcMain, window, store: medicineStore, client: medicineClient, getIdentity: localIdentity }).start();
     localStoreCapability = new ClientStoreCapability({
       ipcMain, window, store: localStore, execution: executionClient, schedules: scheduleClient,
+      ...(executionClient instanceof LinkConversations ? { conversations: executionClient } : {}),
       getIdentity: localIdentity,
-      getCapabilities: () => desktopAuth.descriptor?.transport === "iscp" ? desktopAuth.status.capabilities : { ...desktopAuth.status.capabilities, files: desktopAuth.status.state === "connected" },
+      getCapabilities: () => operationTransport(desktopAuth.descriptor) ? desktopAuth.status.capabilities : { ...desktopAuth.status.capabilities, files: desktopAuth.status.state === "connected" },
       exportFile: (file) => exportLocalFile(file, { dialog, window }),
     }).start();
   }
@@ -729,7 +765,7 @@ function secureSession(targetSession) {
 }
 
 function configureWorkbenchSession(targetSession, targetWindow, speechOrigin) {
-  configureWorkbenchPermissions(targetSession, targetWindow, () => desktopAuth?.status.state === "connected" && (desktopAuth.descriptor?.transport !== "iscp" || desktopAuth.status.capabilities?.speech === true));
+  configureWorkbenchPermissions(targetSession, targetWindow, () => desktopAuth?.status.state === "connected" && (!operationTransport(desktopAuth.descriptor) || desktopAuth.status.capabilities?.speech === true));
   targetSession.webRequest.onBeforeRequest({ urls: ["<all_urls>"] }, (details, callback) => {
     if (!previewRequestAllowed(details)) return callback({ cancel: true });
     if (/^(https?|wss?):/u.test(details.url)) {
@@ -876,13 +912,13 @@ function shieldDocument() {
 
 function localIdentity() {
   const connection = desktopAuth?.connection;
-  if (!connection || (connection.transport === "iscp" && !connection.identityVerified) || !["connected", "reconnecting", "service_unavailable"].includes(desktopAuth.status.state)) return null;
+  if (!connection || (operationTransport(connection) && !connection.identityVerified) || !["connected", "reconnecting", "service_unavailable"].includes(desktopAuth.status.state)) return null;
   return { deployment_id: connection.deploymentID, owner_id: connection.ownerID, client_id: connection.clientID };
 }
 
 function prepareBrowserHostScope() {
   browserHostPreparation = browserHostPreparation.catch(() => {}).then(async () => {
-    if (quitting || !browserHost || !localStore || desktopAuth.status.state !== "connected" || desktopAuth.descriptor?.transport !== "iscp") return;
+    if (quitting || !browserHost || !localStore || desktopAuth.status.state !== "connected" || !operationTransport(desktopAuth.descriptor)) return;
     const connection = desktopAuth.connection;
     const scope = browserHost.scope;
     if (scope?.installation_id !== localStore.installationID || scope.owner_id !== connection.ownerID || scope.client_id !== connection.clientID) {

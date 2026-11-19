@@ -49,6 +49,7 @@
       "src/**/*",
       "bin/**/*",
       "!bin/iscp-workbench*",
+      "!bin/link-helper*",
       "!bin/browser-controller{,/**/*}",
       "package.json",
       "!bin/ezmcd*{,/**/*}"
@@ -57,6 +58,10 @@
       {
         "from": "bin/iscp-workbench",
         "to": "iscp-workbench"
+      },
+      {
+        "from": "bin/link-helper",
+        "to": "link-helper"
       },
       {
         "from": "../webchat/dist",
@@ -146,6 +151,7 @@
         "src/**/*",
         "bin/**/*",
         "!bin/iscp-workbench*",
+        "!bin/link-helper*",
         "!bin/browser-controller{,/**/*}",
         "package.json",
         "!node_modules/@deepseek-ai/libreoffice-kit-wasm/**/*",

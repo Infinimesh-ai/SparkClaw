@@ -11,14 +11,23 @@ const goarch = { arm64: "arm64", x64: "amd64" }[architecture];
 if (!goos || !goarch || process.argv.length > 4) throw new Error("Choose darwin/linux/win32 and arm64/x64");
 const directory = path.join(root, "apps/desktop/bin");
 await fs.mkdir(directory, { recursive: true });
-const output = path.join(directory, `iscp-workbench${goos === "windows" ? ".exe" : ""}`);
-const temporary = `${output}.${process.pid}.tmp`;
-try {
-  const build = spawnSync("go", ["build", "-trimpath", "-o", temporary, "./cmd/iscp-workbench"], {
-    cwd: path.join(root, "services/gateway"), stdio: "inherit", timeout: 120000,
-    env: { ...process.env, CGO_ENABLED: "0", GOOS: goos, GOARCH: goarch },
-  });
-  if (build.error || build.status !== 0) throw new Error("ISCP helper build failed");
-  await fs.rename(temporary, output);
-  process.stdout.write(`Built ISCP helper for ${platform}/${architecture}\n`);
-} finally { await fs.rm(temporary, { force: true }); }
+// The desktop ships two helpers: the link-layer client (link-helper, a
+// standalone module built without the workspace) and the previous ISCP
+// helper, which the qualification launcher still uses.
+const helpers = [
+  { name: "link-helper", cwd: "services/link", target: "./cmd/link-helper", env: { GOWORK: "off" } },
+  { name: "iscp-workbench", cwd: "services/gateway", target: "./cmd/iscp-workbench", env: {} },
+];
+for (const helper of helpers) {
+  const output = path.join(directory, `${helper.name}${goos === "windows" ? ".exe" : ""}`);
+  const temporary = `${output}.${process.pid}.tmp`;
+  try {
+    const build = spawnSync("go", ["build", "-trimpath", "-o", temporary, helper.target], {
+      cwd: path.join(root, helper.cwd), stdio: "inherit", timeout: 300000,
+      env: { ...process.env, ...helper.env, CGO_ENABLED: "0", GOOS: goos, GOARCH: goarch },
+    });
+    if (build.error || build.status !== 0) throw new Error(`${helper.name} build failed`);
+    await fs.rename(temporary, output);
+    process.stdout.write(`Built ${helper.name} for ${platform}/${architecture}\n`);
+  } finally { await fs.rm(temporary, { force: true }); }
+}

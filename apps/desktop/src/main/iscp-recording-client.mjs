@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { ISCPRecordingJournal } from './iscp-recording-journal.mjs';
+import { operationTransport } from "./backend-transport.mjs";
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u;
 const identity=request=>request&&UUID.test(request.session_id)&&request.request_id?.startsWith('voice-')&&UUID.test(request.request_id.slice(6));
 const fingerprint=value=>crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -11,7 +12,7 @@ const unknown=()=>new Error('Recording outcome is unknown; transcription will no
 export class ISCPRecordingClient {
  constructor(auth,options={}){Object.assign(this,{auth,...options});this.active=new Map();this.flights=new Map();}
  close(){for(const value of this.active.values())value.abort.abort();this.active.clear();}
- #ready(){return this.auth.descriptor?.transport==='iscp'&&this.auth.status.state==='connected'&&this.auth.status.capabilities?.speech===true;}
+ #ready(){return operationTransport(this.auth.descriptor)&&this.auth.status.state==='connected'&&this.auth.status.capabilities?.speech===true;}
  #storage(){
   const auth=this.auth,scope=this.getScope?.()??(auth.transport?.objectScopeKey&&Number.isSafeInteger(auth.status.authorization_revision)?JSON.stringify([auth.transport.objectScopeKey,auth.status.authorization_revision]):undefined);
   if(!scope)throw new Error('Recording data authority is unavailable');

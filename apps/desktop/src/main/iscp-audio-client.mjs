@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { ISCPSpeechJournal } from './iscp-speech-journal.mjs';
+import { operationTransport } from "./backend-transport.mjs";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,159}$/u;
 const terminal = event => ['final', 'error', 'cancelled'].includes(event?.event);
@@ -31,7 +32,7 @@ export class ISCPSpeechClient {
     return this.journal;
   }
   #current(journal) { if (journal !== this.#storage()) throw new Error('Speech authorization changed'); }
-  #ready() { return this.auth.descriptor?.transport === 'iscp' && this.auth.status.state === 'connected' && this.auth.status.capabilities?.surfaces?.speech_realtime?.enabled === true; }
+  #ready() { return operationTransport(this.auth.descriptor) && this.auth.status.state === 'connected' && this.auth.status.capabilities?.surfaces?.speech_realtime?.enabled === true; }
   async #lifecycle(journal, key, action, body, signal) {
     const flight = journal.scope + ':' + key + ':' + action;
     if (this.operations.has(flight)) return this.operations.get(flight);

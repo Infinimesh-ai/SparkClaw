@@ -93,6 +93,7 @@ func (i *Initiator) Run(ctx context.Context) error {
 		started := time.Now()
 		connCtx, cancel := context.WithCancel(ctx)
 		err := i.cfg.Relay.Run(connCtx, i.receive, func() { go i.maintain(connCtx) })
+		Debugf("initiator %s: relay connection ended: %v", i.cfg.Device.Identity.DeviceID, err)
 		cancel()
 		i.dropSession()
 		i.setState(StateDisconnected)
@@ -126,6 +127,7 @@ func (i *Initiator) maintain(ctx context.Context) {
 		default:
 		}
 		if err := i.handshake(ctx); err != nil {
+			Debugf("initiator %s: handshake failed: %v", i.cfg.Device.Identity.DeviceID, err)
 			select {
 			case <-ctx.Done():
 				return
@@ -156,10 +158,12 @@ func (i *Initiator) maintain(ctx context.Context) {
 
 func (i *Initiator) handshake(ctx context.Context) error {
 	i.setState(StateHandshaking)
+	Debugf("initiator %s: handshake starting", i.cfg.Device.Identity.DeviceID)
 	grant, err := i.cfg.Grant(ctx)
 	if err != nil {
 		return err
 	}
+	Debugf("initiator %s: presenting grant %s", i.cfg.Device.Identity.DeviceID, grant.GrantID)
 	sid := newID()
 	local, err := session.CreateHello(i.provider, i.cfg.Device, sid, i.cfg.Host.DeviceID, grant.GrantID, time.Now().UTC())
 	if err != nil {
@@ -193,6 +197,7 @@ func (i *Initiator) handshake(ctx context.Context) error {
 	select {
 	case <-ready:
 		i.setState(StateReady)
+		Debugf("initiator %s: session ready", i.cfg.Device.Identity.DeviceID)
 		return nil
 	case <-wait.C:
 		return errors.New("backend did not answer the handshake")
@@ -228,8 +233,10 @@ func (i *Initiator) receive(raw json.RawMessage) {
 		return
 	}
 	if env.RecipientDeviceID != i.cfg.Device.Identity.DeviceID || env.SenderDeviceID != i.cfg.Host.DeviceID {
+		Debugf("initiator: envelope from %s to %s ignored", env.SenderDeviceID, env.RecipientDeviceID)
 		return
 	}
+	Debugf("initiator: received %s", env.PayloadType)
 	switch env.PayloadType {
 	case PayloadHello:
 		var remote session.Hello
@@ -304,10 +311,12 @@ func (i *Initiator) receive(raw json.RawMessage) {
 		cur, sid := i.current, i.sessID
 		i.mu.Unlock()
 		if cur == nil || env.SessionID != sid {
+			Debugf("initiator: frame for another session")
 			return
 		}
 		payload, err := cur.open(i.provider, env)
 		if err != nil {
+			Debugf("initiator: frame not decrypted: %v", err)
 			return
 		}
 		if i.cfg.OnFrame != nil {
@@ -358,6 +367,7 @@ func (i *Initiator) Send(ctx context.Context, frame []byte) error {
 	if err != nil {
 		return ErrNotReady
 	}
+	Debugf("initiator: sending frame seq %d (%d bytes)", env.Sequence, len(frame))
 	if err := i.cfg.Relay.Submit(ctx, env); err != nil {
 		var rej *relay.ErrRejected
 		if errors.As(err, &rej) || errors.Is(err, relay.ErrNotConnected) {

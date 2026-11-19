@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/agent"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/artifact"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/config"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/gateway"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/policy"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/speech"
@@ -113,6 +115,18 @@ func main() {
 	}
 	if workbenchISCP != nil {
 		defer workbenchISCP.Close()
+	}
+	if dir := strings.TrimSpace(cfg.Gateway.LinkStateDir); dir != "" {
+		if err := server.StartLink(gateway.LinkOptions{StateDir: dir, LANAddr: strings.TrimSpace(cfg.Gateway.LinkLANAddr), LANHosts: strings.FieldsFunc(cfg.Gateway.LinkLANHosts, func(r rune) bool { return r == ',' || r == ' ' }), OwnerID: strings.TrimSpace(cfg.Gateway.LinkOwnerID)}); err != nil {
+			cancelServerCtx()
+			slog.Error("failed to start the link entry", "error", err)
+			os.Exit(1)
+		}
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			server.CloseLink(ctx)
+		}()
 	}
 	storeRuntime.StartRecovery(serverCtx)
 	if failed, err := runtime.FailInterruptedRuns(serverCtx); err != nil {

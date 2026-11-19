@@ -10,7 +10,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-
 var (
 	_ ConversationSyncRepository = (*MemoryStore)(nil)
 	_ ConversationSyncRepository = (*FileStore)(nil)

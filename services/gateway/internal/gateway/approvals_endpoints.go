@@ -287,7 +287,9 @@ func (e *approvalFailure) Unwrap() error { return e.cause }
 
 type happyPlanApprovalPending struct{ approval app.Approval }
 
-func (e *happyPlanApprovalPending) Error() string { return "Happy plan approvals resolve on the host WebChat" }
+func (e *happyPlanApprovalPending) Error() string {
+	return "Happy plan approvals resolve on the host WebChat"
+}
 
 func writeApprovalFailure(w http.ResponseWriter, err error) {
 	var failure *approvalFailure
@@ -325,7 +327,9 @@ func (s *Server) resolveApprovalFor(requestCtx context.Context, principal reques
 	}
 	if approval.InputForm != nil && status == app.ApprovalStatusApproved {
 		if input.Digest != approval.InputFormDigest || input.SchemaVersion != app.ApprovalInputSchemaVersion {
-			return nil, approvalFail(http.StatusConflict, errors.New("approval input form changed or unsupported"), func(w http.ResponseWriter) { writeError(w, http.StatusConflict, errors.New("approval input form changed or unsupported")) })
+			return nil, approvalFail(http.StatusConflict, errors.New("approval input form changed or unsupported"), func(w http.ResponseWriter) {
+				writeError(w, http.StatusConflict, errors.New("approval input form changed or unsupported"))
+			})
 		}
 		if err := app.ValidateApprovalInputs(approval.InputForm, input.Inputs); err != nil {
 			return nil, approvalFail(http.StatusBadRequest, err, func(w http.ResponseWriter) { writeError(w, http.StatusBadRequest, err) })
@@ -344,7 +348,9 @@ func (s *Server) resolveApprovalFor(requestCtx context.Context, principal reques
 		return &approvalOutcome{status: http.StatusOK, body: map[string]any{"approval": receipt, "approval_status": receipt.Status, "tool_call": call, "replayed": true}, approval: approval}, nil
 	}
 	if approval.Status != app.ApprovalStatusPending {
-		return nil, approvalFail(http.StatusBadRequest, errors.New("approval already resolved"), func(w http.ResponseWriter) { writeError(w, http.StatusBadRequest, errors.New("approval already resolved")) })
+		return nil, approvalFail(http.StatusBadRequest, errors.New("approval already resolved"), func(w http.ResponseWriter) {
+			writeError(w, http.StatusBadRequest, errors.New("approval already resolved"))
+		})
 	}
 	mcpRun := false
 	if run, ok, err := s.store.GetRun(ctx, approval.RunID); err != nil {
@@ -476,7 +482,9 @@ func (s *Server) resolveApprovalFor(requestCtx context.Context, principal reques
 	if workbenchContinuation != nil {
 		result, found, lookupErr := s.runtime.LookupRunResult(ctx, approval.SessionID, approval.RunID)
 		if lookupErr != nil || !found {
-			return nil, approvalFail(http.StatusServiceUnavailable, errors.New("persisted approval result unavailable"), func(w http.ResponseWriter) { writeConversationError(w, http.StatusServiceUnavailable, errors.New("persisted approval result unavailable")) })
+			return nil, approvalFail(http.StatusServiceUnavailable, errors.New("persisted approval result unavailable"), func(w http.ResponseWriter) {
+				writeConversationError(w, http.StatusServiceUnavailable, errors.New("persisted approval result unavailable"))
+			})
 		}
 		if finishErr := s.finishWorkbenchMessage(workbenchContinuation, result, nil, nil); finishErr != nil {
 			return nil, approvalFail(http.StatusServiceUnavailable, finishErr, func(w http.ResponseWriter) { writeConversationError(w, http.StatusServiceUnavailable, finishErr) })

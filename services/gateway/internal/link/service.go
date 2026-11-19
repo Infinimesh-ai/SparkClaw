@@ -428,7 +428,11 @@ func (s *Service) Serve(ctx context.Context, p Principal, stream FrameStream) er
 				}
 			}
 		case contract.FrameHello:
-			// A repeated hello is ignored.
+			// A repeated hello (a client that lost the first reply) gets the
+			// same answer again; the connection state is unchanged.
+			again := hello
+			again.ID = f.ID
+			_ = conn.write(again)
 		case contract.FrameEvent:
 			// Devices do not push events.
 		}

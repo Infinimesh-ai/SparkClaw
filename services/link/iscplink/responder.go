@@ -98,6 +98,7 @@ func (r *Responder) Run(ctx context.Context, onState func(connected bool)) error
 	for ctx.Err() == nil {
 		started := time.Now()
 		err := r.cfg.Relay.Run(ctx, r.receive, func() {
+			Debugf("responder: relay ready")
 			if onState != nil {
 				onState(true)
 			}
@@ -236,6 +237,7 @@ func (r *Responder) receive(raw json.RawMessage) {
 		s := r.sessions[sender]
 		r.mu.Unlock()
 		if s == nil || s.SessionID != env.SessionID {
+			Debugf("responder: frame for unknown session from %s (have %v)", sender, s != nil)
 			r.sendReset(sender, env.SessionID, ResetUnknownSession, false)
 			return
 		}
@@ -256,8 +258,10 @@ func (r *Responder) receive(raw json.RawMessage) {
 		}
 		payload, err := s.state.open(r.provider, env)
 		if err != nil {
+			Debugf("responder: frame from %s not decrypted: %v", sender, err)
 			return
 		}
+		Debugf("responder: frame from %s (%d bytes)", sender, len(payload))
 		select {
 		case s.frames <- payload:
 		case <-s.done:
@@ -368,6 +372,7 @@ func (r *Responder) acceptReady(env envelope.SecureEnvelope) {
 }
 
 func (r *Responder) sendReset(recipient, sessionID, reason string, force bool) {
+	Debugf("responder: reset %s session %s: %s", recipient, sessionID, reason)
 	key := recipient + "\x00" + sessionID
 	r.mu.Lock()
 	last := r.resets[key]

@@ -151,6 +151,7 @@ func (c *Client) lanEndpoint(ctx context.Context, endpoint string) error {
 func (c *Client) runISCP(ctx context.Context) {
 	rc, err := relay.NewClient(*c.opts.Relay, c.opts.Device, c.opts.RelayStore, c.opts.RelayCreds, c.opts.RelayRebind)
 	if err != nil {
+		iscplink.Debugf("linkclient: relay client: %v", err)
 		return
 	}
 	var cur struct {
@@ -215,6 +216,7 @@ func (c *Client) runISCP(ctx context.Context) {
 		}
 		scancel()
 		if err != nil {
+			iscplink.Debugf("linkclient: link hello over ISCP failed: %v", err)
 			ini.Reset()
 			continue
 		}
@@ -223,6 +225,14 @@ func (c *Client) runISCP(ctx context.Context) {
 		cur.Lock()
 		cur.p, cur.hello = p, nil
 		cur.Unlock()
+		// States reported before this path existed are stale.
+		for drained := false; !drained; {
+			select {
+			case <-readyCh:
+			default:
+				drained = true
+			}
+		}
 		c.setPath(PathISCP, p)
 		c.watchISCP(ctx, ini, p, readyCh)
 		cur.Lock()

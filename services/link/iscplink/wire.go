@@ -98,6 +98,10 @@ func (s *secureState) open(provider crypto.Provider, env envelope.SecureEnvelope
 	return envelope.Decrypt(provider, s.state, env)
 }
 
+// Debugf receives diagnostic messages (no secrets); tests and the
+// connector's debug mode set it.
+var Debugf = func(format string, args ...any) {}
+
 // MaxSessionAge bounds one session's lifetime (its replay window grows with
 // every message); the initiator handshakes again after it.
 const MaxSessionAge = 6 * time.Hour

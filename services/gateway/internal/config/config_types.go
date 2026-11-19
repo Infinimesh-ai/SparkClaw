@@ -116,6 +116,13 @@ type GatewayConfig struct {
 	// fails closed (503) in the no-auth posture.
 	BridgeToken string          `json:"bridge_token,omitempty"`
 	RateLimit   RateLimitConfig `json:"rate_limit"`
+	// Link layer (docs/client-link-layer-design.md). LinkStateDir is shared
+	// with the ISCP connector and enables the link entry; LinkLANAddr also
+	// enables the LAN connector. Never projected.
+	LinkStateDir string `json:"-"`
+	LinkLANAddr  string `json:"-"`
+	LinkLANHosts string `json:"-"` // comma-separated
+	LinkOwnerID  string `json:"-"`
 }
 
 type RateLimitConfig struct {

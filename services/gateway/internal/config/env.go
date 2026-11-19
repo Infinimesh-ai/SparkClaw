@@ -152,6 +152,10 @@ var envBindings = []envBinding{
 	{name: "SPARKCLAW_DEPLOYMENT_ID", doc: "Persistent identity of this SparkClaw product installation.", apply: envString(func(c *Config) *string { return &c.Gateway.DeploymentID })},
 	{name: "SPARKCLAW_DESKTOP_CLIENT_FILE", doc: "Restricted local desktop Client provisioning file.", apply: envString(func(c *Config) *string { return &c.Gateway.DesktopClientFile })},
 	{name: "SPARKCLAW_LOCAL_MANAGEMENT_FILE", doc: "Private host-only credential management file; never authorizes network requests.", apply: envString(func(c *Config) *string { return &c.Gateway.LocalManagementFile })},
+	{name: "SPARKCLAW_LINK_STATE_DIR", doc: "Private directory shared with the link ISCP connector (membership, device directory, connector socket); enables the link entry.", apply: envString(func(c *Config) *string { return &c.Gateway.LinkStateDir })},
+	{name: "SPARKCLAW_LINK_LAN_ADDR", doc: "Listen address of the link LAN connector (pinned TLS + WebSocket), for example :18792; requires the link state directory.", apply: envString(func(c *Config) *string { return &c.Gateway.LinkLANAddr })},
+	{name: "SPARKCLAW_LINK_LAN_HOSTS", doc: "Comma-separated LAN names or addresses devices use to reach the link LAN connector.", apply: envString(func(c *Config) *string { return &c.Gateway.LinkLANHosts })},
+	{name: "SPARKCLAW_LINK_OWNER_ID", doc: "Owner served through the link layer; defaults to the default owner.", apply: envString(func(c *Config) *string { return &c.Gateway.LinkOwnerID })},
 	{name: "SPARKCLAW_WORKBENCH_ISCP_CONFIG", doc: "Absolute private responder configuration for the isolated ISCP workbench transport.", apply: envString(func(c *Config) *string { return &c.Gateway.WorkbenchISCPConfig })},
 	{name: "SPARKCLAW_WORKBENCH_ISCP_LOCAL_TEST", doc: "Explicit local test issuer opt-in; only 0 and 1 are accepted.", apply: func(c *Config, value string) error {
 		if value != "0" && value != "1" {

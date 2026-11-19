@@ -11,7 +11,7 @@ import (
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/trust"
 
-	"github.com/Chiiz0/SparkClaw/services/link/internal/relaytest"
+	"github.com/Chiiz0/SparkClaw/services/link/relaytest"
 	"github.com/Chiiz0/SparkClaw/services/link/relay"
 )
 

@@ -91,6 +91,22 @@ func (r *workbenchBrowserRoutes) add(route workbenchPeerRoute) func() {
 	r.routes[id] = route
 	return func() { r.mu.Lock(); delete(r.routes, id); r.mu.Unlock() }
 }
+// peerFor returns the first route's session for an installation.
+func (r *workbenchBrowserRoutes) peerFor(ownerID, clientID, installationID string) (iscpworkbench.PeerSession, error) {
+	r.mu.Lock()
+	routes := make([]workbenchPeerRoute, 0, len(r.routes))
+	for _, route := range r.routes {
+		routes = append(routes, route)
+	}
+	r.mu.Unlock()
+	for _, route := range routes {
+		if session, err := route(ownerID, clientID, installationID); err == nil {
+			return session, nil
+		}
+	}
+	return iscpworkbench.PeerSession{}, iscpworkbench.ErrPeerUnavailable
+}
+
 func (r *workbenchBrowserRoutes) ReverseSession(identity browserhost.Identity) (browserhost.ReverseSession, error) {
 	r.mu.Lock()
 	routes := make([]workbenchPeerRoute, 0, len(r.routes))

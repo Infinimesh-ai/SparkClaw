@@ -25,6 +25,9 @@ type PeerSession struct {
 	AuthorizationRevision uint64
 	Done                  <-chan struct{}
 	endpoint              *Endpoint
+	// Caller carries the round trip when the session is not an ISCP
+	// endpoint (a link-layer connection to the device).
+	Caller func(ctx context.Context, operation string, body json.RawMessage) (Response, error)
 }
 
 // Command performs one reverse round trip on this exact session. A local
@@ -35,6 +38,15 @@ func (s PeerSession) Command(ctx context.Context, operation string, body json.Ra
 	trace := func() {
 		traceCtx := latencytrace.WithFields(ctx, requestTraceFields(RoleResponder, request))
 		latencytrace.RecordDetail(traceCtx, "rpc.reverse_dispatch", time.Time{}, ErrPeerUnavailable, latencytrace.Detail{Reason: "peer_session_unavailable"})
+	}
+	if s.Caller != nil {
+		select {
+		case <-s.Done:
+			trace()
+			return Response{}, ErrPeerUnavailable
+		default:
+		}
+		return s.Caller(ctx, operation, body)
 	}
 	if s.endpoint == nil {
 		trace()

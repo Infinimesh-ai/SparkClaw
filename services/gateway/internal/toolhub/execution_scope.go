@@ -153,3 +153,18 @@ func (h *ToolHub) ReleaseWorkspaceBytes(path string) {
 }
 
 func (h *ToolHub) ExecutionTextOnly() bool { return h.resources != nil && h.resources.TextOnly }
+
+// WithBrowser returns a view of the hub whose browser tools drive adapter,
+// for example a desktop's built-in browser reached over the link layer.
+// Everything else (repository, workspace, connectors, memory) is the
+// resident hub's.
+func (h *ToolHub) WithBrowser(adapter browserautomation.Adapter) *ToolHub {
+	if h == nil || adapter == nil {
+		return h
+	}
+	scoped := *h
+	scoped.browser = adapter
+	scoped.managedBrowserWindows = newManagedBrowserWindowRegistry()
+	scoped.ownsProviders = false
+	return &scoped
+}

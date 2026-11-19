@@ -243,6 +243,14 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 	runID := admission.lease.RunID
 	sessionID := session.ID
 	rt := s.link
+	if req.Principal.Conditions.BrowserSurface && admission.runtime != nil {
+		// The desktop's built-in browser runs this conversation's browser
+		// tasks (design 3.12), as it did through the previous transport.
+		if adapter, err := s.linkBrowserAdapter(req.Principal, sessionID, runID); err == nil {
+			bound := admission.runtime.WithBrowser(adapter)
+			admission.runtime = &bound
+		}
+	}
 	rt.runs.begin(sessionID, runID, admission.binding)
 	executionCtx := admission.context()
 	cleaned := sanitizeMessageAttachments(attachments)

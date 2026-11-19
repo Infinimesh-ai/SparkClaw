@@ -81,6 +81,10 @@ func (s *Server) StartLink(opts LinkOptions) error {
 	rt.objects = objects
 	s.link = rt
 	s.registerLinkHandlers(rt.service)
+	// Desktops with a built-in browser serve the controller and McDonald's
+	// reverse operations over their link connection.
+	unroute := s.browserRoutes.add(s.linkPeerRoute)
+	go func() { <-rt.stop; unroute() }()
 	rt.directory.OnRevoke(func(deviceID string) { s.revokeLinkDevice(deviceID) })
 	_ = rt.directory.Refresh()
 	go rt.directory.Watch(rt.stop, 3*time.Second)

@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"errors"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,6 +18,7 @@ import (
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/link"
 	"github.com/Chiiz0/SparkClaw/services/link/consoleapi"
 	"github.com/Chiiz0/SparkClaw/services/link/contract"
@@ -399,5 +401,49 @@ func TestLinkDomainCallBridge(t *testing.T) {
 	var describe contract.DeviceDescribeResult
 	if err := desk.Request(ctx, contract.OpDeviceDescribe, nil, &describe); err != nil || len(describe.Domains) < 3 {
 		t.Fatalf("describe %+v %v", describe, err)
+	}
+}
+
+func TestLinkReverseCallsReachTheDesktopBrowser(t *testing.T) {
+	b := newLinkTestBackend(t)
+	dev, _ := identity.NewDevice(crypto.NewProvider(), "relay-domain", "desktop-rev", time.Now().UTC())
+	rec := consoleapi.DeviceRecord{DeviceID: dev.Identity.DeviceID, Type: contract.ClassDesktop, Role: consoleapi.RoleOwnerDevice, Identity: dev.Identity, State: consoleapi.StateTrusted}
+	writeLinkDirectory(t, b.stateDir, rec)
+	served := make(chan string, 4)
+	desk, err := linkclient.New(linkclient.Options{Device: dev, Host: consoleapi.Host{DeviceID: b.host.Identity.DeviceID, Identity: b.host.Identity, LAN: b.lan}, Describe: contract.Device{Class: contract.ClassDesktop, Conditions: contract.Conditions{BrowserSurface: true, Attachments: true, Screen: contract.ScreenLarge}},
+		Reverse: []string{"browser.controller.status", "mcd.orders.query"},
+		OnReverse: func(_ context.Context, op string, params json.RawMessage) (any, error) {
+			served <- op + " " + string(params)
+			return map[string]any{"state": "available", "op": op}, nil
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	desk.Start(ctx)
+	defer desk.Close()
+	if err := desk.WaitReady(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := desk.Hello().Reverse; len(got) != 2 {
+		t.Fatalf("accepted reverse %v", got)
+	}
+	var peer iscpworkbench.PeerSession
+	waitUntil(t, 5*time.Second, func() bool {
+		var e error
+		peer, e = b.server.browserRoutes.peerFor(app.DefaultOwnerID, linkClientID(dev.Identity.DeviceID), linkInstallationID(dev.Identity.DeviceID))
+		return e == nil
+	})
+	resp, err := peer.Command(ctx, "browser.controller.status", json.RawMessage(`{"probe":1}`))
+	if err != nil || resp.Status != 200 {
+		t.Fatalf("reverse call %+v %v", resp, err)
+	}
+	if got := <-served; got != `browser.controller.status {"probe":1}` {
+		t.Fatal(got)
+	}
+	// An operation the device did not declare is never sent.
+	if _, err := peer.Command(ctx, "mcd.checkout.commit", json.RawMessage(`{}`)); !errors.Is(err, iscpworkbench.ErrPeerUnavailable) {
+		t.Fatalf("undeclared reverse op: %v", err)
 	}
 }

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
@@ -48,4 +49,15 @@ func (r Runtime) WithExecutionScope(st ExecutionRepository, resources toolhub.Ex
 		}
 		return errors.Join(cleanupErr, tools.Close())
 	}, nil
+}
+
+// WithBrowser returns a runtime whose browser tools drive adapter (a
+// device's built-in browser); the rest of the resident runtime is shared.
+func (r Runtime) WithBrowser(adapter browserautomation.Adapter) Runtime {
+	if r.tools == nil || adapter == nil {
+		return r
+	}
+	r.tools = r.tools.WithBrowser(adapter)
+	r.exposure = newToolExposureEngine(r.store, r.tools, r.policy)
+	return r
 }

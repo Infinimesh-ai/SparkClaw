@@ -1,0 +1,41 @@
+{{define "content"}}
+{{template "domainHead" .}}
+<div class="mt-6">
+{{template "pageHeader" (dict "title" "审计" "description" "域内管理与安全事件的只读记录，按时间倒序。")}}
+{{if not .Audit}}
+<div class="rounded-lg border border-slate-200 bg-white">
+  {{template "empty" (dict "title" "暂无审计事件" "hint" "域内的管理操作（创建、修改、撤销等）会记录在这里。")}}
+</div>
+{{else}}
+<div class="rounded-lg border border-slate-200 bg-white">
+  <div class="overflow-x-auto">
+    <table class="w-full border-collapse text-sm">
+      <thead>
+        <tr class="border-b border-slate-200 text-left text-xs font-medium tracking-wide text-slate-500 uppercase">
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">时间</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">动作</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">结果</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">操作者</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">资源</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">原因</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {{range .Audit}}
+        <tr>
+          <td class="px-3 py-2.5 align-middle whitespace-nowrap text-slate-600">{{time .CreatedAt}}</td>
+          <td class="px-3 py-2.5 align-middle"><span class="font-mono text-xs text-ink-800">{{.Action}}</span></td>
+          <td class="px-3 py-2.5 align-middle whitespace-nowrap">{{badge .Decision}}</td>
+          <td class="px-3 py-2.5 align-middle whitespace-nowrap">{{if .ActorID}}{{template "idchip" .ActorID}}{{else}}<span class="text-slate-400">{{.ActorType}}</span>{{end}}</td>
+          <td class="px-3 py-2.5 align-middle"><div class="flex items-center gap-1.5"><span class="text-xs text-slate-500">{{.ResourceType}}</span>{{if .ResourceID}}{{template "idchip" .ResourceID}}{{end}}</div></td>
+          <td class="px-3 py-2.5 align-middle text-xs text-slate-500">{{.Reason}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{if .AuditMore}}<div class="border-t border-slate-100 px-3 py-2"><a href="?limit={{.AuditNext}}" class="text-sm text-signal-600 hover:underline">加载更多</a></div>{{end}}
+</div>
+{{end}}
+</div>
+{{end}}

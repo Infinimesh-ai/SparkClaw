@@ -1,0 +1,39 @@
+{{define "content"}}
+{{template "pageHeader" (dict "title" "域" "description" "每个域是一个独立的设备与信任隔离空间。" "href" "/domains?create=1" "action" "创建域")}}
+{{if not .Domains}}
+<div class="rounded-lg border border-slate-200 bg-white">
+  {{template "empty" (dict "title" "还没有域" "hint" "创建第一个个人域，然后签发接入凭据接入后端与设备。" "href" "/domains?create=1" "action" "创建域 →")}}
+</div>
+{{end}}
+<div class="grid gap-3 sm:grid-cols-2">
+  {{range .Domains}}
+  <a href="/domains/{{.ID}}" class="group">
+    <div class="rounded-lg border border-slate-200 bg-white h-full p-4 transition-colors group-hover:border-signal-400">
+      <div class="flex items-start justify-between gap-2">
+        <p class="font-medium text-ink-900">{{.DisplayName}}</p>
+        {{badge .State}}
+      </div>
+      <div class="mt-2">{{template "idtext" .ID}}</div>
+      <p class="mt-3 text-xs text-slate-500">个人域 · {{.Trusted}} 台设备 · {{if .Host}}后端已接入{{else}}后端未接入{{end}} · 创建于 {{time .CreatedAt}}</p>
+    </div>
+  </a>
+  {{end}}
+</div>
+{{end}}
+
+{{define "modal"}}{{if eq .Modal "create"}}
+{{template "dialogOpen" (dict "title" "创建域" "description" "域是设备与信任关系的隔离边界。当前支持个人域。")}}
+<form method="post" action="/domains" class="space-y-4">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="space-y-1.5">
+    <label for="domain-name" class="block text-sm font-medium text-ink-800">显示名称</label>
+    <input id="domain-name" name="name" autofocus placeholder="例如：我的工作台" class="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-ink-900 placeholder:text-slate-400">
+    <p class="text-xs text-slate-500">可选，仅用于控制台展示。</p>
+  </div>
+  <div class="flex justify-end gap-2">
+    <a href="/domains" class="inline-flex h-10 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-[background-color,filter] border border-slate-300 bg-white text-ink-700 hover:bg-slate-50">取消</a>
+    <button type="submit" class="inline-flex h-10 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-[background-color,filter] bg-signal-500 text-ink-950 hover:brightness-95">创建域</button>
+  </div>
+</form>
+{{template "dialogClose"}}
+{{end}}{{end}}

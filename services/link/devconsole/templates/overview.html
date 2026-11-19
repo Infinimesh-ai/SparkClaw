@@ -1,0 +1,87 @@
+{{define "content"}}
+{{template "domainHead" .}}
+<div class="mt-6 space-y-4">
+  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="rounded-lg border border-slate-200 bg-white p-4">
+      <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">已信任设备</p>
+      <p class="mt-1.5 font-mono text-lg font-semibold text-ink-900">{{.Domain.Trusted}}</p>
+      <p class="mt-1.5 text-xs text-slate-500">共 {{.Domain.Devices}} 条设备记录</p>
+    </div>
+    <div class="rounded-lg border border-slate-200 bg-white p-4">
+      <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">后端</p>
+      <p class="mt-1.5 font-mono text-lg font-semibold text-ink-900">{{if .Domain.Host}}已接入{{else}}未接入{{end}}</p>
+      <p class="mt-1.5 text-xs text-slate-500">每个域一个 sparkclaw / domain_host</p>
+    </div>
+    <div class="rounded-lg border border-slate-200 bg-white p-4">
+      <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">待激活凭据</p>
+      <p class="mt-1.5 font-mono text-lg font-semibold text-ink-900">{{.Domain.PendingCredentials}}</p>
+      <p class="mt-1.5 text-xs text-slate-500">一次性，到期自动失效</p>
+    </div>
+    <div class="rounded-lg border border-slate-200 bg-white p-4">
+      <p class="text-xs font-medium tracking-wide text-slate-500 uppercase">目录版本</p>
+      <p class="mt-1.5 font-mono text-lg font-semibold text-ink-900">{{.Domain.Revision}}</p>
+      <p class="mt-1.5 text-xs text-slate-500">设备变更时递增</p>
+    </div>
+  </div>
+
+  <div class="grid gap-3 lg:grid-cols-2">
+    <div class="rounded-lg border border-slate-200 bg-white p-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-medium text-ink-800">域信息</h2>
+        <a href="/domains/{{.Domain.ID}}?edit=1" class="inline-flex h-10 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-[background-color,filter] text-ink-700 hover:bg-slate-200/60">修改名称</a>
+      </div>
+      <dl class="mt-2 divide-y divide-slate-100">
+        {{template "row" (dict "label" "名称" "value" .Domain.DisplayName)}}
+        {{template "row" (dict "label" "类型" "value" "personal")}}
+        {{template "row" (dict "label" "创建时间" "value" (time .Domain.CreatedAt))}}
+        {{template "row" (dict "label" "更新时间" "value" (time .Domain.UpdatedAt))}}
+      </dl>
+    </div>
+    <div class="rounded-lg border border-slate-200 bg-white p-4">
+      <h2 class="text-sm font-medium text-ink-800">后端（domain_host）</h2>
+      {{with .Domain.Host}}
+      <dl class="mt-2 divide-y divide-slate-100">
+        <div class="flex items-baseline justify-between gap-4 py-1.5"><dt class="shrink-0 text-sm text-slate-500">名称</dt><dd class="min-w-0 text-right font-mono text-sm break-all text-ink-900"><a href="/domains/{{.DomainID}}/devices/{{.DeviceID}}" class="text-signal-600 hover:underline">{{.Name}}</a></dd></div>
+        {{template "row" (dict "label" "设备 ID" "value" .DeviceID)}}
+        {{template "row" (dict "label" "公钥指纹" "value" .Fingerprint)}}
+      </dl>
+      {{else}}
+      <p class="mt-2 text-sm text-slate-500">此域还没有后端。在「配对」页签发目标类型为 sparkclaw 的接入凭据，由后端使用该凭据接入。</p>
+      {{end}}
+      {{if .Domain.Host}}
+      <dl class="mt-2 divide-y divide-slate-100">
+        {{template "row" (dict "label" "局域网地址" "value" (or (join .Domain.HostLAN.Endpoints ", ") "—"))}}
+        {{template "row" (dict "label" "局域网 TLS 指纹" "value" (or .Domain.HostLAN.TLSPin "—"))}}
+      </dl>
+      {{end}}
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-slate-200 bg-white p-4">
+    <h2 class="text-sm font-medium text-ink-800">生效配置</h2>
+    <dl class="mt-2 divide-y divide-slate-100">
+      {{template "row" (dict "label" "控制台 ID" "value" .ConsoleID)}}
+      {{template "row" (dict "label" "中继" "value" .Relay.RelayID)}}
+      {{template "row" (dict "label" "中继地址" "value" .Relay.BaseURL)}}
+      {{template "row" (dict "label" "ISCP 域" "value" .Relay.DomainID)}}
+    </dl>
+    <p class="mt-3 border-t border-slate-100 pt-2 text-xs text-slate-500">控制台只负责绑定、配对与签发凭据，不转发也不保存任何消息。</p>
+  </div>
+</div>
+{{end}}
+
+{{define "modal"}}{{if eq .Modal "rename"}}
+{{template "dialogOpen" (dict "title" "修改名称")}}
+<form method="post" action="/domains/{{.Domain.ID}}/rename" class="space-y-4">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="space-y-1.5">
+    <label for="rename" class="block text-sm font-medium text-ink-800">显示名称</label>
+    <input id="rename" name="name" value="{{.Domain.Name}}" autofocus placeholder="例如：我的工作台" class="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-ink-900 placeholder:text-slate-400">
+  </div>
+  <div class="flex justify-end gap-2">
+    <a href="/domains/{{.Domain.ID}}" class="inline-flex h-10 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-[background-color,filter] border border-slate-300 bg-white text-ink-700 hover:bg-slate-50">取消</a>
+    <button type="submit" class="inline-flex h-10 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-[background-color,filter] bg-signal-500 text-ink-950 hover:brightness-95">保存</button>
+  </div>
+</form>
+{{template "dialogClose"}}
+{{end}}{{end}}

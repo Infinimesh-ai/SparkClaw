@@ -1,0 +1,104 @@
+{{define "head"}}<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{.Title}} · SparkClaw 控制台</title>
+<link rel="stylesheet" href="/assets/console.css">
+</head>{{end}}
+
+{{define "logo"}}<p class="flex h-10 items-center text-lg font-semibold text-ink-900">Spark<span class="text-signal-600">Claw</span></p>{{end}}
+
+{{define "nav"}}<nav class="flex items-center gap-1 md:flex-col md:items-stretch"><a href="/domains" class="rounded-md px-3.5 py-2.5 text-sm bg-signal-500/10 font-semibold text-signal-600" aria-current="page">域</a></nav>{{end}}
+
+{{define "layout"}}{{template "head" .}}
+<body>
+<div class="flex min-h-dvh flex-col md:flex-row">
+  <header class="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3 md:hidden">
+    {{template "logo"}}
+    {{template "nav" .}}
+  </header>
+  <aside class="hidden w-56 shrink-0 flex-col border-r border-slate-100 bg-white px-4 py-6 md:flex">
+    <div class="px-3.5">
+      {{template "logo"}}
+      <p class="mt-2 mb-5 text-xs font-bold tracking-[0.14em] text-slate-500 uppercase">控制台</p>
+    </div>
+    {{template "nav" .}}
+    <div class="mt-auto border-t border-slate-100 px-3.5 pt-4">
+      <p class="truncate text-sm text-ink-800">{{.UserName}}</p>
+      <p class="truncate font-mono text-xs text-slate-500">{{.UserID}}</p>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <button type="submit" class="mt-2 text-xs text-slate-500 underline-offset-2 hover:text-ink-900 hover:underline">退出登录</button>
+      </form>
+    </div>
+  </aside>
+  <main class="min-w-0 flex-1">
+    <div class="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">{{template "content" .}}</div>
+  </main>
+</div>
+{{template "modal" .}}
+{{template "script" .}}
+</body>
+</html>{{end}}
+
+{{define "modal"}}{{end}}
+
+{{define "dialogOpen"}}<div class="fixed inset-0 bg-ink-950/50"></div>
+<div role="dialog" aria-modal="true" class="fixed top-1/2 left-1/2 max-h-[85vh] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg bg-white p-5 shadow-xl focus:outline-none {{if .wide}}max-w-xl{{else}}max-w-md{{end}}">
+<h2 class="text-base font-semibold text-ink-900">{{.title}}</h2>
+{{if .description}}<p class="mt-1 text-sm text-slate-500">{{.description}}</p>{{end}}
+<div class="mt-4">{{end}}
+
+{{define "dialogClose"}}</div></div>{{end}}
+
+{{define "idchip"}}<button type="button" title="点击复制" aria-label="复制 {{.}}" data-copy="{{.}}" class="group inline-flex max-w-full items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-ink-800 hover:border-signal-400"><span class="truncate"><span class="text-signal-600">{{idPrefix .}}</span>{{idRest .}}</span><span class="text-slate-400 group-hover:text-signal-600" data-copy-label>⧉</span></button>{{end}}
+
+{{define "idtext"}}<span class="inline-flex max-w-full items-center gap-1 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-ink-800"><span class="truncate"><span class="text-signal-600">{{idPrefix .}}</span>{{idRest .}}</span></span>{{end}}
+
+{{define "pageHeader"}}<div class="mb-6 flex flex-wrap items-start justify-between gap-3">
+  <div>
+    <h1 class="text-xl font-semibold text-ink-900">{{.title}}</h1>
+    {{if .description}}<p class="mt-1 text-sm text-slate-500">{{.description}}</p>{{end}}
+  </div>
+  {{if .href}}<div class="flex items-center gap-2"><a href="{{.href}}" class="inline-flex h-10 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-[background-color,filter] bg-signal-500 text-ink-950 hover:brightness-95">{{.action}}</a></div>{{end}}
+</div>{{end}}
+
+{{define "empty"}}<div class="flex flex-col items-center gap-2 py-12 text-center">
+  <p class="text-sm font-medium text-ink-800">{{.title}}</p>
+  {{if .hint}}<p class="max-w-sm text-sm text-slate-500">{{.hint}}</p>{{end}}
+  {{if .href}}<div class="mt-2"><a href="{{.href}}" class="text-sm text-signal-600 hover:underline">{{.action}}</a></div>{{end}}
+</div>{{end}}
+
+{{define "row"}}<div class="flex items-baseline justify-between gap-4 py-1.5"><dt class="shrink-0 text-sm text-slate-500">{{.label}}</dt><dd class="min-w-0 text-right font-mono text-sm break-all text-ink-900">{{.value}}</dd></div>{{end}}
+
+{{define "domainHead"}}
+<a href="/domains" class="text-sm text-slate-500 hover:text-signal-600">← 全部域</a>
+<div class="mt-2 flex flex-wrap items-center gap-3">
+  <h1 class="text-xl font-semibold text-ink-900">{{.Domain.DisplayName}}</h1>
+  {{badge .Domain.State}}
+  {{template "idchip" .Domain.ID}}
+</div>
+{{if eq .Domain.State "suspended"}}<div class="mt-3 rounded-md border border-danger-600/30 bg-danger-100 px-3 py-2 text-sm text-danger-700">此域已被暂停：设备连接被拒绝，管理操作只读。</div>{{end}}
+<nav class="mt-4 flex gap-1 overflow-x-auto border-b border-slate-200">
+  {{$id := .Domain.ID}}{{$tab := .Tab}}
+  {{range $t := (list "overview" "devices" "pairing" "audit")}}
+  <a href="/domains/{{$id}}{{tabPath $t}}" class="-mb-px border-b-2 px-3 py-2 text-sm whitespace-nowrap {{if eq $t $tab}}border-signal-600 font-medium text-ink-900{{else}}border-transparent text-slate-500 hover:text-ink-900{{end}}"{{if eq $t $tab}} aria-current="page"{{end}}>{{tabLabel $t}}</a>
+  {{end}}
+</nav>
+{{end}}
+
+{{define "deviceState"}}{{if eq .State "revoked"}}{{tone "已撤销" "danger"}}{{else if .IsHost}}{{tone "已信任" "ok"}}{{else if eq .GrantStatus "active"}}{{tone "已授权（未检测在线）" "ok"}}{{else if eq .RenewalStatus "expired"}}{{tone "续期授权已到期" "warn"}}{{else if eq .GrantStatus "expired"}}{{tone "授权已过期" "warn"}}{{else}}{{tone "已信任" "ok"}}{{end}}{{end}}
+
+{{define "script"}}<script nonce="{{.Nonce}}">
+(function(){
+  function fallback(t){var a=document.createElement('textarea');a.value=t;a.setAttribute('readonly','');a.className='sr-only';document.body.appendChild(a);a.select();try{document.execCommand('copy')}catch(e){}document.body.removeChild(a);return Promise.resolve()}
+  document.addEventListener('click',function(e){
+    var b=e.target.closest('[data-copy]');if(!b)return;e.preventDefault();
+    var t=b.getAttribute('data-copy'),o=b.querySelector('[data-copy-label]')||b,p=o.textContent;
+    var w=(navigator.clipboard&&window.isSecureContext)?navigator.clipboard.writeText(t).catch(function(){return fallback(t)}):fallback(t);
+    w.then(function(){o.textContent='已复制';setTimeout(function(){o.textContent=p},1500)});
+  });
+})();
+</script>{{end}}

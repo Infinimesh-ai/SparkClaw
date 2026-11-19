@@ -1,0 +1,90 @@
+{{define "content"}}
+{{template "domainHead" .}}
+<div class="mt-6">
+{{$issue := printf "/domains/%s/pairing?issue=1" .Domain.ID}}
+{{template "pageHeader" (dict "title" "配对" "description" "签发一次性 SparkClaw 接入凭据：后端或设备扫码、粘贴后注册到此域。设备注册即获得面向本域后端的配对授权（Trust Grant）；后端（sparkclaw）每个域只能接入一个。凭据一次性有效，仅显示一次。" "href" (and (eq .Domain.State "active") $issue) "action" "签发接入凭据")}}
+{{if not .Credentials}}
+<div class="rounded-lg border border-slate-200 bg-white">
+  {{template "empty" (dict "title" "还没有配对记录" "hint" "先为后端签发目标类型为 sparkclaw 的接入凭据，再为桌面端、手机或手表签发。" "href" (and (eq .Domain.State "active") $issue) "action" "签发接入凭据 →")}}
+</div>
+{{else}}
+<div class="rounded-lg border border-slate-200 bg-white">
+  <div class="overflow-x-auto">
+    <table class="w-full border-collapse text-sm">
+      <thead>
+        <tr class="border-b border-slate-200 text-left text-xs font-medium tracking-wide text-slate-500 uppercase">
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">接入凭据</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">目标类型 / 角色</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">状态</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">使用</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">过期时间</th>
+          <th class="px-3 py-2.5 font-medium whitespace-nowrap">创建时间</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {{range .Credentials}}
+        <tr>
+          <td class="px-3 py-2.5 align-middle">{{template "idchip" .ID}}</td>
+          <td class="px-3 py-2.5 align-middle text-slate-600">{{.Type}} / {{.Role}}</td>
+          <td class="px-3 py-2.5 align-middle whitespace-nowrap">{{badge .Status}}</td>
+          <td class="px-3 py-2.5 align-middle font-mono text-slate-600">{{if .UsedBy}}<a href="/domains/{{$.Domain.ID}}/devices/{{.UsedBy}}" class="text-signal-600 hover:underline">1/1</a>{{else}}0/1{{end}}</td>
+          <td class="px-3 py-2.5 align-middle whitespace-nowrap text-slate-600">{{time .ExpiresAt}}</td>
+          <td class="px-3 py-2.5 align-middle whitespace-nowrap text-slate-600">{{time .CreatedAt}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{end}}
+</div>
+{{end}}
+
+{{define "modal"}}{{if eq .Modal "issue"}}
+{{template "dialogOpen" (dict "title" "签发 SparkClaw 接入凭据" "description" "凭据一次性有效、仅显示一次。设备使用后获得自己的密钥与面向后端的配对授权，此后不再需要凭据。")}}
+<form method="post" action="/domains/{{.Domain.ID}}/pairing" class="space-y-4">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+  <div class="space-y-1.5">
+    <label for="device-type" class="block text-sm font-medium text-ink-800">目标设备类型</label>
+    <select id="device-type" name="device_type" class="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-ink-900">
+      {{range .DeviceTypes}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+    </select>
+    <p class="text-xs text-slate-500">{{if .Domain.Host}}此域已有后端；再签发 sparkclaw 凭据将无法使用，除非先撤销现有后端。{{else}}此域还没有后端；设备可以先接入，后端接入后再获得配对授权。{{end}}</p>
+  </div>
+  <div class="space-y-1.5">
+    <label for="expiry" class="block text-sm font-medium text-ink-800">有效期</label>
+    <select id="expiry" name="expiry" class="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-ink-900">
+      <option value="600">10 分钟</option>
+      <option value="900" selected>15 分钟</option>
+      <option value="1800">30 分钟</option>
+    </select>
+  </div>
+  {{if .Error}}<div class="rounded-md border border-danger-600/30 bg-danger-100 px-3 py-2 text-sm text-danger-700"><p>{{.Error}}</p></div>{{end}}
+  <div class="flex justify-end gap-2">
+    <a href="/domains/{{.Domain.ID}}/pairing" class="inline-flex h-10 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-[background-color,filter] border border-slate-300 bg-white text-ink-700 hover:bg-slate-50">取消</a>
+    <button type="submit" class="inline-flex h-10 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-[background-color,filter] bg-signal-500 text-ink-950 hover:brightness-95">签发凭据</button>
+  </div>
+</form>
+{{template "dialogClose"}}
+{{else if eq .Modal "issued"}}{{with .Issued}}
+{{template "dialogOpen" (dict "title" "SparkClaw 接入凭据已签发" "wide" true)}}
+<div class="space-y-4">
+  <p class="text-sm text-slate-500">目标：{{typeLabel .Type}}（{{.Type}} / {{.Role}}）。在设备上扫描二维码或粘贴凭据文本；已配置控制台地址的设备（如手表）可只输入接入码。</p>
+  <div class="rounded-lg bg-ink-950 px-4 py-6 text-center">
+    <p class="text-xs tracking-widest text-ink-300 uppercase">SparkClaw 接入凭据</p>
+    {{if .QR}}<div class="mt-3">{{.QR}}</div>{{end}}
+    <p class="mt-3 max-h-40 overflow-y-auto font-mono text-xs break-all text-signal-400 select-all" data-credential>{{.Text}}</p>
+    <button type="button" data-copy="{{.Text}}" class="mt-4 rounded-md border border-ink-600 px-3 py-1.5 text-sm text-ink-200 hover:border-signal-400 hover:text-white"><span data-copy-label>复制凭据</span></button>
+  </div>
+  <div class="rounded-lg bg-ink-950 px-4 py-6 text-center">
+    <p class="text-xs tracking-widest text-ink-300 uppercase">接入码</p>
+    <p class="mt-3 font-mono text-xl font-semibold tracking-wider break-all text-signal-400 select-all" data-code>{{.CodeDisplay}}</p>
+    <button type="button" data-copy="{{.Code}}" class="mt-4 rounded-md border border-ink-600 px-3 py-1.5 text-sm text-ink-200 hover:border-signal-400 hover:text-white"><span data-copy-label>复制接入码</span></button>
+  </div>
+  <div class="rounded-md bg-warn-100 px-3 py-2 text-sm text-warn-700">此码仅显示这一次，服务端只保存其哈希；关闭后无法再次查看。请立即在设备上使用，{{time .ExpiresAt}} 过期。</div>
+  <div class="flex justify-end">
+    <a href="/domains/{{$.Domain.ID}}/pairing" class="inline-flex h-10 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-[background-color,filter] bg-signal-500 text-ink-950 hover:brightness-95">我已保存，关闭</a>
+  </div>
+</div>
+{{template "dialogClose"}}
+{{end}}{{end}}{{end}}

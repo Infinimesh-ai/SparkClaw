@@ -22,7 +22,7 @@
 
 这实际上是两件事：**调用方要做什么操作**，以及**本次连接或请求现在是否已通过认证**。两者生命周期不同，不应共用一份不可变记录。延长证明有效期、永久保留第一次签名、清空 pending，或每次重连更换操作编号，都没有解决这个职责问题。
 
-当前源码依据：[客户端持久化](../../services/gateway/internal/iscpnodeclient/lifecycle.go)、[issuer 摘要、时效与密封](../../services/gateway/internal/iscpnodeissuer/lifecycle.go)、[Relay 恢复](../../services/gateway/internal/iscprelayadapter/lifecycle.go)、[工作台生命周期](../../services/gateway/internal/iscpworkbench/node_lifecycle.go)。fork 中对应实现位于 `extensions/sparkclaw/`。
+当前源码依据：[客户端持久化](../../services/gateway/internal/iscpnodeclient/lifecycle.go)、[issuer 摘要、时效与密封](../../services/gateway/internal/iscpnodeissuer/lifecycle.go)、`Relay 恢复`、[工作台生命周期](../../services/gateway/internal/iscpworkbench/node_lifecycle.go)。fork 中对应实现位于 `extensions/sparkclaw/`。
 
 ## 3 独立的生命周期与不变量
 

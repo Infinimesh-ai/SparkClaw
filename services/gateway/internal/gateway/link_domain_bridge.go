@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync"
 
@@ -181,7 +182,7 @@ func (s *Server) linkBridgeCall(ctx context.Context, req *link.Request, p contra
 	session := iscpworkbench.SessionInfo{SessionID: "link:" + req.Principal.DeviceID, Profile: iscpworkbench.ProfileV2, GrantRevision: 1, Binding: cfg.Binding, QualifiedOperations: operations, NegotiatedOperations: operations}
 	connected = iscpworkbench.ContextWithSession(connected, session)
 	connected = withExecutionAuthorization(connected, s.workbenchExecutionAuthorization(session))
-	response := handler(connected, request)
+	response := workbenchV2Result(handler(connected, request))
 	return contract.DomainCallResult{Result: mustRaw(linkBridgeResult{Status: response.Status, Body: response.Body, Object: response.Object, ErrorCode: string(response.Code), Error: response.Error, Retryable: response.Retryable})}, nil
 }
 
@@ -191,4 +192,25 @@ func newLinkUUID() string {
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+// workbenchV2Result gives domain failures their typed error code, which
+// the desktop's recovery relies on (cursor gap, unknown outcome).
+func workbenchV2Result(response iscpworkbench.Response) iscpworkbench.Response {
+	if response.Status >= 400 && response.Code == "" {
+		response.Code = iscpworkbench.CodeForStatus(response.Status)
+		var body struct {
+			Code      string `json:"code"`
+			Retryable *bool  `json:"retryable"`
+		}
+		_ = json.Unmarshal(response.Body, &body)
+		if body.Code == "operation_outcome_unknown" {
+			response.Code = iscpworkbench.ErrorOutcomeUnknown
+		} else if response.Status == http.StatusConflict && domainDecode(response.Body, &body) == nil && body.Code == string(iscpworkbench.ErrorCursorGap) && body.Retryable != nil && !*body.Retryable {
+			// Only this closed domain error permits an event cursor reset.
+			response.Code = iscpworkbench.ErrorCursorGap
+		}
+		response.Retryable = response.Status == 429 || response.Status == 503
+	}
+	return response
 }

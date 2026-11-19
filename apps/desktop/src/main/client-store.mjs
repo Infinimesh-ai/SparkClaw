@@ -1296,6 +1296,9 @@ export class ClientStore {
     if (!status) throw new Error("Invalid run state");
     return this.#transaction(() => {
       if (finalMessage) this.applyLinkMessages(scope, task.conversation_id, [finalMessage], { requestID });
+      // A schedule display the backend handed back to this desktop.
+      const action = status === "delivered" ? finalMessage?.extra?.client_action : undefined;
+      if (action && !this.db.prepare("SELECT 1 FROM client_actions WHERE request_id=?").get(requestID)) this.clientActions.insert(task, action);
       if (["failed", "canceled"].includes(status) && error && !finalMessage && !this.db.prepare("SELECT 1 FROM link_messages WHERE request_id=? AND placeholder=0 AND remote_id IS NOT NULL AND message_id IN (SELECT id FROM messages WHERE role='assistant')").get(requestID)) {
         this.#dropPlaceholders(requestID);
         const id = crypto.randomUUID();

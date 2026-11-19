@@ -337,7 +337,8 @@ export class LinkConversations {
       let result;
       try {
         result = await this.#request("message.send", { session_id: row.remote_id, client_message_id: requestID, content,
-          ...(attachments.length ? { attachments } : {}), client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+          ...(attachments.length ? { attachments } : {}), client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ...presentationFor(context, original.conversation_id) });
       } catch (error) {
         const unsent = error instanceof LinkError && (["busy", "conflict", "invalid_request", "not_found", "too_large", "quota_exceeded", "unsupported_capability"].includes(error.code) ||
           error.code === "backend_unavailable" && !/connection lost/iu.test(error.message));
@@ -389,7 +390,7 @@ export class LinkConversations {
       // the original admission instead of running the message twice.
       const context = JSON.parse(task.context_json);
       const result = await this.#request("message.send", { session_id: row.remote_id, client_message_id: task.request_id, content: context.messages.at(-1)?.content ?? "",
-        client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+        client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...presentationFor(context, task.conversation_id) });
       this.store.acceptLinkSend(scope, task.request_id, { runID: result.run_id, message: result.message });
       task = this.store.linkTask(scope, task.request_id);
     }
@@ -537,4 +538,14 @@ export class LinkConversations {
     const task = this.store.linkTask(scope, requestID);
     return { id: task.id, request_id: task.request_id, status: task.status, created_at: task.created_at };
   }
+}
+
+// The desktop's local schedule display (schedule-presentation.mjs) is
+// declared with the message, as the previous execution envelope did; the
+// backend answers with a client action in the final message.
+function presentationFor(context, conversationID) {
+  const presentation = context?.client_presentation;
+  if (!presentation?.schedule_show) return {};
+  return { client_presentation: { schema_version: presentation.schema_version, schedule_show: true, timezone: presentation.timezone,
+    requested_at: presentation.requested_at, local_conversation_id: conversationID } };
 }

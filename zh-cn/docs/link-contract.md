@@ -75,7 +75,7 @@
 | `session.archive` | `{session_id, archived}` → 会话头 | |
 | `session.delete` | `{session_id}` → `{session_id, deleted}` | 重复删除视为成功；会话中上传的附件一并删除 |
 | `session.messages` | `{session_id, before_seq?, after_seq?, limit}` → `{session, messages[], more}` | 按时间从旧到新；`before_seq: 0` 返回最新一页 |
-| `message.send` | `{session_id, client_message_id, content, attachments[], client_timezone}` → `{message, run_id, replayed}` | 相同的 `client_message_id` 返回原结果；运行中再发送返回 `busy` |
+| `message.send` | `{session_id, client_message_id, content, attachments[], client_timezone, client_presentation?}` → `{message, run_id, replayed}` | 相同的 `client_message_id` 返回原结果；运行中再发送返回 `busy`。电脑端可声明 `client_presentation {schema_version, schedule_show, timezone, requested_at, local_conversation_id}`；后端随后可在最终消息的 `extra.client_action`（`schedule.show`）里交回本机日程展示，而不读取本机日程 |
 | `run.subscribe` | `{session_id}` → `{subscription, status}` | 仅 duplex；先返回当前快照，之后推送 `run` 事件 |
 | `run.unsubscribe` | `{session_id}` → `{ok}` | 仅 duplex |
 | `run.status` | `{session_id}` → RunStatus | `state` 取 idle、running、approval_pending、completed、failed、cancelled 或 blocked；另带 `preview`、`progress`、`final_message`、`pending_approvals` |

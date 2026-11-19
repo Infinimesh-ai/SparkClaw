@@ -115,6 +115,28 @@ test("a task is sent with message.send, streams its preview from run events and 
   f.store.close();
 });
 
+test("the local schedule display is declared with the message and its client action is kept", async () => {
+  const f = await fixture();
+  const created = await f.conversations.create(scope, "New conversation", true);
+  const task = f.store.enqueue(scope, created.id, "显示明天的日程");
+  await f.conversations.submit(scope, task.request_id);
+  const presentation = f.backend.calls.find(c => c.op === "message.send").params.client_presentation;
+  assert.equal(presentation.schedule_show, true);
+  assert.equal(presentation.local_conversation_id, created.id, "the action names the desktop's own conversation");
+  assert.ok(Number.isFinite(Date.parse(presentation.requested_at)) && presentation.timezone);
+  const remote = f.store.linkConversation(scope, created.id).remote_id;
+  const runID = f.store.linkTask(scope, task.request_id).run_id;
+  const reply = f.backend.addMessage(remote, "assistant", "已请求在当前桌面打开本机日程。", { run_id: runID });
+  const action = { schema_version: 1, type: "schedule.show", action_id: task.request_id, request_id: task.request_id, local_conversation_id: created.id,
+    timezone: presentation.timezone, date_start: "2026-10-31", date_end: "2026-11-01", expires_at: new Date(Date.now() + 300000).toISOString() };
+  f.run(remote, runID, "final", { status: { session_id: remote, run_id: runID, state: "completed", final_message: { ...reply, extra: { client_action: action } } } });
+  await until(() => f.store.linkTask(scope, task.request_id).status === "delivered");
+  const actions = f.store.read(scope, created.id).client_actions;
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].request_id, task.request_id);
+  f.store.close();
+});
+
 test("an unsent message fails at once and is not queued", async () => {
   const f = await fixture();
   const created = await f.conversations.create(scope, "Busy", false);

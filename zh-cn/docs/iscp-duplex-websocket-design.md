@@ -31,7 +31,7 @@ ISCP fork 负责 Relay、协议及 ISCP 认证/授权服务的开发维护。Spa
 | PostgreSQL `StoreMessage` 遇同 ID 覆盖内容，消息和回执分两次写入 | 开启重试前必须补齐不可变去重和事务受理 |
 | Relay 写 socket 成功后标记投递 | 保留这一有限含义；最终业务交付仍需原应用 ACK |
 
-依据：[客户端](../../services/gateway/internal/iscpbridge/relay.go)、[Relay](../../services/gateway/internal/iscprelayreference/server.go)、[接收事务](../../services/gateway/internal/iscprelayreference/receive.go)、[控制 peer](../../services/gateway/internal/iscpnodecontrol/peer.go)。这些路径用于说明已核对的基线；后续服务实现按第 9 节归属 ISCP fork。仓储函数位于固定版本 ISCP 模块的 `pkg/server/repository/relay.go`。
+依据：[客户端](../../services/gateway/internal/iscpbridge/relay.go)、`Relay`、`接收事务`、`控制 peer`。这些路径用于说明已核对的基线；后续服务实现按第 9 节归属 ISCP fork。仓储函数位于固定版本 ISCP 模块的 `pkg/server/repository/relay.go`。
 
 ## 3 连接拓扑与生命周期
 

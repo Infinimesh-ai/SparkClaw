@@ -107,14 +107,10 @@ func main() {
 		slog.Error("failed to start gateway services", "error", err)
 		os.Exit(1)
 	}
-	workbenchISCP, err := startWorkbenchISCP(serverCtx, cfg, server)
-	if err != nil {
-		cancelServerCtx()
-		slog.Error("failed to start ISCP workbench responder", "error", err)
-		os.Exit(1)
-	}
-	if workbenchISCP != nil {
-		defer workbenchISCP.Close()
+	// Devices reach the backend through the link layer only; the former
+	// in-Gateway ISCP responder is retired (docs/client-link-layer-design.md P4).
+	if cfg.Gateway.WorkbenchISCPConfig != "" || cfg.Gateway.WorkbenchISCPNodeConfig != "" {
+		slog.Warn("SPARKCLAW_WORKBENCH_ISCP_* is ignored: the in-Gateway ISCP responder was retired; devices use the link layer")
 	}
 	if dir := strings.TrimSpace(cfg.Gateway.LinkStateDir); dir != "" {
 		if err := server.StartLink(gateway.LinkOptions{StateDir: dir, LANAddr: strings.TrimSpace(cfg.Gateway.LinkLANAddr), LANHosts: strings.FieldsFunc(cfg.Gateway.LinkLANHosts, func(r rune) bool { return r == ',' || r == ' ' }), OwnerID: strings.TrimSpace(cfg.Gateway.LinkOwnerID)}); err != nil {
@@ -162,9 +158,6 @@ func main() {
 	defer stop()
 	<-ctx.Done()
 	cancelServerCtx()
-	if workbenchISCP != nil {
-		_ = workbenchISCP.Close()
-	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

@@ -73,7 +73,7 @@ In the current clients the pull profile still opens one connection while the app
 | `session.archive` | `{session_id, archived}` → header | |
 | `session.delete` | `{session_id}` → `{session_id, deleted}` | Deleting twice succeeds. Uploaded attachments are deleted with the conversation |
 | `session.messages` | `{session_id, before_seq?, after_seq?, limit}` → `{session, messages[], more}` | Oldest first. `before_seq: 0` returns the latest page |
-| `message.send` | `{session_id, client_message_id, content, attachments[], client_timezone}` → `{message, run_id, replayed}` | The same `client_message_id` replays. A second send while a run is in progress returns `busy` |
+| `message.send` | `{session_id, client_message_id, content, attachments[], client_timezone, client_presentation?}` → `{message, run_id, replayed}` | The same `client_message_id` replays. A second send while a run is in progress returns `busy`. A desktop may declare `client_presentation {schema_version, schedule_show, timezone, requested_at, local_conversation_id}`; the backend may then answer with `extra.client_action` (`schedule.show`) in the final message instead of reading local schedules |
 | `run.subscribe` | `{session_id}` → `{subscription, status}` | duplex only. The current snapshot first, then `run` events |
 | `run.unsubscribe` | `{session_id}` → `{ok}` | duplex only |
 | `run.status` | `{session_id}` → RunStatus | `state`: `idle`, `running`, `approval_pending`, `completed`, `failed`, `cancelled` or `blocked`. Also carries `preview`, `progress`, `final_message` and `pending_approvals` |

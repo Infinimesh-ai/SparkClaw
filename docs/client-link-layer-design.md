@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/client-link-layer-design.md)
 
-Date: 2026-11-19. Status: target design, not implemented. The code survey is based on `dfc49969`.
+Date: 2026-11-19. Status: implemented (section 9). The code survey is based on `dfc49969`.
 
 This document covers only how the desktop, phone and watch clients communicate with the backend. Domains, device binding and access-credential issuance are in [Self-hosted console design](self-hosted-console-design.md). The two documents are maintained separately.
 
@@ -288,3 +288,32 @@ The old Bridge `agent.*.v1` entry is still used by JingSi and by LocalMind's MCP
 - Push wake-up. In development, clients sync only while the app is open.
 - Several people using one backend.
 - How JingSi and LocalMind connect.
+
+## 9. Implementation (2026-11-19)
+
+| Phase | State |
+|---|---|
+| P0 | Done. Contract in [Link contract](link-contract.md) with test vectors; Gateway `internal/link`; migration `0023_conversation_sync`; LAN connector; console adapter `services/link/consoleapi` |
+| P1 | Done. `services/link` Go module: `LinkClient`, the ISCP connector `link-connector`, the desktop helper `link-helper` and the gomobile binding `linkmobile` (arm64, armeabi-v7a, x86_64) |
+| P2a | Done. JingSi-Andriod on the link layer, verified on the emulator |
+| P2b | Done. JingSi-Watch pairs with a console code and uses the pull profile, verified on a real 32-bit watch. Its commit stays local because that repository is read-only for this account |
+| P3 | Done. SparkX main process on `LinkClient` with a ClientStore cache (schema 17); the windows and interactions are unchanged |
+| P4 | Done. Business domains go through `domain.call`; the in-Gateway ISCP responder, its lifecycle, the v2 transport, `clients.*`, `authorizations.*` and the plaintext JingSi LAN entry are deleted; the node issuer and the control forwarder are stopped and their code deleted |
+
+**Deployment**
+
+| Host | Item |
+|---|---|
+| TEST1 | Relay ISCP `59057fe`; self-hosted console (see the console document) |
+| work2 | Gateway image `sparkclaw-gateway:link-<commit>` with schema 23; the `sparkclaw-link-connector` container next to it; state in `/home/ubuntu/.local/share/sparkclaw/link`; LAN connector on port 18792 |
+| Mac | SparkX built from the same commit |
+
+**Differences from the design**
+- Deletions are kept as rows in `session_tombstones`. In PostgreSQL triggers maintain `revision`, `seq` and `preview`; the memory and file stores maintain the same fields in Go.
+- The Relay registers console devices through an operator bind (ISCP `59057fe`). The node-authority file is unchanged.
+- The device presents its Grant in a plaintext envelope `sparkclaw.link.grant.v1` before the session hello, so the connector needs no Grant sync from the console.
+- The pull profile has no subscriptions or pushes. The watch keeps the connection only while the app is in the foreground.
+- `domain.call` runs the existing domain adapters for the link principal: the method is the operation name and the arguments are the former v2 envelope. The operation table remains as the registry of those methods. The 92 HTTP-shaped methods were not rewritten as direct functions.
+- Device keys are kept in private state files (`link-device.json`), not in the OS keyring.
+- Device management (`clients.*`) answers 410 `devices_are_managed_on_the_console`; the console is the only place to join and revoke devices.
+- The desktop's isolated qualification launcher still uses the former ISCP helper `iscp-workbench` with its local fixtures. Ordinary profiles use only the link layer.

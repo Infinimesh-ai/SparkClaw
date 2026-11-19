@@ -31,7 +31,7 @@ Retain business result acknowledgement, lookup/recovery and stream snapshot reco
 | PostgreSQL `StoreMessage` overwrites content on a message-ID conflict; message and receipt writes are separate | Add immutable duplicate detection and transactional acceptance before enabling retry |
 | Relay marks delivery after a successful socket write | Preserve that limited meaning; final business delivery continues to require the existing application ACK |
 
-Sources: [client](../services/gateway/internal/iscpbridge/relay.go), [Relay](../services/gateway/internal/iscprelayreference/server.go), [receive transaction](../services/gateway/internal/iscprelayreference/receive.go), [control peer](../services/gateway/internal/iscpnodecontrol/peer.go). These paths document the inspected baseline; future service implementation belongs to the ISCP fork under section 9. The repository operation is in the pinned ISCP module's `pkg/server/repository/relay.go`.
+Sources: [client](../services/gateway/internal/iscpbridge/relay.go), `Relay`, `receive transaction`, `control peer`. These paths document the inspected baseline; future service implementation belongs to the ISCP fork under section 9. The repository operation is in the pinned ISCP module's `pkg/server/repository/relay.go`.
 
 ## 3 Connection topology and lifecycle
 

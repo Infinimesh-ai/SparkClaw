@@ -105,6 +105,21 @@ type MessageSendParams struct {
 	Content         string          `json:"content"`
 	Attachments     []AttachmentRef `json:"attachments,omitempty"`
 	ClientTimezone  string          `json:"client_timezone,omitempty"`
+	// ClientPresentation declares a display the sending desktop can run
+	// itself (its local schedules). The backend may answer with a client
+	// action in the final message's extra instead of reading the data.
+	ClientPresentation *ClientPresentation `json:"client_presentation,omitempty"`
+}
+
+// ClientPresentation is the desktop's local display capability for one
+// message. LocalConversationID is the desktop's own conversation id, which
+// the returned client action names.
+type ClientPresentation struct {
+	SchemaVersion       int    `json:"schema_version"`
+	ScheduleShow        bool   `json:"schedule_show"`
+	Timezone            string `json:"timezone"`
+	RequestedAt         string `json:"requested_at"`
+	LocalConversationID string `json:"local_conversation_id"`
 }
 
 // MessageSendResult acknowledges admission; the reply arrives through

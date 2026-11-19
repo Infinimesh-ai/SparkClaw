@@ -297,8 +297,8 @@ func TestISCPMailPopupEncryptedSourceAndClosedInputs(t *testing.T) {
 	for _, operation := range []string{wb.OperationMailFile, wb.OperationMailConversationsList} {
 		request := v2Request(operation, nil)
 		request.Params = map[string]string{"path": "/etc/passwd"}
-		if _, err := network.client.Call(network.ctx, request); err == nil {
-			t.Fatalf("%s accepted arbitrary path parameter", operation)
+		if result := network.call(t, request); result.Status < 400 {
+			t.Fatalf("%s accepted arbitrary path parameter: %d", operation, result.Status)
 		}
 	}
 }

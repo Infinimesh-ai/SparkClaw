@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/public-iscp-node-deployment.md)
 >
+> **已于 2026-11-19 退役。** work2 上的 node issuer 和 TEST1 上的控制转发器已停止并禁用，代码已删除。设备现在经自建官网和连接层加入，见[三端连接层设计](client-link-layer-design.md)。本记录作为历史保留。
+>
 > 初次发布：2026-10-12。该次部署及要求的验收已完成。服务端与原生
 > `16b00f17` 已部署，精确 Client 迁移、原数据/UI、默认 Main 冷启动、E 注册/
 > 模型/服务端本机 ACK/撤销/冷启动拒绝及测试通过。迁移例外已移除，最终
@@ -482,7 +484,7 @@ work3 的 Gateway 二进制相同，work3 业务处理只需几毫秒。Relay �
 迁移、回执内容、留存、授权、传输帧、事务边界及 RPC 截止时间均保持原样。
 
 大型在线数据库应在启动新二进制前，使用既有运维数据库连接，将
-[`schema.sql`](../../services/gateway/internal/iscprelayreference/schema.sql)
+`schema.sql`
 中的建索引语句改为 `CREATE INDEX CONCURRENTLY IF NOT EXISTS` 执行。
 该操作必须在事务外运行。检查 `pg_index.indisvalid`、`indisready`，再通过
 交付 UPDATE 的 `EXPLAIN` 确认使用部分索引。若并发构建中断留下无效索引，

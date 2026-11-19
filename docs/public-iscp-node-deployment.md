@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/public-iscp-node-deployment.md)
 >
+> **Retired 2026-11-19.** The node issuer on work2 and the control forwarder on TEST1 are stopped and disabled, and their code is deleted. Devices now join through the self-hosted console and the link layer; see [Client link layer design](client-link-layer-design.md). This record is kept for history.
+>
 > Original rollout: 2026-10-12. Its requested acceptance completed. Services
 > and native `16b00f17` are deployed. Exact-Client migration, original data/UI,
 > default Main cold launch, E registration/model/server-local ACK/revocation/cold
@@ -605,7 +607,7 @@ upstream ISCP migrations, receipt contents, retention, authorization, wire frame
 transaction boundaries and RPC deadlines are unchanged.
 
 For a large running database, apply the statement from
-[`schema.sql`](../services/gateway/internal/iscprelayreference/schema.sql) with
+`schema.sql` with
 `CREATE INDEX CONCURRENTLY IF NOT EXISTS` before starting the new binary. Execute
 it outside a transaction, using the established operator database connection.
 Verify `pg_index.indisvalid` and `indisready`, then use `EXPLAIN` on the delivery

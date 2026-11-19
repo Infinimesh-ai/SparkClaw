@@ -23,7 +23,6 @@ type iscpDomainAdapter struct {
 	server         *Server
 	config         iscpworkbench.Config
 	receipts       *iscpDomainReceipts
-	nodeClients    *nodeClientManagement
 	speechMu       sync.Mutex
 	eventMu        sync.Mutex
 	speechSessions map[string]*iscpSpeechSession
@@ -55,12 +54,6 @@ func (s *Server) NewWorkbenchISCPDomainHandler(cfg iscpworkbench.Config) (iscpwo
 		return nil, err
 	}
 	adapter := &iscpDomainAdapter{server: s, config: cfg, receipts: journal, speechSessions: map[string]*iscpSpeechSession{}, recordings: map[string]context.CancelFunc{}}
-	if cfg.Mode == "node-managed" && cfg.NodeIssuerSocket != "" && cfg.NodeIssuerTokenFile != "" {
-		adapter.nodeClients, err = newNodeClientManagement(cfg, s.cfg.Gateway.DeploymentID)
-		if err != nil {
-			return nil, err
-		}
-	}
 	return adapter.handle, nil
 }
 func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Request) iscpworkbench.Response {
@@ -78,9 +71,8 @@ func (a *iscpDomainAdapter) handle(ctx context.Context, request iscpworkbench.Re
 		return respond(a.mcd(ctx, request))
 	}
 	if request.Operation == iscpworkbench.OperationClientsList || request.Operation == iscpworkbench.OperationClientsIssue || request.Operation == iscpworkbench.OperationClientsRevoke || request.Operation == iscpworkbench.OperationClientsDelete {
-		// The issuer seals invitation authority and reconciles these operations.
-		// Never copy a one-use credential into the ordinary plaintext domain journal.
-		return respond(a.clients(ctx, request))
+		// Devices join and leave on the console.
+		return respond(domainError(410, "devices_are_managed_on_the_console"))
 	}
 	if !domainMutation(request.Operation) {
 		return respond(a.dispatch(ctx, request))

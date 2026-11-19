@@ -1,74 +1,66 @@
 package gateway
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
-	"net/http"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
+	"github.com/Chiiz0/SparkClaw/services/link/contract"
+	"github.com/Chiiz0/SparkClaw/services/link/linkclient"
 )
 
-func TestWorkbenchISCPLocalSchedulePresentationAndReceipt(t *testing.T) {
-	server, repository, _, handler := workbenchISCPFixture(t, nil)
-	bindWorkbenchISCP(t, handler)
-	e := workbenchISCPEnvelope()
-	e.Messages = []execution.Message{{ID: "fixture-message-19-1", Role: "user", Content: "显示明天的日程"}}
-	e.ClientPresentation = &app.ClientPresentation{SchemaVersion: 1, ScheduleShow: true, Timezone: "Asia/Shanghai", RequestedAt: time.Date(2026, 10, 29, 18, 0, 0, 0, time.UTC)}
-	raw, _ := json.Marshal(e)
-	submit := handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationSubmit, raw))
-	if submit.Status != http.StatusAccepted {
-		t.Fatalf("submit %+v", submit)
-	}
-	server.executions.Wait()
-	lookup := handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationLookup, nil))
-	var status execution.Status
-	if err := json.Unmarshal(lookup.Body, &status); err != nil || status.Result == nil || status.State != "completed" {
-		t.Fatalf("lookup %+v status %+v err %v", lookup, status, err)
-	}
-	var answer execution.Payload
-	if err := json.Unmarshal([]byte(status.Result.Payload), &answer); err != nil || answer.ClientAction == nil {
-		t.Fatalf("result %+v %v", answer, err)
-	}
-	action := answer.ClientAction
-	if action.RequestID != e.RequestID || action.ConversationID != e.ConversationID || action.DateStart != "2026-10-31" || action.DateEnd != "2026-11-01" {
-		t.Fatalf("action %+v", action)
-	}
-	if len(answer.Files) != 0 || !bytes.Contains([]byte(answer.Content), []byte("已请求")) {
-		t.Fatalf("not a presentation handoff: %+v", answer)
-	}
-	// The production adapter uses its temporary execution store. This owner-wide
-	// host store must not receive desktop chat or presentation content.
-	sessions, err := repository.ListSessions(t.Context())
-	if err != nil || len(sessions) != 0 {
-		t.Fatalf("desktop content leaked to host store: %+v %v", sessions, err)
-	}
-	original := map[string]any{"sequence": status.Result.Sequence, "digest": status.Result.Digest, "durable": true}
-	ack, _ := json.Marshal(original)
-	if got := handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationAck, ack)); got.Status != 200 {
-		t.Fatalf("delivery ack %+v", got)
-	}
-	lookup = handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationLookup, nil))
-	if bytes.Contains(lookup.Body, []byte("client_action_receipt")) {
-		t.Fatal("delivery implied UI success")
-	}
-	original["client_action_receipt"] = app.ClientActionReceipt{ActionID: e.RequestID, Status: "shown"}
-	ack, _ = json.Marshal(original)
-	for range 2 {
-		if got := handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationAck, ack)); got.Status != 200 {
-			t.Fatalf("presentation ack/replay %+v", got)
+// The desktop's local schedule display travels with message.send; the
+// backend answers with a client action instead of reading schedules.
+func TestLinkDesktopSchedulePresentation(t *testing.T) {
+	b := newLinkTestBackend(t)
+	desk, _, deskRec, _ := newLinkTestDevice(t, b, contract.ClassDesktop, contract.Conditions{Attachments: true, Screen: contract.ScreenLarge})
+	phone, _, phoneRec, _ := newLinkTestDevice(t, b, contract.ClassPhone, contract.Conditions{Attachments: true, Screen: contract.ScreenSmall})
+	writeLinkDirectory(t, b.stateDir, deskRec, phoneRec)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	for _, c := range []*linkclient.Client{desk, phone} {
+		c.Start(ctx)
+		defer c.Close()
+		if err := c.WaitReady(ctx); err != nil {
+			t.Fatal(err)
 		}
 	}
-	lookup = handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationLookup, nil))
-	if !bytes.Contains(lookup.Body, []byte(`"status":"shown"`)) || bytes.Contains(lookup.Body, []byte(`"result":`)) {
-		t.Fatalf("presentation receipt %+v", lookup)
+	presentation := &contract.ClientPresentation{SchemaVersion: 1, ScheduleShow: true, Timezone: "Asia/Shanghai", RequestedAt: "2026-10-29T18:00:00Z", LocalConversationID: "22222222-2222-4222-8222-222222222222"}
+	send := func(c *linkclient.Client, key string) contract.RunStatus {
+		var header contract.SessionHeader
+		if err := c.Request(ctx, contract.OpSessionCreate, contract.SessionCreateParams{Title: "日程", ClientRequestID: "create-" + key}, &header); err != nil {
+			t.Fatal(err)
+		}
+		var sent contract.MessageSendResult
+		if err := c.Request(ctx, contract.OpMessageSend, contract.MessageSendParams{SessionID: header.ID, ClientMessageID: key, Content: "显示明天的日程", ClientTimezone: "Asia/Shanghai", ClientPresentation: presentation}, &sent); err != nil {
+			t.Fatal(err)
+		}
+		var status contract.RunStatus
+		waitUntil(t, 30*time.Second, func() bool {
+			err := c.Request(ctx, contract.OpRunStatus, contract.RunRef{SessionID: header.ID, RunID: sent.RunID}, &status)
+			return err == nil && status.State != contract.RunRunning
+		})
+		return status
 	}
-	original["client_action_receipt"] = app.ClientActionReceipt{ActionID: e.RequestID, Status: "failed"}
-	ack, _ = json.Marshal(original)
-	if got := handler(t.Context(), workbenchISCPRequest(iscpworkbench.OperationAck, ack)); got.Status != 409 {
-		t.Fatalf("conflicting presentation accepted %+v", got)
+	status := send(desk, "desk-schedule-1")
+	if status.FinalMessage == nil || !strings.Contains(status.FinalMessage.Content, "已请求") {
+		t.Fatalf("status %+v", status)
+	}
+	var extra struct {
+		ClientAction *app.ClientAction `json:"client_action"`
+	}
+	if err := json.Unmarshal(status.FinalMessage.Extra, &extra); err != nil || extra.ClientAction == nil {
+		t.Fatalf("extra %s %v", status.FinalMessage.Extra, err)
+	}
+	action := extra.ClientAction
+	if action.Type != app.ClientActionScheduleShow || action.RequestID != "desk-schedule-1" || action.ConversationID != presentation.LocalConversationID || action.DateStart != "2026-10-31" || action.DateEnd != "2026-11-01" {
+		t.Fatalf("action %+v", action)
+	}
+	// Only a desktop can display its local schedules.
+	if status := send(phone, "phone-schedule-1"); status.FinalMessage != nil && strings.Contains(string(status.FinalMessage.Extra), "client_action") {
+		t.Fatalf("phone got a desktop action %+v", status)
 	}
 }

@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -237,7 +238,13 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 		return nil, linkConversationError(err)
 	}
 	if previous != nil {
-		msg, _, _ := s.store.FindMessageByClientID(ctx, session.ID, p.ClientMessageID)
+		msg, found, err := s.store.FindMessageByClientID(ctx, session.ID, p.ClientMessageID)
+		if err != nil {
+			return nil, linkConversationError(err)
+		}
+		if !found {
+			msg = app.Message{SessionID: session.ID, Role: "user", Content: p.Content, ClientMessageID: p.ClientMessageID}
+		}
 		return contract.MessageSendResult{Message: linkMessage(msg), RunID: previous.RunID, Replayed: true}, nil
 	}
 	runID := admission.lease.RunID
@@ -253,6 +260,11 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 	}
 	rt.runs.begin(sessionID, runID, admission.binding)
 	executionCtx := admission.context()
+	if presentation, ok := linkClientPresentation(req.Principal.Principal, p); ok {
+		// The desktop shows its local schedules itself, as it did through
+		// the previous transport.
+		executionCtx = agent.WithClientPresentation(executionCtx, p.ClientMessageID, p.ClientPresentation.LocalConversationID, presentation)
+	}
 	cleaned := sanitizeMessageAttachments(attachments)
 	s.streamWG.Add(1)
 	go func() {
@@ -278,8 +290,10 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 		}
 		rt.runs.finish(sessionID, s.linkRunStatusFromResult(context.WithoutCancel(executionCtx), sessionID, runID, result, err))
 	}()
-	msg, found, _ := s.store.FindMessageByClientID(ctx, sessionID, p.ClientMessageID)
-	if !found {
+	// The run is already admitted; a failed read only loses the stored
+	// form of the input message, which the admission lease describes.
+	msg, found, readErr := s.store.FindMessageByClientID(ctx, sessionID, p.ClientMessageID)
+	if readErr != nil || !found {
 		msg = app.Message{ID: admission.lease.InputMessageID, SessionID: sessionID, Role: "user", Content: p.Content, ClientMessageID: p.ClientMessageID, CreatedAt: time.Now().UTC()}
 	}
 	return contract.MessageSendResult{Message: linkMessage(msg), RunID: runID}, nil
@@ -311,7 +325,10 @@ func (s *Server) linkRunStatusFromResult(ctx context.Context, sessionID, runID s
 		status.State = contract.RunCompleted
 	}
 	if result.Message.ID != "" {
-		stored, _, _ := s.store.ListMessagePage(ctx, sessionID, 0, 0, 5)
+		stored, _, readErr := s.store.ListMessagePage(ctx, sessionID, 0, 0, 5)
+		if readErr != nil {
+			stored = nil
+		}
 		var final *app.Message
 		for i := range stored {
 			if stored[i].ID == result.Message.ID {
@@ -323,6 +340,9 @@ func (s *Server) linkRunStatusFromResult(ctx context.Context, sessionID, runID s
 			final = &m
 		}
 		lm := linkMessage(*final)
+		if result.ClientAction != nil {
+			lm.Extra = linkMergeExtra(lm.Extra, "client_action", result.ClientAction)
+		}
 		status.FinalMessage = &lm
 	}
 	status.PendingApprovals = s.linkPendingApprovals(ctx, sessionID)
@@ -436,4 +456,36 @@ func (s *Server) linkRunCancel(ctx context.Context, req *link.Request) (any, err
 	cancelled := contract.RunStatus{SessionID: session.ID, RunID: status.RunID, State: contract.RunCancelled, Preview: status.Preview}
 	s.link.runs.finish(session.ID, cancelled)
 	return cancelled, nil
+}
+
+// linkClientPresentation accepts a desktop's local display capability.
+func linkClientPresentation(principal contract.Principal, p contract.MessageSendParams) (app.ClientPresentation, bool) {
+	cp := p.ClientPresentation
+	if cp == nil || principal.Class != contract.ClassDesktop || strings.TrimSpace(cp.LocalConversationID) == "" || len(cp.LocalConversationID) > 128 {
+		return app.ClientPresentation{}, false
+	}
+	at, err := time.Parse(time.RFC3339Nano, cp.RequestedAt)
+	if err != nil {
+		return app.ClientPresentation{}, false
+	}
+	out := app.ClientPresentation{SchemaVersion: cp.SchemaVersion, ScheduleShow: cp.ScheduleShow, Timezone: cp.Timezone, RequestedAt: at.UTC()}
+	return out, out.Valid()
+}
+
+// linkMergeExtra adds one key to a message's opaque presentation data.
+func linkMergeExtra(extra json.RawMessage, key string, value any) json.RawMessage {
+	fields := map[string]json.RawMessage{}
+	if len(extra) > 0 {
+		_ = json.Unmarshal(extra, &fields)
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return extra
+	}
+	fields[key] = raw
+	merged, err := json.Marshal(fields)
+	if err != nil {
+		return extra
+	}
+	return merged
 }

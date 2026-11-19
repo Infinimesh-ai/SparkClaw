@@ -170,9 +170,12 @@ func (s *Server) ensureLinkClient(ctx context.Context, rt *linkRuntime, clientID
 	}
 	if !found {
 		sum := sha256.Sum256([]byte("sparkclaw-link-device:" + clientID))
-		_, err = s.store.RegisterClient(ctx, app.Client{ID: clientID, OwnerID: rt.opts.OwnerID, ActorID: rt.opts.OwnerID, Name: "link:" + strings.TrimPrefix(clientID, "link-"), TokenHash: hex.EncodeToString(sum[:])})
+		registered, err := s.store.RegisterClient(ctx, app.Client{ID: clientID, OwnerID: rt.opts.OwnerID, ActorID: rt.opts.OwnerID, Name: "link:" + strings.TrimPrefix(clientID, "link-"), TokenHash: hex.EncodeToString(sum[:])})
 		if err != nil && store.StoreErrorCodeOf(err) != store.StoreErrorConflict {
 			return err
+		}
+		if err == nil && registered.RevokedAt != nil {
+			return link.ErrDeviceNotTrusted
 		}
 	}
 	rt.clientsMu.Lock()
@@ -190,8 +193,8 @@ func (s *Server) revokeLinkDevice(deviceID string) {
 	rt.service.Revoke(deviceID)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, found, err := s.store.GetClient(ctx, clientID); err == nil && found {
-		if _, err := s.store.RevokeClient(ctx, clientID); err != nil {
+	if existing, found, err := s.store.GetClient(ctx, clientID); err == nil && found && existing.RevokedAt == nil {
+		if revoked, err := s.store.RevokeClient(ctx, clientID); err != nil || revoked.RevokedAt == nil {
 			slog.Warn("link device revocation not persisted", "device", deviceID, "code", store.StoreErrorCodeOf(err))
 		}
 	}
@@ -210,8 +213,10 @@ func (s *Server) watchLinkChanges(rt *linkRuntime) {
 	var lastApprovals string
 	// The starting cursor is taken before any device connects, so a change
 	// made right after connecting is still announced.
+	startCtx, cancelStart := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelStart()
 	for cursor := int64(0); ; {
-		page, err := s.store.SessionChanges(context.Background(), rt.opts.OwnerID, cursor, 500)
+		page, err := s.store.SessionChanges(startCtx, rt.opts.OwnerID, cursor, 500)
 		if err != nil {
 			break
 		}

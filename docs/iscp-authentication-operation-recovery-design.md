@@ -22,7 +22,7 @@ The client persists a complete `LifecycleRequest`, including time-limited `Proof
 
 These are two different facts: **what operation the caller intends** and **whether this connection/request is currently authenticated**. Their lifetimes cannot share one immutable record. Increasing the proof lifetime, retaining one signature forever, clearing pending records, or generating a new operation ID on every reconnect does not solve that distinction.
 
-Evidence in the current source: [client persistence](../services/gateway/internal/iscpnodeclient/lifecycle.go), [issuer digest, freshness and sealing](../services/gateway/internal/iscpnodeissuer/lifecycle.go), [Relay recovery](../services/gateway/internal/iscprelayadapter/lifecycle.go), [workbench lifecycle](../services/gateway/internal/iscpworkbench/node_lifecycle.go). The fork carries the corresponding code under `extensions/sparkclaw/`.
+Evidence in the current source: [client persistence](../services/gateway/internal/iscpnodeclient/lifecycle.go), [issuer digest, freshness and sealing](../services/gateway/internal/iscpnodeissuer/lifecycle.go), `Relay recovery`, [workbench lifecycle](../services/gateway/internal/iscpworkbench/node_lifecycle.go). The fork carries the corresponding code under `extensions/sparkclaw/`.
 
 ## 3 Independent lifetimes and invariants
 

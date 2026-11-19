@@ -251,6 +251,9 @@ func (s *Server) resolveApproval(w http.ResponseWriter, r *http.Request, status 
 	outcome, err := s.resolveApprovalFor(r.Context(), principalForRequest(r), r.PathValue("id"), status, input, decodeErr)
 	var happy *happyPlanApprovalPending
 	if errors.As(err, &happy) {
+		// The approval lock stays held through the remote resolution, so a
+		// plan edit cannot race it.
+		defer happy.unlock()
 		s.resolveHappyPlanApproval(w, r, happy.approval, status, input.Note)
 		return
 	}
@@ -285,7 +288,13 @@ type approvalFailure struct {
 func (e *approvalFailure) Error() string { return e.cause.Error() }
 func (e *approvalFailure) Unwrap() error { return e.cause }
 
-type happyPlanApprovalPending struct{ approval app.Approval }
+// happyPlanApprovalPending hands a Happy plan approval to the host WebChat's
+// remote resolution together with the still-held approval lock; the caller
+// must call unlock.
+type happyPlanApprovalPending struct {
+	approval app.Approval
+	unlock   func()
+}
 
 func (e *happyPlanApprovalPending) Error() string {
 	return "Happy plan approvals resolve on the host WebChat"
@@ -309,7 +318,12 @@ func approvalFail(status int, cause error, write func(http.ResponseWriter)) erro
 func (s *Server) resolveApprovalFor(requestCtx context.Context, principal requestPrincipal, approvalID string, status app.ApprovalStatus, input approvalDecisionInput, decodeErr error) (*approvalOutcome, error) {
 	ctx := requestCtx
 	unlock := s.lockApproval(approvalID)
-	defer unlock()
+	keepLock := false
+	defer func() {
+		if !keepLock {
+			unlock()
+		}
+	}()
 	approval, ok, err := s.findApproval(ctx, approvalID)
 	if err != nil {
 		return nil, approvalFail(http.StatusServiceUnavailable, err, func(w http.ResponseWriter) { writeApprovalStoreError(w, err) })
@@ -364,7 +378,8 @@ func (s *Server) resolveApprovalFor(requestCtx context.Context, principal reques
 		}
 	}
 	if approval.Source == app.ApprovalSourceHappyTeamPlan {
-		return nil, &happyPlanApprovalPending{approval: approval}
+		keepLock = true
+		return nil, &happyPlanApprovalPending{approval: approval, unlock: unlock}
 	}
 	var workbenchContinuation *workbenchAdmission
 	if !mcpRun && status == app.ApprovalStatusRejected {

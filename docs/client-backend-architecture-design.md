@@ -18,6 +18,8 @@
 
 Date: 2026-10-03. Status: the user confirmed product ownership, no legacy test-data migration, offline task behavior, and section 2's backend temporary-processing/control-record boundary including the 24-hour maximum for undelivered results; P0–P5 Linux/shared source and applicable isolated checks are complete; Mac qualification and production cutover remain pending. See the [implementation and acceptance ledger](client-r3-implementation.md). This is the target architecture for SparkClaw's own clients. [Architecture](architecture.md), [Store](store.md), and [WebChat](webchat.md) describe the current implementation where explicitly marked. This document does not claim deployment, data deletion or changes to accepted cross-project contracts.
 
+> Superseded in part (2026-11-19): the boundary in sections 1 and 2 that conversations belong to each client locally, and the per-device credential issuance in Settings, are replaced by the [Client link layer design](client-link-layer-design.md) and the [Self-hosted console design](self-hosted-console-design.md). The backend now stores all conversations and attachments, and devices are joined and revoked on the console.
+
 ## 1. Confirmed boundary
 
 The backend is the business processing core. Clients present results, accept user actions, store their own non-mail data, and provide constrained local execution facilities. They connect over the LAN. A client currently using a loopback address is colocated with the backend; this is a deployment choice, not a different product architecture.

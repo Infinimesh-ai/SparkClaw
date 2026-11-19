@@ -160,22 +160,3 @@ func TestISCPDomainToolsUseExistingExecutionLedgerAndFilteredDefinitions(t *test
 		t.Fatal("transport without tool operations was admitted")
 	}
 }
-
-func TestISCPDomainObjectPurposeBudgetsKeepExecutionEnvelopeBounded(t *testing.T) {
-	for _, operation := range []string{iscpworkbench.OperationSubmit, iscpworkbench.OperationToolsInvoke} {
-		if _, ok := domainBodyObjectLimit(operation, "request_body"); ok {
-			t.Fatal("execution borrowed generic body budget")
-		}
-		if limit, ok := domainBodyObjectLimit(operation, "execution_request"); !ok || limit != execution.ContextBytes {
-			t.Fatal(limit, ok)
-		}
-	}
-	for purpose, want := range map[string]int64{"context": 1 << 20, "request_body": 8 << 20} {
-		if limit, ok := domainBodyObjectLimit(iscpworkbench.OperationBrowserReconcile, purpose); !ok || limit != want {
-			t.Fatal(purpose, limit, ok)
-		}
-	}
-	if _, ok := domainBodyObjectLimit(iscpworkbench.OperationBrowserReconcile, "speech_audio"); ok {
-		t.Fatal("unrelated object purpose admitted")
-	}
-}

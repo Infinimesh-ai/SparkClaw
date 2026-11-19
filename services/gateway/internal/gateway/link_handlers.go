@@ -354,6 +354,7 @@ func (s *Server) linkApprovalResolve(ctx context.Context, req *link.Request) (an
 		if err != nil {
 			var happy *happyPlanApprovalPending
 			if asHappy(err, &happy) {
+				happy.unlock()
 				return nil, link.Errorf(contract.CodeUnsupportedCapability, "this approval is decided on the host")
 			}
 			return nil, linkConversationError(err)

@@ -60,9 +60,6 @@ func TestWorkbenchISCPV2EncryptedCursorGapMatchesDesktopRecoveryEnvelope(t *test
 	// new production handler reopens the same encrypted durable event journal.
 	server.started = server.started.Add(time.Second)
 	f := startV2EncryptedFixture(t, server, config, []string{"events.read"}, []string{wb.OperationEventsSnapshot, wb.OperationEventsPull, wb.OperationEventsAck})
-	if negotiated, ok := f.client.Negotiated(); !ok || negotiated.AuthorizationRevision != 1 {
-		t.Fatal("fixture must preserve the cursor's original authorization revision")
-	}
 	f.bind(t)
 	gap := f.jsonCall(t, wb.OperationEventsPull, map[string]any{"cursor": previous.Cursor, "limit": 100})
 	requireV2Status(t, gap, 409)

@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/client-link-layer-design.md)
 
-日期：2026-11-19。状态：目标设计，未实现。代码调查基于 `dfc49969`。
+日期：2026-11-19。状态：已实现（见第 9 节）。代码调查基于 `dfc49969`。
 
 本文只讲电脑、手机、手表三端与后端之间怎么通信。域、设备绑定和接入凭据的签发在[自建官网设计](self-hosted-console-design.md)里，两份文档分开维护。
 
@@ -288,3 +288,32 @@ Gateway 升级时连接器不重启，远程连接只表现为短暂的请求重
 - 推送唤醒。开发期只在应用打开时同步。
 - 多人使用同一台后端。
 - JingSi 和 LocalMind 的接入方式。
+
+## 9. 实现情况（2026-11-19）
+
+| 阶段 | 状态 |
+|---|---|
+| P0 | 完成。契约见[连接层契约](link-contract.md)，附测试向量；Gateway `internal/link`；迁移 `0023_conversation_sync`；局域网连接器；官网适配器 `services/link/consoleapi` |
+| P1 | 完成。`services/link` Go 模块：`LinkClient`、ISCP 连接器 `link-connector`、电脑端辅助进程 `link-helper`、gomobile 绑定 `linkmobile`（arm64、armeabi-v7a、x86_64） |
+| P2a | 完成。JingSi-Andriod 接入连接层，在模拟器上验证 |
+| P2b | 完成。JingSi-Watch 用官网配对码配对，使用拉取档，在真实 32 位手表上验证。该仓库对当前账号只读，提交留在本地 |
+| P3 | 完成。SparkX 主进程改用 `LinkClient`，ClientStore 作为缓存（schema 17）；窗口和交互不变 |
+| P4 | 完成。业务域经 `domain.call` 调用；删除 Gateway 内 ISCP 应答器及其生命周期、v2 传输、`clients.*`、`authorizations.*` 和明文的 JingSi 局域网入口；node issuer 和控制转发器已停用，代码已删除 |
+
+**部署**
+
+| 主机 | 内容 |
+|---|---|
+| TEST1 | Relay 为 ISCP `59057fe`；自建官网（见官网文档） |
+| work2 | Gateway 镜像 `sparkclaw-gateway:link-<commit>`，schema 23；旁边运行 `sparkclaw-link-connector` 容器；状态目录 `/home/ubuntu/.local/share/sparkclaw/link`；局域网连接器端口 18792 |
+| Mac | SparkX 用同一提交构建 |
+
+**与设计的差异**
+- 删除以 `session_tombstones` 行保存。PostgreSQL 用触发器维护 `revision`、`seq` 和 `preview`；内存和文件存储在 Go 里维护同样的字段。
+- Relay 通过运营方绑定登记官网设备（ISCP `59057fe`）。node-authority 文件不变。
+- 设备在会话 hello 之前用明文信封 `sparkclaw.link.grant.v1` 出示 Grant，连接器不需要从官网同步 Grant。
+- 拉取档没有订阅和推送。手表只在应用处于前台时保持连接。
+- `domain.call` 以连接层主体运行现有的业务域适配器：方法名是操作名，参数是原来的 v2 信封。操作表保留为这些方法的登记表。92 个 HTTP 形态的方法没有改写成直接函数。
+- 设备密钥保存在私有状态文件（`link-device.json`）里，没有放进系统钥匙串。
+- 设备管理（`clients.*`）返回 410 `devices_are_managed_on_the_console`；设备的加入和撤销只在官网进行。
+- 电脑端隔离的资格测试启动器仍使用原 ISCP 辅助进程 `iscp-workbench` 和本地夹具。普通配置只走连接层。

@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/client-backend-architecture-design.md)
 
+> 部分被取代（2026-11-19）：第 1、2 节里"会话、消息、任务历史归各客户端本地所有"的规定，由[三端连接层设计](client-link-layer-design.md)取代，新设计下后端保存全部会话和附件。该设计尚未实现；实现之前，代码仍按下文的边界运行。
+
 > 历史设计：当前工作台行为与全新初始化路径以[架构](architecture.md)、[实施记录](workbench-convergence-implementation.md)和[发布指南](workbench-release.md)为准。下文保留原有日期下的设计理由与验收证据。
 
 > 当前适用范围（2026-10-06）：R3 源码已进入 main，后续合并和限定范围的生产部署记录在

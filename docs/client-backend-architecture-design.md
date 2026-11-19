@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/client-backend-architecture-design.md)
 
+> Superseded in part (2026-11-19): the rule in sections 1 and 2 that conversations, messages and task history belong to each client locally is replaced by [Client link layer design](client-link-layer-design.md), under which the backend stores all conversations and attachments. That design is not implemented yet; until it is, the code still follows the boundary below.
+
 > Historical design: current workbench behavior and clean-start paths are defined by the [architecture](architecture.md), [implementation ledger](workbench-convergence-implementation.md) and [release guide](workbench-release.md). The dated rationale and qualification evidence below remain historical.
 
 > Current applicability (2026-10-06): R3 source is on main; subsequent merge and

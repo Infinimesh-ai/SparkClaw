@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
@@ -29,37 +28,62 @@ func (s *Server) emailManagementReady(w http.ResponseWriter) bool {
 	return false
 }
 func emailRequestQuery(r *http.Request) (store.EmailQuery, error) {
-	q := store.EmailQuery{OwnerID: principalForRequest(r).OwnerID, Limit: 30}
+	var args emailListArgs
 	for key, values := range r.URL.Query() {
 		if len(values) != 1 {
-			return q, emailmanagement.ErrInvalidInput
+			return store.EmailQuery{}, emailmanagement.ErrInvalidInput
 		}
 		switch key {
 		case "entry":
-			if values[0] != "notification" && values[0] != "interaction" {
-				return q, emailmanagement.ErrInvalidInput
-			}
-			q.Entry = values[0]
+			args.Entry = values[0]
 		case "unassigned_only":
 			if values[0] != "true" && values[0] != "false" {
-				return q, emailmanagement.ErrInvalidInput
+				return store.EmailQuery{}, emailmanagement.ErrInvalidInput
 			}
-			q.UnassignedOnly = values[0] == "true"
+			args.UnassignedOnly = values[0] == "true"
 		case "mailbox_id":
-			q.MailboxID = values[0]
+			args.MailboxID = values[0]
 		case "q":
-			q.Search = strings.TrimSpace(values[0])
+			args.Q = values[0]
 		case "cursor":
-			q.After = values[0]
+			args.Cursor = values[0]
 		case "limit":
 			n, err := strconv.Atoi(values[0])
-			if err != nil || n < 1 || n > 100 {
-				return q, emailmanagement.ErrInvalidInput
+			if err != nil || n == 0 {
+				return store.EmailQuery{}, emailmanagement.ErrInvalidInput
 			}
-			q.Limit = n
+			args.Limit = n
 		default:
+			return store.EmailQuery{}, emailmanagement.ErrInvalidInput
+		}
+	}
+	return args.query(principalForRequest(r).OwnerID, 30)
+}
+
+// emailListArgs are the filters of a mail list: one mailbox, a search,
+// a page cursor and size, the entry (notification or interaction) and
+// whether only unassigned mail is listed.
+type emailListArgs struct {
+	MailboxID      string `json:"mailbox_id,omitempty"`
+	Q              string `json:"q,omitempty"`
+	Cursor         string `json:"cursor,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	Entry          string `json:"entry,omitempty"`
+	UnassignedOnly bool   `json:"unassigned_only,omitempty"`
+}
+
+// query is the store query of a list, or ErrInvalidInput.
+func (a emailListArgs) query(owner string, defaultLimit int) (store.EmailQuery, error) {
+	q := store.EmailQuery{OwnerID: owner, Limit: defaultLimit, MailboxID: a.MailboxID, Search: strings.TrimSpace(a.Q), After: a.Cursor, UnassignedOnly: a.UnassignedOnly}
+	if a.Entry != "" && a.Entry != "notification" && a.Entry != "interaction" {
+		return q, emailmanagement.ErrInvalidInput
+	}
+	q.Entry = a.Entry
+	if a.Limit != 0 {
+		if a.Limit < 1 || a.Limit > 100 {
 			return q, emailmanagement.ErrInvalidInput
 		}
+		q.Limit = a.Limit
 	}
 	return q, nil
 }
@@ -294,13 +318,7 @@ func (s *Server) configureEmailIntake(w http.ResponseWriter, r *http.Request, pr
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	var mailbox app.EmailMailbox
-	var err error
-	if operation, ok := ctx.Value(emailIntakeOperationContextKey{}).(store.EmailIntakeOperation); ok {
-		mailbox, err = s.emailManagement.ConfigureOperation(ctx, principalForRequest(r).OwnerID, operation)
-	} else {
-		mailbox, err = s.emailManagement.Configure(ctx, principalForRequest(r).OwnerID, provider, enabled, version)
-	}
+	mailbox, err := s.emailManagement.Configure(ctx, principalForRequest(r).OwnerID, provider, enabled, version)
 	if err != nil {
 		writeEmailManagementError(w, err)
 		return
@@ -308,9 +326,12 @@ func (s *Server) configureEmailIntake(w http.ResponseWriter, r *http.Request, pr
 	writeJSON(w, http.StatusOK, map[string]any{"mailbox": emailmanagement.ProjectMailbox(mailbox)})
 }
 func writeEmailManagementError(w http.ResponseWriter, err error) {
+	emailManagementErrorReply(err).write(w)
+}
+
+func emailManagementErrorReply(err error) domainReply {
 	if emailautomation.ErrorCode(err) != "" {
-		writeEmailError(w, err)
-		return
+		return emailErrorReply(err)
 	}
 	code, status, message, retryable := "email_management_unavailable", http.StatusServiceUnavailable, "Email management is temporarily unavailable.", true
 	switch {
@@ -331,5 +352,5 @@ func writeEmailManagementError(w http.ResponseWriter, err error) {
 	case errors.Is(err, context.DeadlineExceeded):
 		code = "email_timeout"
 	}
-	writeJSON(w, status, map[string]any{"error": message, "code": code, "retryable": retryable})
+	return reply(status, map[string]any{"error": message, "code": code, "retryable": retryable})
 }

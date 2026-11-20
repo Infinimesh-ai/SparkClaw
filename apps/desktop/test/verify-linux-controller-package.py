@@ -77,7 +77,7 @@ def main():
     image = next(Path(item["path"]) for item in artifacts if item["path"].endswith(".AppImage"))
     deb = next(Path(item["path"]) for item in artifacts if item["path"].endswith(".deb"))
     architecture = [elf(path, 183 if arm else 62) for path in [
-        unpacked / "sparkx", unpacked / "resources/iscp-workbench", image,
+        unpacked / "sparkx", unpacked / "resources/link-helper", image,
     ]]
     resources, previous = unpacked / "resources", reference / "resources"
     assert (resources / "app.asar").read_bytes() == (previous / "app.asar").read_bytes()
@@ -146,7 +146,7 @@ def main():
         "asar": record(resources / "app.asar"), "asar_equal_reference": True,
         "controller_manifest": record(resources / "browser-controller/manifest.json"),
         "controller_files_equal": len(controller["files"]), "UI_equal": ui,
-        "helper": record(resources / "iscp-workbench"),
+        "helper": record(resources / "link-helper"),
         "deb_architecture": fields["Architecture"], "deb_application_entries_equal": len(checked),
         "package_audit": record(resources / "client-package-audit.json"),
         "AppImage_payload_execution": False, "native_qualification": False,

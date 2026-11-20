@@ -21,7 +21,7 @@ export async function prepareDefaultLatencyTrace(userData) {
       return;
     }
   }
-  setProfileLatencyTraceDirectory(directory); // inherited by the private ISCP helper
+  setProfileLatencyTraceDirectory(directory); // inherited by the link helper
   try {
     const stat = await fs.lstat(directory);
     if (!stat.isDirectory() || stat.mode & 0o077 || process.getuid && stat.uid !== process.getuid()) return;

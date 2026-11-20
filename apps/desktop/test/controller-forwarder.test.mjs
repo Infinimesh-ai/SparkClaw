@@ -44,9 +44,9 @@ async function fixture(t, { execute, acquire } = {}) {
         page_generation: body.page_generation + (["page.navigate", "page.fill", "page.click", "tabs.close"].includes(body.operation) ? 1 : 0), operation: body.operation, result } };
     },
   };
-  const auth = { descriptor: { transport: "iscp" }, status: { state: "connected", capabilities: { browser: true } },
+  const auth = { descriptor: { transport: "link" }, status: { state: "connected", capabilities: { browser: true } },
     connection: { ownerID: "owner", clientID: "client" }, transport: { capabilities: manifest() },
-    async invokeISCP(operation) { if (operation === "browser.receipt") return { fences: [] }; return { reconciled: true }; } };
+    async invokeDomain(operation) { if (operation === "browser.receipt") return { fences: [] }; return { reconciled: true }; } };
   const forwarder = new BrowserControllerForwarder({ auth, runtime, registry: { closeHostPages() {}, beginTaskEnd() { return []; }, async completeTaskEnd() {} }, userDataDir: root });
   t.after(() => forwarder.stop());
   await forwarder.start(scope);

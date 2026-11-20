@@ -192,7 +192,7 @@ func TestEmailComposeHTTPRejectsHostPathAttachmentsAndPreservesTextDrafts(t *tes
 			t.Fatalf("host source accepted %d %s", response.Code, response.Body.String())
 		}
 	}
-	_, _, _, local := mailAttachmentObjectContext(t)
+	local := app.EmailSendAttachment{LocalFileID: "88888888-8888-4888-8888-888888888888", Object: app.EmailAttachmentObject{ObjectID: newLinkUUID(), Version: 1, Size: 16, SHA256: strings.Repeat("a", 64), Purpose: app.EmailSendAttachmentPurpose}}
 	response := f.request("POST", "/api/email/drafts", makeInput("object", []any{map[string]any{"local_file_id": local.LocalFileID, "object": local.Object}}))
 	if response.Code != 403 {
 		t.Fatalf("HTTP gained desktop object access %d %s", response.Code, response.Body.String())

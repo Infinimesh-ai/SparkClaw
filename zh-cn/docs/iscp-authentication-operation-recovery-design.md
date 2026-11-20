@@ -2,6 +2,8 @@
 
 语言：简体中文 | [English](../../docs/iscp-authentication-operation-recovery-design.md)
 
+> **2026-11-20** — 本提案中的工作台端点和节点签发流程已退役。Relay 认证与独立的 ISCP Bridge 各有自己的生命周期。当前设备修改操作的幂等键、重试与结果详见[连接协议](link-contract.md)。
+
 日期：2026-10-19。状态：设计提案，跨项目评审记录于 InfiniCenter 0041。源码基线：SparkClaw `cf9b81dec39b8872efc43650080bb8facaa58511`、ISCP fork `10fe37b3bd02a56b4f9d6cb8dc0333d7eec5356a`。本文定义职责与验收要求，不改变当前部署行为或已接受的契约。
 
 ## 1 决策与目标行为
@@ -22,7 +24,7 @@
 
 这实际上是两件事：**调用方要做什么操作**，以及**本次连接或请求现在是否已通过认证**。两者生命周期不同，不应共用一份不可变记录。延长证明有效期、永久保留第一次签名、清空 pending，或每次重连更换操作编号，都没有解决这个职责问题。
 
-当前源码依据：[客户端持久化](../../services/gateway/internal/iscpnodeclient/lifecycle.go)、[issuer 摘要、时效与密封](../../services/gateway/internal/iscpnodeissuer/lifecycle.go)、`Relay 恢复`、[工作台生命周期](../../services/gateway/internal/iscpworkbench/node_lifecycle.go)。fork 中对应实现位于 `extensions/sparkclaw/`。
+当前源码依据：客户端持久化（`lifecycle.go`，已删除）、issuer 摘要、时效与密封（`lifecycle.go`，已删除）、`Relay 恢复`、工作台生命周期（`node_lifecycle.go`，已删除）。fork 中对应实现位于 `extensions/sparkclaw/`。
 
 ## 3 独立的生命周期与不变量
 

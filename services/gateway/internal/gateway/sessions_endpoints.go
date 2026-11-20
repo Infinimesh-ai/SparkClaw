@@ -394,12 +394,16 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 	modelEvents := make(chan agent.StreamEvent, 16)
 	results := make(chan streamResult, 1)
 	executionCtx := admission.context()
+	runID := admission.lease.RunID
+	// Link devices follow this run like their own.
+	s.linkRunBegin(sessionID, runID, admission.binding)
 	s.streamWG.Add(1)
 	workerStarted = true
 	go func() {
 		defer s.streamWG.Done()
 		defer admission.close()
 		result, err := s.streamMessage(executionCtx, sessionID, input.Content, attachments, ingress, func(event agent.StreamEvent) error {
+			s.linkRunStream(sessionID, runID, event)
 			select {
 			case <-r.Context().Done():
 				return nil
@@ -414,6 +418,7 @@ func (s *Server) postMessageStream(w http.ResponseWriter, r *http.Request) {
 		if finishErr := s.finishWorkbenchMessage(admission, result, err, deliveryErr); finishErr != nil {
 			err = finishErr
 		}
+		s.linkRunFinish(executionCtx, sessionID, runID, result, err)
 		results <- streamResult{result: result, err: err, deliveryErr: deliveryErr}
 		close(modelEvents)
 	}()

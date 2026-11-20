@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-embedded-browser-controller-iscp-design.md)
 >
+> **2026-11-20** — The workbench reverse-RPC transport described here is retired. The embedded Controller, browser operation semantics and original UI remain in use. Gateway now authorizes the device and sends Controller operations over an open link connection. [Link contract](link-contract.md).
+>
 > Date: 2026-11-10. Status: engineering candidate `1f7f20ee`; the owner has decided to accept
 > current performance and adopt the new path. The TEST1 native route passes on both ARM64
 > platforms (§15.5) and WAN performance of the new path is measured (§15.6).

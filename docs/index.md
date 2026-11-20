@@ -2,16 +2,10 @@
 
 > Language: English | [简体中文](../zh-cn/docs/index.md)
 
-- [Workbench implementation](workbench-convergence-implementation.md) — source changes, validation and reviewed historical references.
-- [Matched workbench release](workbench-release.md) — fresh initialization, API/storage paths and recovery.
-- [Drafts](workbench-drafts.md), [host schedules](workbench-host-scheduler.md), [desktop schedules](desktop-scheduling.md) — implemented persistence and due-time semantics.
-
-This index distinguishes the implemented runtime, source release and dated
-qualification evidence. WebChat and desktop are normal workbench deployments:
-both own local persistence, with WebChat data colocated with the execution service.
-The design and implementation ledger below record the confirmed model and release evidence.
-
-- [Client R3 implementation and acceptance](client-r3-implementation.md) — historical phase ledger and source handoff; subsequent merge/deployment evidence is linked from that record.
+- [Client link layer design](client-link-layer-design.md) and [link contract](link-contract.md) — current device connections, conversation sync and business operations.
+- [Workbench transport migration](workbench-retirement-migration.md) — retired components and verification status.
+- [Drafts](workbench-drafts.md), [host schedules](workbench-host-scheduler.md), [desktop schedules](desktop-scheduling.md) — persistence and due-time behavior.
+- [Workbench implementation](workbench-convergence-implementation.md), [matched release](workbench-release.md) and [R3 acceptance](client-r3-implementation.md) — earlier deployment and qualification records.
 
 ## Start Here
 
@@ -19,7 +13,7 @@ The design and implementation ledger below record the confirmed model and releas
 |---|---|---|
 | [README](../README.md) | Project overview, quick start, and current status | Product entry point |
 | [Architecture](architecture.md) | Current implementation, runtime topology and workbench ownership | Implementation source of truth |
-| [Workbench and execution service convergence](workbench-runtime-convergence-design.md) | Shared business processing, host/desktop local persistence, neutral names, direct API cutover, fresh initialization and acceptance | Implemented on main; qualification limits in the implementation ledger |
+| [Workbench and execution service convergence](workbench-runtime-convergence-design.md) | October workbench convergence design and original acceptance | Historical desktop transport and conversation ownership |
 | [Client and backend architecture R3](client-backend-architecture-design.md) | Original client ownership, LAN, embedded control and cutover design | Historical design; read its current applicability note and subsequent evidence |
 | [Deployment](deployment.md) | Local, Compose, DGX Spark, state, backup, and troubleshooting | Operator guide |
 | [Development](development.md) | Repository map, implementation rules, validation, and extension workflow | Contributor guide |
@@ -76,12 +70,12 @@ The design and implementation ledger below record the confirmed model and releas
 | [WebChat voice Phase 2 design](webchat-voice-phase2-design.md) | Normative native record-time Qwen ASR transport, revisioned partial/final output, silence auto-stop, complete-WAV fallback, and acceptance gates |
 | [JingSi LAN Web client connection](jingsi-lan-connection-design.md) | SparkClaw side implemented for one server-bound WebChat session, text send, and filtered realtime/catch-up message projection on a dedicated allowlisted LAN port; JingSi client work and physical validation remain pending |
 | [ISCP Bridge](iscp-bridge.md) | Current shared Bridge; LocalMind use is legacy, while JingSi use remains until its direct-LAN client and physical validation are complete |
-| [Local SparkX–SparkClaw ISCP integration](desktop-iscp-connection-design.md) | Implemented text-only transport and automatic renewal; local Docker Relay, installed SparkX and real-backend acceptance, with scoped recovery evidence |
-| [ISCP capability expansion](desktop-iscp-capability-expansion-design.md) | Planned dependency order: basic APIs, chunked files/artifacts, approvals/events, mail/browser/tools, then voice; permissions, actual results, recovery and zero HTTP fallback gate each UI capability |
-| [Client-embedded Browser Controller over ISCP](desktop-embedded-browser-controller-iscp-design.md) | Proposed, not implemented: package the generic Controller lane and Playwright MCP in SparkX and carry the Gateway–Controller hop over ISCP reverse operations; mail, scripts and export excluded |
-| [ISCP business receipt retention](iscp-receipt-retention.md) | Automatic seven-day result cleanup, durable compact deduplication records and safe upgrade/rollback boundaries |
-| [Public Relay and node issuer design](public-iscp-relay-node-issuer-design.md) | TEST1 IP HTTPS/WSS as the sole new public application ingress; private work2 issuer reached by outbound control forwarding; SparkX credential input and existing LAN retained |
-| [Public ISCP execution record](public-iscp-node-deployment.md) | Recorded IP 443 rollout, independent node authority, durable lifecycle, matched rollback and remaining native acceptance gates |
+| [Local SparkX–SparkClaw ISCP integration](desktop-iscp-connection-design.md) | Historical text transport, renewal and Docker lab for the retired workbench endpoint |
+| [ISCP capability expansion](desktop-iscp-capability-expansion-design.md) | Retired workbench operation table, capability rollout and original UI acceptance |
+| [Client-embedded Browser Controller over ISCP](desktop-embedded-browser-controller-iscp-design.md) | Embedded Controller design and acceptance on the retired workbench transport |
+| [ISCP business receipt retention](iscp-receipt-retention.md) | Historical seven-day policy for the retired workbench domain journal |
+| [Public Relay and node issuer design](public-iscp-relay-node-issuer-design.md) | Historical node issuer and control-forwarder design |
+| [Public ISCP execution record](public-iscp-node-deployment.md) | Deployment and rollback evidence for the retired issuer and control forwarder |
 | [Unified third-party ISCP MCP access](unified-third-party-access-design.md) | Implemented local Route MCP runtime with separate ISCP pairing and SparkClaw MCP access tickets; production provisioning, external gateway validation, and LocalMind legacy removal remain pending; JingSi excluded |
 | [Generic external MCP safeguards](generic-mcp-safeguards-design.md) | Generic catalog filtering/classification plus bounded redacted results and approval persistence shared with the fixed LocalMind task adapter |
 | [Per-owner connector activation](connector-owner-runtime-design.md) | Accepted issue #13 design for owner-isolated settings, shared channel workers, cache coherence, drain semantics, and restart reconciliation |

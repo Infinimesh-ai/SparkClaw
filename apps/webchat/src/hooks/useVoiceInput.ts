@@ -4,7 +4,7 @@ import { api } from "../api/client";
 import type { SpeechStatus, SpeechTranscriptionResult } from "../api/types";
 import { PCMInputCapture, VoiceCaptureError } from "../audio/pcmCapture";
 import type { CapturedPCM } from "../audio/pcmCapture";
-import { ISCPSpeechRealtimeClient } from "../audio/iscpSpeech";
+import { DesktopSpeechRealtimeClient } from "../audio/desktopSpeech";
 import { SpeechRealtimeClient } from "../audio/realtimeSpeech";
 import type { SpeechRealtimeFailure } from "../audio/realtimeSpeech";
 import {
@@ -47,7 +47,7 @@ type VoiceOperation = {
   recordingOperationID?: string;
   applyingTranscript?: boolean;
   capture?: PCMInputCapture;
-  realtime?: SpeechRealtimeClient | ISCPSpeechRealtimeClient;
+  realtime?: SpeechRealtimeClient | DesktopSpeechRealtimeClient;
   realtimeCaptureStarted: boolean;
   realtimeSetupFailure?: SpeechRealtimeFailure;
   ticketId?: string;
@@ -65,8 +65,10 @@ type VoiceOperation = {
 };
 
 type Options = {
-  iscp?: boolean;
-  iscpRealtime?: boolean;
+  // desktopSpeech: speech goes through the desktop main process (its link
+  // connection) instead of the host WebChat speech API.
+  desktopSpeech?: boolean;
+  desktopRealtime?: boolean;
   speech: SpeechStatus | null;
   sessionId: string;
   language: string;
@@ -76,7 +78,7 @@ type Options = {
 
 const RETRY_AUDIO_TTL_MS = 5 * 60 * 1000;
 
-export function useVoiceInput({ speech, sessionId, language, externallyDisabled, onTranscript, iscp = false, iscpRealtime = false }: Options) {
+export function useVoiceInput({ speech, sessionId, language, externallyDisabled, onTranscript, desktopSpeech = false, desktopRealtime = false }: Options) {
   const [machine, dispatch] = useReducer(reduceVoiceOperation, initialVoiceOperationState);
   const [level, setLevel] = useState(0);
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -100,7 +102,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     selectedDeviceId
   } = microphone;
   const realtimeReady = Boolean(
-    (iscp ? iscpRealtime : true) && capabilityReady && speech?.supports_streaming && speech.realtime?.protocol === "sparkclaw.speech.realtime.v1" &&
+    (desktopSpeech ? desktopRealtime : true) && capabilityReady && speech?.supports_streaming && speech.realtime?.protocol === "sparkclaw.speech.realtime.v1" &&
     speech.realtime.sample_rate === 16_000 && speech.realtime.channels === 1 && speech.realtime.bits_per_sample === 16
   );
   const state: VoiceInputState = supported && capabilityReady ? machine.phase : "disabled";
@@ -205,7 +207,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     const controller = new AbortController();
     current.controller = controller;
     try {
-      const result = iscp ? await (async () => {
+      const result = desktopSpeech ? await (async () => {
         const desktop = desktopCapability();
         if (!desktop?.transcribeRecording) throw new Error("Recorded transcription is unavailable");
         const bytes = new Uint8Array(await current.wav!.arrayBuffer());
@@ -247,7 +249,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       }
       failOperation(current, error);
     }
-  }, [applyResult, failOperation, language, iscp]);
+  }, [applyResult, failOperation, language, desktopSpeech]);
 
   const encodeAndTranscribe = useCallback(async (current: VoiceOperation, captured: CapturedPCM, recovering: boolean) => {
     if (operation.current !== current) return;
@@ -267,7 +269,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   }, [failOperation, maxAudioSeconds, speech?.max_upload_bytes, transcribe]);
 
   const recoverBatch = useCallback((current: VoiceOperation, _failure: unknown, captured?: CapturedPCM) => {
-    if (iscp) { void current.capture?.cancel(); failOperation(current, { code: "voice_capture_interrupted" }); return Promise.resolve(); }
+    if (desktopSpeech) { void current.capture?.cancel(); failOperation(current, { code: "voice_capture_interrupted" }); return Promise.resolve(); }
     if (current.recovery) return current.recovery;
     current.recovery = (async () => {
       if (operation.current !== current) return;
@@ -288,7 +290,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       await encodeAndTranscribe(current, fallbackCapture, true);
     })().catch((error) => failOperation(current, error));
     return current.recovery;
-  }, [clearTimers, encodeAndTranscribe, failOperation, iscp]);
+  }, [clearTimers, encodeAndTranscribe, failOperation, desktopSpeech]);
 
   useEffect(() => {
     recoverRef.current = recoverBatch;
@@ -445,7 +447,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     try {
       const controller = new AbortController();
       current.setupController = controller;
-      const ticket = iscp ? null : await api.createSpeechRealtimeSession(
+      const ticket = desktopSpeech ? null : await api.createSpeechRealtimeSession(
         current.anchor.sessionId,
         current.requestId,
         language || "auto",
@@ -468,7 +470,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
           void recoverRef.current?.(current, failure);
         }
       };
-      const realtime = iscp ? await ISCPSpeechRealtimeClient.connect({session_id:current.anchor.sessionId,request_id:current.requestId,language:language || "auto"},handlers) : await SpeechRealtimeClient.connect(ticket!,handlers);
+      const realtime = desktopSpeech ? await DesktopSpeechRealtimeClient.connect({session_id:current.anchor.sessionId,request_id:current.requestId,language:language || "auto"},handlers) : await SpeechRealtimeClient.connect(ticket!,handlers);
       current.ticketId = undefined;
       current.setupController = undefined;
       if (current.realtimeSetupFailure) {
@@ -505,11 +507,11 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
       current.realtime = undefined;
       setPartial(null);
       if (generation.current !== id || operation.current !== current) return;
-      if (iscp) { await current.capture?.cancel(); failOperation(current, error); return; }
+      if (desktopSpeech) { await current.capture?.cancel(); failOperation(current, error); return; }
       dispatch({ type: "realtime_unavailable" });
       await startBatchCapture(current);
     }
-  }, [capabilityReady, clearDeviceFallback, encodeAndTranscribe, externallyDisabled, failOperation, handleCapturedSamples, language, noteDefaultFallback, realtimeReady, recoverBatch, refreshDevices, releaseUnusedTicket, selectedDeviceId, silenceMode, startBatchCapture, startCaptureTimers, stopPreview, supported, iscp]);
+  }, [capabilityReady, clearDeviceFallback, encodeAndTranscribe, externallyDisabled, failOperation, handleCapturedSamples, language, noteDefaultFallback, realtimeReady, recoverBatch, refreshDevices, releaseUnusedTicket, selectedDeviceId, silenceMode, startBatchCapture, startCaptureTimers, stopPreview, supported, desktopSpeech]);
 
   const retry = useCallback(() => {
     const current = operation.current;
@@ -540,7 +542,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   }, [cancel, machine.phase, start, stop]);
 
   useEffect(() => {
-    if (!iscp || !capabilityReady || externallyDisabled) return;
+    if (!desktopSpeech || !capabilityReady || externallyDisabled) return;
     const desktop = desktopCapability();
     if (!desktop?.pendingRecordings) return;
     let disposed = false, loading = false;
@@ -566,7 +568,7 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
     const timer = window.setInterval(() => { void recover(); }, 2000);
     const unsubscribe = desktop.onLocalConnection?.(status => { if (status.state === "connected") void recover(); });
     return () => { disposed = true; window.clearInterval(timer); unsubscribe?.(); };
-  }, [capabilityReady, externallyDisabled, iscp, sessionId, silenceMode]);
+  }, [capabilityReady, externallyDisabled, desktopSpeech, sessionId, silenceMode]);
 
   useEffect(() => {
     if (operation.current && operation.current.anchor.sessionId !== sessionId) void cancel();
@@ -574,9 +576,9 @@ export function useVoiceInput({ speech, sessionId, language, externallyDisabled,
   }, [cancel, sessionId, stopPreview]);
 
   useEffect(() => {
-    if ((!supported || !capabilityReady || iscp && externallyDisabled) && operation.current) void cancel();
+    if ((!supported || !capabilityReady || desktopSpeech && externallyDisabled) && operation.current) void cancel();
     if (!supported || !capabilityReady) void stopPreview();
-  }, [cancel, capabilityReady, stopPreview, supported, externallyDisabled, iscp]);
+  }, [cancel, capabilityReady, stopPreview, supported, externallyDisabled, desktopSpeech]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {

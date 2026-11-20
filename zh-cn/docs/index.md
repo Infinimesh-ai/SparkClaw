@@ -2,15 +2,10 @@
 
 > 语言： [English](../../docs/index.md) | 简体中文
 
-- [工作台实施记录](workbench-convergence-implementation.md) — 源码变更、验证及保留历史引用。
-- [配套工作台发布](workbench-release.md) — 全新初始化、API／存储路径及恢复。
-- [草稿](workbench-drafts.md)、[主机计划](workbench-host-scheduler.md)、[桌面计划](desktop-scheduling.md) — 已实现持久化与到期行为。
-
-本索引区分已实现 runtime、源码发布和带日期的验收证据。WebChat 与桌面端都是正常工作台
-部署形态，都拥有本地持久化；WebChat 数据与执行服务同机。下列统一重构方案记录已确认模型
-和发布证据。
-
-- [客户端 R3 实施与验收](client-r3-implementation.md) — 历史阶段记录与源码交付；后续合并／部署证据由该记录链接进入。
+- [三端连接层设计](client-link-layer-design.md)和[连接协议](link-contract.md) — 当前设备连接、会话同步与业务操作。
+- [工作台传输迁移](workbench-retirement-migration.md) — 退役组件与验证状态。
+- [草稿](workbench-drafts.md)、[主机计划](workbench-host-scheduler.md)、[桌面计划](desktop-scheduling.md) — 持久化与到期行为。
+- [工作台实施记录](workbench-convergence-implementation.md)、[配套发布](workbench-release.md)和 [R3 验收](client-r3-implementation.md) — 历次发布及验收记录。
 
 ## 从这里开始
 
@@ -18,7 +13,7 @@
 |---|---|---|
 | [README](../README.md) | 项目概览、快速启动和当前状态 | 项目入口 |
 | [架构](architecture.md) | 当前实现、runtime 拓扑和工作台归属 | 实现事实来源 |
-| [工作台与执行服务统一重构](workbench-runtime-convergence-design.md) | 公共业务处理、主机／桌面本地持久化、中性命名、API 直接切换、全新初始化与验收 | 已合入 main，验收边界见实施记录 |
+| [工作台与执行服务统一重构](workbench-runtime-convergence-design.md) | 十月工作台统一重构方案与当时验收 | 桌面传输和会话归属已更新 |
 | [客户端与后端架构 R3](client-backend-architecture-design.md) | 原客户端归属、LAN、内嵌控制和切换设计 | 历史设计，结合当前适用说明与后续证据阅读 |
 | [部署](deployment.md) | 本地、Compose、DGX Spark、状态、备份和排障 | 运维手册 |
 | [开发](development.md) | 仓库结构、实现规则、验证和扩展流程 | 贡献者手册 |
@@ -75,12 +70,12 @@
 | [JingSi Runtime v1 提供方](jingsi-runtime-v1.md) | 专用认证 submit/lookup/status/cancel/events 接口、持久化 request-key 对账、scope 投影、恢复和运维配置 |
 | [JingSi 局域网 Web 客户端互联](jingsi-lan-connection-design.md) | SparkClaw 侧已实现：专用 allowlisted LAN port 上一个服务端绑定 WebChat session、文本发送和过滤后的实时/补拉消息投影；JingSi client 改造与实体验证仍待完成 |
 | [ISCP Bridge](iscp-bridge.md) | 当前共享 Bridge；LocalMind 使用属于旧链路，JingSi 使用保留到 direct-LAN client 与实体验证完成 |
-| [SparkX 与 SparkClaw 本地 ISCP 联调](desktop-iscp-connection-design.md) | 已实现纯文本 transport 和自动续签；本地 Docker Relay、已安装 SparkX 与真实后端验收，以及明确范围的恢复证据 |
-| [ISCP 能力扩展设计](desktop-iscp-capability-expansion-design.md) | 待实施：基础接口、文件／产物分块、审批／事件、邮件／浏览器／工具、语音；各项经权限、实际结果、恢复和零 HTTP 回退验收后开放界面 |
-| [客户端内嵌 Browser Controller 经 ISCP 设计](desktop-embedded-browser-controller-iscp-design.md) | 设计提案，未实施：在 SparkX 中打包通用 Controller 通道和 Playwright MCP，Gateway–Controller 一跳改经 ISCP 反向操作承载；不含邮件、脚本和导出 |
-| [ISCP 业务回执自动保留](iscp-receipt-retention.md) | 七天结果自动清理、持久紧凑去重记录及安全升级/回退边界 |
-| [公共 Relay 与服务端签发设计](public-iscp-relay-node-issuer-design.md) | TEST1 IP HTTPS/WSS 为唯一新增公网应用入口；经出站控制转发到达 work2 私有签发服务；保留 SparkX 凭据入口与既有 LAN |
-| [公共 ISCP 执行记录](public-iscp-node-deployment.md) | IP 443 发布、独立节点权威、持久生命周期、配对回滚及剩余原生验收门禁 |
+| [SparkX 与 SparkClaw 本地 ISCP 联调](desktop-iscp-connection-design.md) | 已退役工作台端点的历史文本传输、续签和 Docker 实验记录 |
+| [ISCP 能力扩展设计](desktop-iscp-capability-expansion-design.md) | 已退役的工作台操作表、能力扩展与原界面验收 |
+| [客户端内嵌 Browser Controller 经 ISCP 设计](desktop-embedded-browser-controller-iscp-design.md) | 内嵌 Controller 设计及其在已退役工作台传输上的验收 |
+| [ISCP 业务回执自动保留](iscp-receipt-retention.md) | 已退役工作台业务回执日志的历史七天保留策略 |
+| [公共 Relay 与服务端签发设计](public-iscp-relay-node-issuer-design.md) | 已退役的节点签发服务与控制转发器设计 |
+| [公共 ISCP 执行记录](public-iscp-node-deployment.md) | 已退役签发服务与控制转发器的部署及回滚记录 |
 | [统一第三方 ISCP MCP 接入](unified-third-party-access-design.md) | 已实现本地 Route MCP runtime 与分离的 ISCP pairing、SparkClaw MCP access ticket；生产 provisioning、外部 gateway 验证和 LocalMind 旧链路删除仍待完成；不含 JingSi |
 | [通用外部 MCP 安全防护](generic-mcp-safeguards-design.md) | 通用 catalog 过滤/分类，以及与固定 LocalMind task adapter 共享的有界脱敏结果和 approval 持久化防护 |
 | [按 Owner 的 Connector 启用](connector-owner-runtime-design.md) | Issue #13 已接受设计：owner 隔离 setting、共享 channel worker、缓存一致性、排空语义与重启协调 |

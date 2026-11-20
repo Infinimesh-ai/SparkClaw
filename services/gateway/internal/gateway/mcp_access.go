@@ -22,44 +22,54 @@ import (
 )
 
 func (s *Server) issueMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
-	if s.mcpAccess == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
-		return
-	}
 	var input mcpaccess.IssueTicketRequest
-	if err := readJSON(r, &input); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
+	if s.mcpAccess != nil {
+		if err := readJSON(r, &input); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+	}
+	answer := s.mcpTicketIssue(r.Context(), principalForRequest(r), input)
+	if !answer.failed() {
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	answer.write(w)
+}
+
+// The MCP access settings: the catalog and transports, the pending access
+// tickets and the bindings they produced.
+
+func (s *Server) mcpTicketIssue(ctx context.Context, principal requestPrincipal, input mcpaccess.IssueTicketRequest) domainReply {
+	if s.mcpAccess == nil {
+		return replyError(http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 	}
 	configuredDomain := s.mcpAccessDomainID()
 	if strings.TrimSpace(input.DomainID) == "" {
 		input.DomainID = configuredDomain
 	}
 	if input.DomainID != configuredDomain {
-		writeError(w, http.StatusBadRequest, errors.New("MCP access ticket domain must match the configured MCP Domain"))
-		return
+		return replyError(http.StatusBadRequest, errors.New("MCP access ticket domain must match the configured MCP Domain"))
 	}
-	principal := principalForRequest(r)
-	issued, err := s.mcpAccess.IssueTicket(r.Context(), principal.OwnerID, principal.ActorID, input, time.Now().UTC())
+	issued, err := s.mcpAccess.IssueTicket(ctx, principal.OwnerID, principal.ActorID, input, time.Now().UTC())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
+		return replyError(http.StatusBadRequest, err)
 	}
-	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusCreated, issued)
+	return reply(http.StatusCreated, issued)
 }
 
 func (s *Server) listMCPAccessCatalog(w http.ResponseWriter, r *http.Request) {
+	s.mcpCatalog(r.Context(), principalForRequest(r)).write(w)
+}
+
+func (s *Server) mcpCatalog(ctx context.Context, principal requestPrincipal) domainReply {
 	if s.mcpAccess == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
-		return
+		return replyError(http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 	}
-	transport, err := s.mcpTransportStatus(r.Context(), principalForRequest(r).OwnerID)
+	transport, err := s.mcpTransportStatus(ctx, principal.OwnerID)
 	if err != nil {
-		writeConnectorError(w, err)
-		return
+		return connectorErrorReply(err)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return reply(http.StatusOK, map[string]any{
 		"scope":              app.MCPAccessConversation,
 		"business_tool":      "sparkclaw.conversation.send",
 		"iscp_enabled":       transport.ISCPEnabled,
@@ -84,184 +94,204 @@ func (s *Server) mcpTransportStatus(ctx context.Context, ownerID string) (app.Co
 	return s.connectors.Status(ctx, ownerID, "mcp")
 }
 
+// mcpTransports is the input of switching the MCP transports.
+type mcpTransports struct {
+	ISCPEnabled      *bool  `json:"iscp_enabled"`
+	LANAccessEnabled *bool  `json:"lan_access_enabled"`
+	ExpectedVersion  *int64 `json:"expected_version"`
+}
+
 func (s *Server) updateMCPTransports(w http.ResponseWriter, r *http.Request) {
 	if s.connectors == nil {
 		writeError(w, http.StatusServiceUnavailable, errors.New("MCP connector control is unavailable"))
 		return
 	}
-	var input struct {
-		ISCPEnabled      *bool  `json:"iscp_enabled"`
-		LANAccessEnabled *bool  `json:"lan_access_enabled"`
-		ExpectedVersion  *int64 `json:"expected_version"`
-	}
+	var input mcpTransports
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
-	if err := readJSON(r, &input); err != nil || input.ISCPEnabled == nil || input.LANAccessEnabled == nil || input.ExpectedVersion == nil || *input.ExpectedVersion < 0 {
-		writeError(w, http.StatusBadRequest, errors.New("iscp_enabled, lan_access_enabled, and a non-negative expected_version are required"))
-		return
+	if err := readJSON(r, &input); err != nil {
+		input = mcpTransports{}
 	}
-	principal := principalForRequest(r)
-	status, err := s.connectors.SetMCPTransports(r.Context(), principal.OwnerID, principal.ActorID, *input.ISCPEnabled, *input.LANAccessEnabled, *input.ExpectedVersion)
+	s.mcpTransportsUpdate(r.Context(), principalForRequest(r), input).write(w)
+}
+
+func (s *Server) mcpTransportsUpdate(ctx context.Context, principal requestPrincipal, input mcpTransports) domainReply {
+	if s.connectors == nil {
+		return replyError(http.StatusServiceUnavailable, errors.New("MCP connector control is unavailable"))
+	}
+	if input.ISCPEnabled == nil || input.LANAccessEnabled == nil || input.ExpectedVersion == nil || *input.ExpectedVersion < 0 {
+		return replyError(http.StatusBadRequest, errors.New("iscp_enabled, lan_access_enabled, and a non-negative expected_version are required"))
+	}
+	status, err := s.connectors.SetMCPTransports(ctx, principal.OwnerID, principal.ActorID, *input.ISCPEnabled, *input.LANAccessEnabled, *input.ExpectedVersion)
 	if err != nil {
 		httpStatus := http.StatusBadRequest
 		if errors.Is(err, store.ErrConnectorSettingConflict) {
 			httpStatus = http.StatusConflict
 		}
-		writeError(w, httpStatus, err)
-		return
+		return replyError(httpStatus, err)
 	}
-	writeJSON(w, http.StatusOK, status)
+	return reply(http.StatusOK, status)
 }
 
 func (s *Server) listMCPAccessTickets(w http.ResponseWriter, r *http.Request) {
-	principal := principalForRequest(r)
-	tickets, err := s.store.ListMCPAccessTickets(r.Context(), principal.OwnerID)
+	s.mcpTickets(r.Context(), principalForRequest(r)).write(w)
+}
+
+func (s *Server) mcpTickets(ctx context.Context, principal requestPrincipal) domainReply {
+	tickets, err := s.store.ListMCPAccessTickets(ctx, principal.OwnerID)
 	if err != nil {
-		writeMCPStoreError(w, err)
-		return
+		return mcpStoreErrorReply(err)
 	}
 	for index := range tickets {
 		tickets[index].SecretHash = ""
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tickets": tickets})
+	return reply(http.StatusOK, map[string]any{"tickets": tickets})
 }
 
 func (s *Server) revokeMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
-	principal := principalForRequest(r)
-	ticket, ok, err := s.store.GetMCPAccessTicket(r.Context(), r.PathValue("id"))
+	s.mcpTicketRevoke(r.Context(), principalForRequest(r), r.PathValue("id")).write(w)
+}
+
+func (s *Server) mcpTicketRevoke(ctx context.Context, principal requestPrincipal, id string) domainReply {
+	ticket, ok, err := s.store.GetMCPAccessTicket(ctx, id)
 	if err != nil {
-		writeMCPStoreError(w, err)
-		return
+		return mcpStoreErrorReply(err)
 	}
 	if !ok || ticket.OwnerID != principal.OwnerID {
-		writeError(w, http.StatusNotFound, errors.New("MCP access ticket not found"))
-		return
+		return replyError(http.StatusNotFound, errors.New("MCP access ticket not found"))
 	}
 	revokedAt := time.Now().UTC()
-	ticket, err = s.store.RevokeMCPAccessTicket(r.Context(), ticket.ID, revokedAt)
-	ticket, err = store.ReconcileMCPAccessTicketRevoke(r.Context(), s.store, ticket, err)
+	ticket, err = s.store.RevokeMCPAccessTicket(ctx, ticket.ID, revokedAt)
+	ticket, err = store.ReconcileMCPAccessTicketRevoke(ctx, s.store, ticket, err)
 	if err != nil {
-		writeMCPStoreError(w, err)
-		return
+		return mcpStoreErrorReply(err)
 	}
-	s.addAudit(r.Context(), app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_ticket.revoked", Summary: "Revoked a pending MCP access ticket", Fields: map[string]any{
+	s.addAudit(ctx, app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_ticket.revoked", Summary: "Revoked a pending MCP access ticket", Fields: map[string]any{
 		"ticket_id": ticket.ID, "domain_id": ticket.DomainID,
 	}})
 
 	ticket.SecretHash = ""
-	writeJSON(w, http.StatusOK, ticket)
+	return reply(http.StatusOK, ticket)
 }
 
 func (s *Server) deleteMCPAccessTicket(w http.ResponseWriter, r *http.Request) {
-	principal := principalForRequest(r)
-	ticket, err := s.store.DeleteMCPAccessTicket(r.Context(), principal.OwnerID, r.PathValue("id"))
-	ticket, err = store.ReconcileMCPAccessTicketDelete(r.Context(), s.store, ticket, err)
+	s.mcpTicketDelete(r.Context(), principalForRequest(r), r.PathValue("id")).write(w)
+}
+
+func (s *Server) mcpTicketDelete(ctx context.Context, principal requestPrincipal, id string) domainReply {
+	ticket, err := s.store.DeleteMCPAccessTicket(ctx, principal.OwnerID, id)
+	ticket, err = store.ReconcileMCPAccessTicketDelete(ctx, s.store, ticket, err)
 	if err != nil {
-		writeMCPStoreError(w, err)
-		return
+		return mcpStoreErrorReply(err)
 	}
-	s.addAudit(r.Context(), app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_ticket.deleted", Summary: "Deleted an MCP access ticket record", Fields: map[string]any{
+	s.addAudit(ctx, app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_ticket.deleted", Summary: "Deleted an MCP access ticket record", Fields: map[string]any{
 		"ticket_id": ticket.ID, "domain_id": ticket.DomainID, "status": ticket.Status,
 	}})
 
 	ticket.SecretHash = ""
-	writeJSON(w, http.StatusOK, ticket)
+	return reply(http.StatusOK, ticket)
 }
 
 func (s *Server) listMCPBindings(w http.ResponseWriter, r *http.Request) {
-	principal := principalForRequest(r)
-	bindings, err := s.store.ListMCPBindings(r.Context(), principal.OwnerID)
+	s.mcpBindings(r.Context(), principalForRequest(r)).write(w)
+}
+
+func (s *Server) mcpBindings(ctx context.Context, principal requestPrincipal) domainReply {
+	bindings, err := s.store.ListMCPBindings(ctx, principal.OwnerID)
 	if err != nil {
-		writeMCPStoreError(w, err)
-		return
+		return mcpStoreErrorReply(err)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"bindings": bindings})
+	return reply(http.StatusOK, map[string]any{"bindings": bindings})
 }
 
 func (s *Server) revokeMCPBinding(w http.ResponseWriter, r *http.Request) {
-	principal := principalForRequest(r)
-	binding, ok, err := s.store.GetMCPBinding(r.Context(), r.PathValue("id"))
+	s.mcpBindingRevoke(r.Context(), principalForRequest(r), r.PathValue("id")).write(w)
+}
+
+func (s *Server) mcpBindingRevoke(ctx context.Context, principal requestPrincipal, id string) domainReply {
+	binding, ok, err := s.store.GetMCPBinding(ctx, id)
 	if err != nil {
-		writeMCPStoreError(w, err)
-		return
+		return mcpStoreErrorReply(err)
 	}
 	if !ok || binding.OwnerID != principal.OwnerID {
-		writeError(w, http.StatusNotFound, errors.New("MCP binding not found"))
-		return
+		return replyError(http.StatusNotFound, errors.New("MCP binding not found"))
 	}
 	if s.mcpAccess == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
-		return
+		return replyError(http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 	}
-	binding, err = s.mcpAccess.RevokeBinding(r.Context(), binding.ID, time.Now().UTC())
+	binding, err = s.mcpAccess.RevokeBinding(ctx, binding.ID, time.Now().UTC())
 	if err != nil {
-		writeMCPStoreError(w, err)
-		return
+		return mcpStoreErrorReply(err)
 	}
-	s.addAudit(r.Context(), app.AuditEvent{SessionID: binding.LinkedSessionID, Actor: principal.ActorID, Type: "mcp.binding.revoked", Summary: "Revoked an MCP binding", Fields: map[string]any{
+	s.addAudit(ctx, app.AuditEvent{SessionID: binding.LinkedSessionID, Actor: principal.ActorID, Type: "mcp.binding.revoked", Summary: "Revoked an MCP binding", Fields: map[string]any{
 		"binding_id": binding.ID, "domain_id": binding.DomainID, "requester_device_id": binding.RequesterDeviceID,
 		"binding_revision": binding.AuthorizationRevision,
 	}})
 
-	writeJSON(w, http.StatusOK, binding)
+	return reply(http.StatusOK, binding)
 }
 
 func (s *Server) deleteMCPBinding(w http.ResponseWriter, r *http.Request) {
-	principal := principalForRequest(r)
+	s.mcpBindingDelete(r.Context(), principalForRequest(r), r.PathValue("id")).write(w)
+}
+
+func (s *Server) mcpBindingDelete(ctx context.Context, principal requestPrincipal, id string) domainReply {
 	if s.mcpAccess == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
-		return
+		return replyError(http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 	}
-	binding, err := s.mcpAccess.DeleteBinding(r.Context(), principal.OwnerID, r.PathValue("id"), time.Now().UTC())
+	binding, err := s.mcpAccess.DeleteBinding(ctx, principal.OwnerID, id, time.Now().UTC())
 	if err != nil {
-		writeMCPStoreError(w, err)
-		return
+		return mcpStoreErrorReply(err)
 	}
-	s.addAudit(r.Context(), app.AuditEvent{SessionID: binding.LinkedSessionID, Actor: principal.ActorID, Type: "mcp.binding.deleted", Summary: "Deleted an MCP binding record", Fields: map[string]any{
+	s.addAudit(ctx, app.AuditEvent{SessionID: binding.LinkedSessionID, Actor: principal.ActorID, Type: "mcp.binding.deleted", Summary: "Deleted an MCP binding record", Fields: map[string]any{
 		"binding_id": binding.ID, "domain_id": binding.DomainID, "requester_device_id": binding.RequesterDeviceID,
 		"status": binding.Status, "binding_revision": binding.AuthorizationRevision,
 	}})
 
-	writeJSON(w, http.StatusOK, binding)
+	return reply(http.StatusOK, binding)
 }
 
 func (s *Server) deleteMCPAccessRecords(w http.ResponseWriter, r *http.Request) {
-	principal := principalForRequest(r)
+	s.mcpRecordsDelete(r.Context(), principalForRequest(r)).write(w)
+}
+
+func (s *Server) mcpRecordsDelete(ctx context.Context, principal requestPrincipal) domainReply {
 	if s.mcpAccess == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
-		return
+		return replyError(http.StatusServiceUnavailable, errors.New("MCP access service is unavailable"))
 	}
-	deleted, err := s.mcpAccess.DeleteAccessRecords(r.Context(), principal.OwnerID, time.Now().UTC())
+	deleted, err := s.mcpAccess.DeleteAccessRecords(ctx, principal.OwnerID, time.Now().UTC())
 	if err != nil {
-		writeMCPStoreError(w, err)
-		return
+		return mcpStoreErrorReply(err)
 	}
 	if deleted.DeletedTickets > 0 || deleted.DeletedBindings > 0 {
-		s.addAudit(r.Context(), app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_records.deleted", Summary: "Deleted all MCP access records", Fields: map[string]any{
+		s.addAudit(ctx, app.AuditEvent{Actor: principal.ActorID, Type: "mcp.access_records.deleted", Summary: "Deleted all MCP access records", Fields: map[string]any{
 			"deleted_tickets": deleted.DeletedTickets, "deleted_bindings": deleted.DeletedBindings,
 		}})
 
 	}
-	writeJSON(w, http.StatusOK, deleted)
+	return reply(http.StatusOK, deleted)
 }
 
 func writeMCPStoreError(w http.ResponseWriter, err error) {
+	mcpStoreErrorReply(err).write(w)
+}
+
+func mcpStoreErrorReply(err error) domainReply {
 	if errors.Is(err, store.ErrMCPBindingUnavailable) {
-		writeError(w, http.StatusNotFound, errors.New("MCP record was not found"))
-		return
+		return replyError(http.StatusNotFound, errors.New("MCP record was not found"))
 	}
 	switch store.StoreErrorCodeOf(err) {
 	case store.StoreErrorInvalid:
-		writeError(w, http.StatusBadRequest, errors.New("MCP request is invalid"))
+		return replyError(http.StatusBadRequest, errors.New("MCP request is invalid"))
 	case store.StoreErrorNotFound:
-		writeError(w, http.StatusNotFound, errors.New("MCP record was not found"))
+		return replyError(http.StatusNotFound, errors.New("MCP record was not found"))
 	case store.StoreErrorConflict:
-		writeError(w, http.StatusConflict, errors.New("MCP record conflicts with existing state"))
+		return replyError(http.StatusConflict, errors.New("MCP record conflicts with existing state"))
 	case store.StoreErrorCanceled:
-		writeError(w, http.StatusRequestTimeout, errors.New("MCP request was canceled"))
+		return replyError(http.StatusRequestTimeout, errors.New("MCP request was canceled"))
 	case store.StoreErrorTimeout:
-		writeError(w, http.StatusGatewayTimeout, errors.New("MCP operation timed out"))
+		return replyError(http.StatusGatewayTimeout, errors.New("MCP operation timed out"))
 	default:
-		writeError(w, http.StatusServiceUnavailable, errors.New("MCP state is temporarily unavailable"))
+		return replyError(http.StatusServiceUnavailable, errors.New("MCP state is temporarily unavailable"))
 	}
 }
 

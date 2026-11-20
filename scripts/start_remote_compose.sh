@@ -111,7 +111,6 @@ if [[ "$JINGSI_LAN" == true ]]; then
   compose_args+=(-f "$JINGSI_COMPOSE_FILE")
 fi
 sparkclaw_configure_desktop_tls "$ROOT" "$webchat_port"
-sparkclaw_configure_node_issuer "$ROOT"
 compose_args+=(--profile product)
 services=(postgres sandbox-runner gotenberg gateway webchat)
 

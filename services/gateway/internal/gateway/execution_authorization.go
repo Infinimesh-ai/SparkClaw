@@ -6,12 +6,14 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/link"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
+	"github.com/Chiiz0/SparkClaw/services/link/contract"
 )
 
-// executionAuthorization is trusted local state derived only from an
-// authenticated ISCP session. It is never decoded from an execution envelope.
+// executionAuthorization is trusted local state derived only from the
+// device the link connector authenticated (its Principal and declared
+// conditions). It is never decoded from a request.
 type executionAuthorization struct {
 	AllowedTools      []string
 	AuthorizeTool     func(context.Context, string) error
@@ -22,32 +24,40 @@ type executionAuthorization struct {
 	AllowMCDStatus    bool
 }
 
-func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionInfo) executionAuthorization {
-	// An authenticated ISCP session is trusted like a normal connection: it gets
-	// files and every registered tool, including approval-governed ones, with no
-	// grant scopes. Only operations the negotiated transport carries are usable,
-	// and each dispatch still rechecks that the grant is active and current.
-	a := executionAuthorization{AllowedTools: []string{}}
-	if session.CheckAuthorization == nil {
-		return a
+// The McDonald's reverse operations a desktop serves from its built-in
+// browser (link contract section 7).
+const (
+	linkReverseMCDAccountEnsure   = "mcd.account.ensure"
+	linkReverseMCDCheckoutPrepare = "mcd.checkout.prepare"
+	linkReverseMCDCheckoutCommit  = "mcd.checkout.commit"
+	linkReverseMCDCheckoutAbort   = "mcd.checkout.abort"
+	linkReverseMCDOperationStatus = "mcd.operation.status"
+	linkReverseMCDOrdersQuery     = "mcd.orders.query"
+)
+
+// linkExecutionAuthorization is what a run started by this device may use
+// (design 3.9: every feature is open unless the device lacks the
+// condition). A trusted device gets files and every registered tool,
+// including approval-governed ones, because every link device resolves
+// approvals with approval.resolve. McDonald's ordering additionally needs
+// the browser surface and the reverse operations the device declared at
+// hello, and stays behind the backend's own configuration switches. Each
+// dispatch rechecks that the device is still trusted.
+func (s *Server) linkExecutionAuthorization(p link.Principal, reverse []string) executionAuthorization {
+	a := executionAuthorization{AllowedTools: []string{}, AllowFiles: p.Conditions.Attachments}
+	serves := func(ops ...string) bool {
+		for _, op := range ops {
+			if !slices.Contains(reverse, op) {
+				return false
+			}
+		}
+		return true
 	}
-	a.AllowMCDStatus = s.cfg.MCDSelection.Enabled && s.mcdSelection != nil
-	for _, op := range []string{iscpworkbench.OperationMCDOperationStatus, iscpworkbench.OperationMCDOrdersQuery} {
-		a.AllowMCDStatus = a.AllowMCDStatus && slices.Contains(session.NegotiatedOperations, op) && slices.Contains(session.QualifiedOperations, op)
-	}
-	a.AllowMCDSelection = s.cfg.MCDSelection.Enabled && s.mcdSelection != nil && slices.Contains(session.NegotiatedOperations, iscpworkbench.OperationMCDSessionProvision) && slices.Contains(session.QualifiedOperations, iscpworkbench.OperationMCDSessionProvision)
-	a.AllowMCDPrepare = a.AllowMCDSelection && s.cfg.MCDSelection.CartEnabled
-	for _, op := range []string{iscpworkbench.OperationMCDCheckoutPrepare, iscpworkbench.OperationMCDCheckoutAbort, iscpworkbench.OperationMCDOperationStatus} {
-		a.AllowMCDPrepare = a.AllowMCDPrepare && slices.Contains(session.NegotiatedOperations, op) && slices.Contains(session.QualifiedOperations, op)
-	}
-	a.AllowMCDPurchase = a.AllowMCDPrepare && s.cfg.MCDSelection.PurchaseEnabled
-	for _, op := range []string{iscpworkbench.OperationMCDCheckoutCommit, iscpworkbench.OperationMCDOrdersQuery, iscpworkbench.OperationApprovalsDecide} {
-		a.AllowMCDPurchase = a.AllowMCDPurchase && slices.Contains(session.NegotiatedOperations, op) && slices.Contains(session.QualifiedOperations, op)
-	}
-	a.AllowFiles = slices.Contains(session.QualifiedOperations, iscpworkbench.OperationExecutionInputPut)
-	if !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationToolsInvoke) {
-		return a
-	}
+	mcd := s.cfg.MCDSelection.Enabled && s.mcdSelection != nil && p.Conditions.BrowserSurface
+	a.AllowMCDStatus = mcd && serves(linkReverseMCDOperationStatus, linkReverseMCDOrdersQuery)
+	a.AllowMCDSelection = mcd && serves(linkReverseMCDAccountEnsure)
+	a.AllowMCDPrepare = a.AllowMCDSelection && s.cfg.MCDSelection.CartEnabled && serves(linkReverseMCDCheckoutPrepare, linkReverseMCDCheckoutAbort, linkReverseMCDOperationStatus)
+	a.AllowMCDPurchase = a.AllowMCDPrepare && s.cfg.MCDSelection.PurchaseEnabled && serves(linkReverseMCDCheckoutCommit, linkReverseMCDOrdersQuery)
 	for _, definition := range s.tools.Definitions() {
 		if definition.Name == "mcd.purchase.status" {
 			if a.AllowMCDStatus {
@@ -64,22 +74,46 @@ func (s *Server) workbenchExecutionAuthorization(session iscpworkbench.SessionIn
 		if strings.HasPrefix(definition.Name, "mcd.") && !a.AllowMCDSelection {
 			continue
 		}
-		if definition.RequiresApproval && !slices.Contains(session.QualifiedOperations, iscpworkbench.OperationApprovalsDecide) {
-			continue
-		}
 		a.AllowedTools = append(a.AllowedTools, definition.Name)
 	}
-	a.AuthorizeTool = func(ctx context.Context, name string) error {
-		policy, err := session.CheckAuthorization(ctx)
-		if err != nil {
-			return err
-		}
-		if policy.Revision != session.GrantRevision || !policy.Usable() {
-			return errors.New("current ISCP authorization does not permit this tool")
+	deviceID := p.DeviceID
+	a.AuthorizeTool = func(context.Context, string) error {
+		if !s.linkDeviceTrusted(deviceID) {
+			return errors.New("this device is no longer trusted on the SparkClaw console")
 		}
 		return nil
 	}
 	return a
+}
+
+// linkDeviceTrusted reports whether the device is still in the directory
+// with a known class.
+func (s *Server) linkDeviceTrusted(deviceID string) bool {
+	if s.link == nil {
+		return false
+	}
+	rec, ok := s.link.directory.Lookup(deviceID)
+	return ok && contract.ValidClass(rec.Type)
+}
+
+// linkDeviceReverse lists the reverse operations the device serves on its
+// open connections.
+func (s *Server) linkDeviceReverse(req *link.Request) []string {
+	if req.Conn != nil {
+		return slices.Clone(req.Conn.Reverse)
+	}
+	if s.link == nil {
+		return nil
+	}
+	var out []string
+	for _, conn := range s.link.service.Connections(req.Principal.DeviceID) {
+		for _, op := range conn.Reverse {
+			if !slices.Contains(out, op) {
+				out = append(out, op)
+			}
+		}
+	}
+	return out
 }
 
 type executionAuthorizationKey struct{}

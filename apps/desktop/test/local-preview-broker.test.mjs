@@ -61,7 +61,10 @@ test('each shared reader cancels independently and last departure aborts process
 });
 
 test('queued deadline includes queue time and cannot start after readers leave', async t => {
-  const h = await harness(t, { limits: { deadlineMs: 50 }, runProcess: async ({ signal }) => new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) });
+  const h = await harness(t, { limits: { deadlineMs: 50 }, runProcess: async ({ signal }) => {
+    signal.throwIfAborted();
+    return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+  } });
   const first = h.broker.prepare(request('first')); const rejected1 = assert.rejects(first, { code: 'timeout' });
   const second = h.broker.prepare({ ...request('second'), ref: 'other-ref' }); const rejected2 = assert.rejects(second, { code: 'timeout' });
   await Promise.all([rejected1, rejected2]);

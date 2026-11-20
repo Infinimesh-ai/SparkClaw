@@ -104,6 +104,16 @@ type Error struct {
 	Code      string `json:"code"`
 	Message   string `json:"message,omitempty"`
 	Retryable bool   `json:"retryable,omitempty"`
+	// NotSent is set when the request never reached a handler: no path was
+	// up, the frame could not be written, or the backend refused it before
+	// running it. Such a request had no effect and may be sent again; any
+	// other failure of a mutation leaves its outcome to be learned by
+	// retrying with the same idempotency key.
+	NotSent bool `json:"not_sent,omitempty"`
+	// Reason is a business domain's own reason for the failure (for
+	// example medicine_sync_reset_required), so a client keeps telling
+	// apart what the code alone does not.
+	Reason string `json:"reason,omitempty"`
 }
 
 func (e *Error) Error() string {
@@ -131,6 +141,11 @@ const (
 	CodeInternal              = "internal"
 	CodeQuotaExceeded         = "quota_exceeded"
 	CodeTimeout               = "timeout"
+	// CodeOutcomeUnknown answers a retried mutation whose original attempt
+	// started but never finished (the backend stopped, or the attempt was
+	// cut off). It is never run a second time; the client reconciles the
+	// business state.
+	CodeOutcomeUnknown = "outcome_unknown"
 )
 
 // Errorf builds an Error.

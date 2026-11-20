@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcddining"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
@@ -49,6 +50,17 @@ func (r Runtime) WithExecutionScope(st ExecutionRepository, resources toolhub.Ex
 		}
 		return errors.Join(cleanupErr, tools.Close())
 	}, nil
+}
+
+// WithMCDSelection returns a runtime whose McDonald's tools use selection,
+// the ordering resources the run's device is authorized for.
+func (r Runtime) WithMCDSelection(selection *mcddining.Selection) Runtime {
+	if r.tools == nil || selection == nil {
+		return r
+	}
+	r.tools = r.tools.WithMCDSelection(selection)
+	r.exposure = newToolExposureEngine(r.store, r.tools, r.policy)
+	return r
 }
 
 // WithBrowser returns a runtime whose browser tools drive adapter (a

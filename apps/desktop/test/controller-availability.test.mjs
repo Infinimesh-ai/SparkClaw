@@ -1,14 +1,30 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { DesktopAuth } from "../src/main/desktop-auth.mjs";
-import { ISCP_SURFACES } from "../src/main/iscp-capabilities.mjs";
+import { EventEmitter } from "node:events";
+import { LinkAuth } from "../src/main/link-auth.mjs";
+import { LinkDomainClient } from "../src/main/link-domain-client.mjs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ClientControllerRuntime } from "../src/browser/controller-runtime.mjs";
 import { BrowserControllerForwarder } from "../src/browser/controller-forwarder.mjs";
 import { syntheticControllerBundle } from "./controller-bundle-fixture.mjs";
+
+const ALL_DOMAINS = ["mail", "settings", "medicine", "speech", "notifications", "browser", "mcd", "presentation"];
+
+// A LinkAuth over a fake link, with a connected domain client when asked.
+async function linkAuth(t, options = {}, connected = false) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "sx-link-auth-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const link = Object.assign(new EventEmitter(), { online: connected, opened: true, status: async () => ({ joined: false }), open: async () => {}, close() {}, request: async () => ({}) });
+  const auth = new LinkAuth({ stateDirectory: path.join(root, "link"), userDataDirectory: root, linkFactory: () => link, ...options });
+  auth.descriptor = Object.freeze({ transport: "link", origin: "https://backend.sparkclaw-link.invalid", deploymentID: "d", clientID: "link-desk", deviceID: "desk" });
+  if (connected) {
+    auth.transport = new LinkDomainClient({ link, origin: auth.descriptor.origin, binding: { deployment_id: "d", owner_id: "o", client_id: "link-desk" }, installationID: "11111111-1111-4111-8111-111111111111", domains: ALL_DOMAINS });
+    await auth.transport.start();
+  }
+  return auth;
+}
 
 test("local availability notifications do not re-enter transport suspension", async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sx-availability-"));
@@ -18,7 +34,7 @@ test("local availability notifications do not re-enter transport suspension", as
   await runtime.prepare();
   let connectionUpdates = 0;
   const capabilityUpdates = [], pending = [];
-  const auth = new DesktopAuth({
+  const auth = await linkAuth(t, {
     browserRuntimeAvailable: false,
     onChange: () => {
       connectionUpdates++;
@@ -28,7 +44,6 @@ test("local availability notifications do not re-enter transport suspension", as
     onCapabilitiesChanged: status => capabilityUpdates.push(status),
   });
   t.after(() => auth.close());
-  auth.descriptor = { transport: "iscp" };
   auth.status = Object.freeze({ schema_version: 1, state: "service_unavailable" });
   const forwarder = new BrowserControllerForwarder({ auth, runtime, userDataDir: root,
     registry: { closeHostPages() {}, beginTaskEnd() { return []; }, async completeTaskEnd() {} },
@@ -43,15 +58,10 @@ test("local availability notifications do not re-enter transport suspension", as
   assert.equal(runtime.state, "stopped");
 });
 
-test("local Controller availability reprojects the existing connection once per change and cannot restore expired authority", t => {
+test("local Controller availability reprojects the existing connection once per change", async t => {
   const updates = [];
-  const auth = new DesktopAuth({ onChange: status => updates.push(status) });
+  const auth = await linkAuth(t, { browserRuntimeAvailable: true, onChange: status => updates.push(status) }, true);
   t.after(() => auth.close());
-  const manifest = { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "session", authorization_revision: 1,
-    expires_at: new Date(Date.now() + 60000).toISOString(), operations: JSON.parse(readFileSync(new URL("../src/shared/iscp-operations.json", import.meta.url))).map(row => row.name) };
-  auth.descriptor = { transport: "iscp" };
-  auth.transport = { capabilities: manifest, close() {} };
-  auth.capabilityReport = { ...manifest, capabilities: ISCP_SURFACES.map(id => ({ id, qualified: true, supported: true, permitted: true, dependencies_ready: true, enabled: true })) };
   auth.status = Object.freeze({ schema_version: 1, state: "connected" });
   auth.setBrowserRuntimeAvailable(false);
   assert.equal(auth.status.state, "connected");
@@ -63,25 +73,22 @@ test("local Controller availability reprojects the existing connection once per 
   auth.setBrowserRuntimeAvailable(false); assert.equal(updates.length, 1);
   auth.setBrowserRuntimeAvailable(true); assert.equal(auth.status.capabilities.browser, true);
   assert.equal(updates.length, 2);
-  auth.capabilityReport = { ...auth.capabilityReport, expires_at: new Date(0).toISOString() };
+  // Once the connection is gone, availability cannot reopen the browser.
+  auth.transport.close();
+  auth.status = Object.freeze({ schema_version: 1, state: "service_unavailable" });
   auth.setBrowserRuntimeAvailable(false); auth.setBrowserRuntimeAvailable(true);
   assert.equal(auth.status.capabilities.browser, false);
-  assert.equal(auth.status.capabilities.surfaces.browser.reason, "negotiation_required");
+  assert.equal(auth.status.capabilities.surfaces.browser.reason, "connection_required");
 });
 
-test("runtime cleanup republishes settled availability without restoring expired authority", async t => {
+test("runtime cleanup republishes settled availability without restoring a closed connection", async t => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "sx-availability-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await syntheticControllerBundle(root);
   const runtime = new ClientControllerRuntime({ bundleRoot: root, adapterFactory: () => assert.fail("cleanup started an adapter") });
   await runtime.prepare();
-  const auth = new DesktopAuth({ browserRuntimeAvailable: false });
+  const auth = await linkAuth(t, { browserRuntimeAvailable: false }, true);
   t.after(() => auth.close());
-  const manifest = { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "session", authorization_revision: 1,
-    expires_at: new Date(Date.now() + 60000).toISOString(), operations: JSON.parse(readFileSync(new URL("../src/shared/iscp-operations.json", import.meta.url))).map(row => row.name) };
-  auth.descriptor = { transport: "iscp" };
-  auth.transport = { capabilities: manifest, close() {} };
-  auth.capabilityReport = { ...manifest, capabilities: ISCP_SURFACES.map(id => ({ id, qualified: true, supported: true, permitted: true, dependencies_ready: true, enabled: true })) };
   auth.status = Object.freeze({ schema_version: 1, state: "connected" });
   new BrowserControllerForwarder({ auth, runtime, userDataDir: root, registry: { closeHostPages() {}, beginTaskEnd() { return []; }, async completeTaskEnd() {} },
     onChange: () => auth.setBrowserRuntimeAvailable(runtime.snapshot().available) });
@@ -90,9 +97,10 @@ test("runtime cleanup republishes settled availability without restoring expired
   await runtime.stop("task_canceled");
   assert.equal(runtime.state, "stopped");
   assert.equal(auth.status.capabilities.browser, true, "a reusable stopped runtime must not retain its transient stopping projection");
-  auth.capabilityReport = { ...auth.capabilityReport, expires_at: new Date(0).toISOString() };
+  auth.transport.close();
+  auth.status = Object.freeze({ schema_version: 1, state: "service_unavailable" });
   auth.setBrowserRuntimeAvailable(false);
   await runtime.stop("authority_changed");
   assert.equal(auth.status.capabilities.browser, false);
-  assert.equal(auth.status.capabilities.surfaces.browser.reason, "negotiation_required");
+  assert.equal(auth.status.capabilities.surfaces.browser.reason, "connection_required");
 });

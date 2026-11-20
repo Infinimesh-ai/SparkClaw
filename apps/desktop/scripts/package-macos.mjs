@@ -28,7 +28,7 @@ if(argument[1]==='arm64')packageConfig.mac.extraResources=[{from:'bin/ezmcd',to:
 fs.writeFileSync(configPath,JSON.stringify(packageConfig));
 try { for (const args of [
   ["run", "build:desktop-ui"],
-  ["run", "build:iscp-helper", "--", "darwin", argument[1]],
+  ["run", "build:link-helper", "--", "darwin", argument[1]],
   ["run", "build:client-controller"],
   ["run", "check:desktop-managed-scripts"],
   ["--workspace", "@sparkclaw/desktop", "exec", "--", "electron-builder", "--config",configPath,"--mac", "dmg", "zip", `--${argument[1]}`, "--publish", "never"],

@@ -72,11 +72,6 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   await fs.writeFile(plistPath, "<plist><dict><key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>");
   await fs.writeFile(path.join(resources, "icon.icns"), "synthetic icon");
   await assert.rejects(auditPackage(context), /ENOENT/);
-  const helperPath = path.join(resources, "iscp-workbench");
-  await fs.writeFile(helperPath, "synthetic helper", { mode: 0o600 });
-  await assert.rejects(auditPackage(context), /executable ISCP helper/);
-  await fs.chmod(helperPath, 0o755);
-  await assert.rejects(auditPackage(context), /ENOENT/);
   const linkHelperPath = path.join(resources, "link-helper");
   await fs.writeFile(linkHelperPath, "synthetic link helper", { mode: 0o600 });
   await assert.rejects(auditPackage(context), /executable link helper/);
@@ -87,7 +82,7 @@ test("afterPack audits a synthetic ASAR/resources tree without compiling any Mac
   const result = JSON.parse(await fs.readFile(path.join(resources, "client-package-audit.json")));
   assert.equal(result.platform, "darwin"); assert.equal(result.ui_files, 2);
   assert.equal(result.mcd_runtime.manifest_sha256,'synthetic-only');
-  assert.match(result.iscp_helper_sha256, /^[a-f0-9]{64}$/u);
+  assert.equal(result.iscp_helper_sha256, undefined, "the package ships no ISCP helper");
   assert.match(result.link_helper_sha256, /^[a-f0-9]{64}$/u);
   assert.equal(result.browser_controller.protocol, "browser.controller.v1");
   assert.match(result.browser_controller.manifest_sha256, /^[a-f0-9]{64}$/u);

@@ -20,8 +20,8 @@ export async function qualifyHandback({ registry, browserSession, window, shield
       runtimeGeneration: registry.runtimeGeneration, registry, browserSession, controllerIncarnation: incarnation }).start() });
   const manifest = { session_id: "handback-session", authorization_revision: 1, expires_at: new Date(Date.now() + 120000).toISOString(),
     operations: [...CONTROLLER_OPERATIONS, "browser.receipt", "browser.reconcile"], limits: { body_bytes: 63488, response_bytes: 63488, concurrent: 4 } };
-  const auth = { descriptor: { transport: "iscp" }, connection: { ownerID: "owner", clientID: "client" },
-    status: { state: "connected", capabilities: { browser: true } }, transport: { capabilities: manifest }, async invokeISCP() { return { fences: [] }; } };
+  const auth = { descriptor: { transport: "link" }, connection: { ownerID: "owner", clientID: "client" },
+    status: { state: "connected", capabilities: { browser: true } }, transport: { capabilities: manifest }, async invokeDomain() { return { fences: [] }; } };
   const forwarder = new BrowserControllerForwarder({ auth, registry, runtime, userDataDir: temporary });
   let binding = { owner_id: "owner", client_id: "client", installation_id: "installation", local_conversation_id: "handback-conversation",
     local_task_id: "handback-task", connection_epoch: manifest.session_id, runtime_generation: `iscp_${manifest.session_id}`,

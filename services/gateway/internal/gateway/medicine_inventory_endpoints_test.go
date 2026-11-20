@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	wb "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"net/http"
@@ -118,48 +117,5 @@ func TestMedicineInventoryHTTPMissingFieldsAndOwnerInjection(t *testing.T) {
 	out := medicineDecode[medicine.ImportResult](t, medicineRequest(t, s, "owner", "POST", "/api/medicine/import", medicine.ImportRequest{OperationID: "old", InstallationID: "desktop", Items: []medicine.Item{item}}), 200)
 	if out.Imported != 1 || out.Items[0].ID != item.ID || out.Items[0].ExpiresOn != "" {
 		t.Fatal(out)
-	}
-}
-func TestISCPMedicineEncryptedBatchReceiptAndSync(t *testing.T) {
-	server, repo, cfg, _ := workbenchISCPFixture(t, nil)
-	ops := []string{wb.OperationMedicineItemsBatch, wb.OperationMedicineSync, wb.OperationMedicineOperationsGet}
-	f := startV2EncryptedFixture(t, server, cfg, []string{"medicine.read", "medicine.write"}, ops)
-	f.bind(t)
-	batch := medicine.Batch{OperationID: "medicine-batch", Operation: medicine.OperationCreate, Items: []medicine.Entry{{EntryID: "one", Fields: medicineFieldsFixture()}, {EntryID: "two", Fields: medicineFieldsFixture()}}}
-	raw, _ := json.Marshal(batch)
-	request := v2Request(wb.OperationMedicineItemsBatch, raw)
-	response := f.call(t, request)
-	requireV2Status(t, response, 200)
-	var receipt medicine.Receipt
-	if json.Unmarshal(response.Body, &receipt) != nil || len(receipt.Items) != 2 {
-		t.Fatal(string(response.Body))
-	}
-	request.ID = v2Request(wb.OperationIdentity, nil).ID
-	replayed := f.call(t, request)
-	requireV2Status(t, replayed, 200)
-	if !bytes.Equal(response.Body, replayed.Body) {
-		t.Fatal("transport receipt differs")
-	}
-	lookup := v2Request(wb.OperationMedicineOperationsGet, nil)
-	lookup.Params = map[string]string{"operation": "medicine-batch"}
-	result := f.call(t, lookup)
-	requireV2Status(t, result, 200)
-	var operation medicine.OperationResult
-	if json.Unmarshal(result.Body, &operation) != nil || operation.Batch == nil || !reflect.DeepEqual(*operation.Batch, receipt) {
-		t.Fatal(string(result.Body))
-	}
-	sync := f.jsonCall(t, wb.OperationMedicineSync, map[string]any{"cursor": "", "limit": 100})
-	requireV2Status(t, sync, 200)
-	var page medicine.SyncPage
-	if json.Unmarshal(sync.Body, &page) != nil || len(page.Events) != 2 {
-		t.Fatal(string(sync.Body))
-	}
-	box, err := repo.ReadMedicineBox(t.Context(), "iscp-owner")
-	if err != nil || len(box.Items) != 2 || box.Sequence != 2 {
-		t.Fatal(box, err)
-	}
-	other, err := repo.ReadMedicineBox(t.Context(), "other")
-	if err != nil || len(other.Items) != 0 {
-		t.Fatal("owner isolation", err)
 	}
 }

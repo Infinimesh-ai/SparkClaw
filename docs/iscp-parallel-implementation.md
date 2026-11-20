@@ -2,6 +2,8 @@
 
 [简体中文](../zh-cn/docs/iscp-parallel-implementation.md)
 
+> **2026-11-20** — The SparkX workbench endpoint and node issuer used in these integration results are retired. The duplex Relay implementation and its measured behavior belong to the referenced revisions. Current devices use a link connector. [Link contract](link-contract.md).
+
 Date: 2026-10-19. This record covers the two local implementation worktrees. It is not a production deployment or a claim that the baseline binaries can read the new state. Local implementation and integration qualification are complete. The final implementation candidates are SparkClaw `62358707d7f11202df4df44ab9420a77f305ee15` and ISCP `22da89f329a88bde8e12219c359e82063064798b`.
 
 ## Scope and interface freeze

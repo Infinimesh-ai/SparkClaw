@@ -17,8 +17,8 @@ import { useArchivedConversations } from "../hooks/useArchivedConversations";
 import { TaskSearch, WorkbenchWelcome, workbenchCopy } from "../components/workbench";
 import { MailWorkspaceContext } from "./MailWorkspaceContext";
 import type {} from "./mailCapability";
-import { ISCPDeviceAuthorization, desktopSettingsAccess, iscpSettingsUnavailable } from "./iscpSettings";
-import { operationBackend, surfaceEnabled } from "./capability";
+import { LinkDeviceAuthorization, desktopSettingsAccess, linkSurfaceUnavailable } from "./linkSettings";
+import { surfaceEnabled } from "./capability";
 import { api } from "../api/client";
 import { InspectorColumn, type PanelTab } from "../components/inspector";
 import { InspectorResizeHandle, useInspectorWidth } from "../components/inspectorResize";
@@ -117,9 +117,8 @@ export function LocalWorkbench() {
   const [connection, setConnection] = useState<DesktopConnectionStatus>();
   const mailScope = mailEditorScope(connection);
   const lastMailScope = useRef("");
-  // Every desktop backend is reached through per-surface operations (the
-  // link layer); availability follows the reported surfaces.
-  const iscp = operationBackend(connection);
+  // The desktop reaches its backend through the link layer; availability
+  // follows the surfaces the main process reports.
   const capabilities = {
     files: surfaceEnabled(connection, "files"), mail: surfaceEnabled(connection, "mail_popup"),
     browser: surfaceEnabled(connection, "browser"), speech: surfaceEnabled(connection, "speech_recording"),
@@ -167,14 +166,13 @@ export function LocalWorkbench() {
   const settingsScope = connection && JSON.stringify([connection.backend?.deployment_id, connection.owner_id, connection.client_id, connection.authorization_revision]);
   const settingsAccess = {
     ...desktopSettingsAccess(connection, language),
-    ...(iscp && connection ? { deviceAuthorization: <ISCPDeviceAuthorization key={settingsScope} connection={connection} language={language} /> } : {}),
+    ...(connection ? { deviceAuthorization: <LinkDeviceAuthorization key={settingsScope} connection={connection} language={language} /> } : {}),
   };
 
   const surfaceError = useCallback((err: unknown, fallback = zh ? "操作失败，请重试。" : "Something went wrong. Try again.") => {
     setError(err instanceof Error ? err.message : fallback);
   }, [zh]);
   useEffect(() => {
-    if (!iscp) return;
     setConnectors([]);
     setNotificationBindings([]);
     if (!settings || tab !== "connections" || !capabilities.settingsConnectors) return;
@@ -184,7 +182,7 @@ export function LocalWorkbench() {
       void api.notificationBindings().then(value => { if (active) setNotificationBindings(value.bindings); }).catch(surfaceError);
     }
     return () => { active = false; };
-  }, [iscp, settings, tab, capabilities.settingsConnectors, capabilities.settingsBindings, settingsScope, surfaceError]);
+  }, [settings, tab, capabilities.settingsConnectors, capabilities.settingsBindings, settingsScope, surfaceError]);
   const scopeError = useRef(surfaceError); scopeError.current = surfaceError;
   const localScopeKey = JSON.stringify([
     Boolean(connection && ["connected", "reconnecting", "service_unavailable"].includes(connection.state)),
@@ -214,42 +212,21 @@ export function LocalWorkbench() {
   };
   const reload = useCallback(async () => { setConversations(await store.list()); }, [store]);
   const refreshGlobal = useCallback(async () => {
-    if (iscp) {
-      // The owner is required; configuration and readiness are read when the
-      // backend offers them, and the pages that show them keep their own
-      // unavailable state otherwise.
-      const [config, status, owner, connectorList, bindingList] = await Promise.allSettled([
-        api.config(), api.ready(), api.owner(),
-        capabilities.settingsConnectors ? api.connectors() : null,
-        capabilities.settingsBindings ? api.notificationBindings() : null,
-      ]);
-      if (config.status === "fulfilled") setRuntimeConfig(config.value);
-      if (status.status === "fulfilled") setReady(status.value);
-      if (owner.status === "rejected") throw owner.reason;
-      setOwnerProfile(owner.value);
-      if (connectorList.status === "fulfilled" && connectorList.value) setConnectors(connectorList.value.connectors);
-      if (bindingList.status === "fulfilled" && bindingList.value) setNotificationBindings(bindingList.value.bindings);
-      return;
-    }
-    const config = await api.config();
-    setRuntimeConfig(config);
-    const results = await Promise.allSettled([
-      api.ready(), api.owner(), api.clients(), api.connectors(), api.notificationBindings(), api.approvals(),
-      api.memoryCandidates(), api.memories(), api.evalRuns(), api.artifacts(), api.traces()
+    // The owner is required; configuration and readiness are read when the
+    // backend offers them, and the pages that show them keep their own
+    // unavailable state otherwise.
+    const [config, status, owner, connectorList, bindingList] = await Promise.allSettled([
+      api.config(), api.ready(), api.owner(),
+      capabilities.settingsConnectors ? api.connectors() : null,
+      capabilities.settingsBindings ? api.notificationBindings() : null,
     ]);
-    const [readyResult, owner, clientList, connectorList, bindingList, approvalList, candidateList, memoryList, evalList, artifactList, traces] = results;
-    if (readyResult.status === "fulfilled") setReady(readyResult.value);
-    if (owner.status === "fulfilled") setOwnerProfile(owner.value);
-    if (clientList.status === "fulfilled") setClients(clientList.value.clients ?? []);
-    if (connectorList.status === "fulfilled") setConnectors(connectorList.value.connectors ?? []);
-    if (bindingList.status === "fulfilled") setNotificationBindings(bindingList.value.bindings ?? []);
-    if (approvalList.status === "fulfilled") setApprovals(approvalList.value.approvals ?? []);
-    if (candidateList.status === "fulfilled") setCandidates(candidateList.value.memory_candidates ?? []);
-    if (memoryList.status === "fulfilled") setMemories(memoryList.value.memories ?? []);
-    if (evalList.status === "fulfilled") setEvalRuns(evalList.value.eval_runs ?? []);
-    if (artifactList.status === "fulfilled") setArtifacts(artifactList.value.artifacts ?? []);
-    if (traces.status === "fulfilled") setTraceList(traces.value.traces ?? []);
-  }, [iscp, capabilities.settingsConnectors, capabilities.settingsBindings]);
+    if (config.status === "fulfilled") setRuntimeConfig(config.value);
+    if (status.status === "fulfilled") setReady(status.value);
+    if (owner.status === "rejected") throw owner.reason;
+    setOwnerProfile(owner.value);
+    if (connectorList.status === "fulfilled" && connectorList.value) setConnectors(connectorList.value.connectors);
+    if (bindingList.status === "fulfilled" && bindingList.value) setNotificationBindings(bindingList.value.bindings);
+  }, [capabilities.settingsConnectors, capabilities.settingsBindings]);
   const select = useCallback(async (id: string) => {
     setPage("chat");
     if (selectedRef.current === id) return;
@@ -353,26 +330,27 @@ export function LocalWorkbench() {
       const inserted = insertVoiceTranscript(draftRef.current, result.text, start, end);
       draftRef.current = inserted.value;
       setDraft(inserted.value);
-      if (iscp) drafts.markRecording(anchor.sessionId, result.request_id);
+      drafts.markRecording(anchor.sessionId, result.request_id);
       window.requestAnimationFrame(() => {
         composerInputRef.current?.focus();
         composerInputRef.current?.setSelectionRange(inserted.caret, inserted.caret);
       });
       return true;
-    }, () => drafts.flush(anchor.sessionId), iscp ? async () => {
+    }, () => drafts.flush(anchor.sessionId), async () => {
       if (!store.recordingApplied) throw new Error("Recording draft persistence is unavailable");
       return store.recordingApplied(anchor.sessionId, result.request_id, draftScopes.get(anchor.sessionId) ?? "");
-    } : undefined);
-  }, [drafts, setDraft, voiceDraftPersistence, iscp, store, draftScopes]);
+    });
+  }, [drafts, setDraft, voiceDraftPersistence, store, draftScopes]);
   const voice = useVoiceInput({
     speech: ready?.speech ?? null,
     sessionId: selected,
     language: runtimeConfig?.speech.default_language ?? "auto",
     externallyDisabled: approvalPending || busy || !selected || !capabilities.speech,
-    iscp, iscpRealtime: surfaceEnabled(connection, "speech_realtime"),
+    desktopSpeech: true, desktopRealtime: surfaceEnabled(connection, "speech_realtime"),
     onTranscript: applyVoiceTranscript
   });
-  const passiveNotifications = usePassiveNotifications(connection?.state === "connected" && capabilities.notifications, iscp ? "poll" : "stream");
+  // Notifications follow the backend's domain events instead of polling.
+  const passiveNotifications = usePassiveNotifications(connection?.state === "connected" && capabilities.notifications, "events");
 
   async function action(operation: () => Promise<void>, rethrow = false) {
     if (busyRef.current) return;
@@ -529,7 +507,7 @@ export function LocalWorkbench() {
     setLanguage(next);
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
     document.documentElement.lang = next === "zh" ? "zh-CN" : "en";
-    if (!iscp || capabilities.settingsOwner) void api.updateLanguage(next).then(setOwnerProfile).catch(() => undefined);
+    if (capabilities.settingsOwner) void api.updateLanguage(next).then(setOwnerProfile).catch(() => undefined);
   }
   async function openTrace(runID: string) {
     setTraceLoading(true);
@@ -654,11 +632,11 @@ export function LocalWorkbench() {
           {!settings && homeModule && localFiles && <button type="button" className={`iconButton rightSidebarToggle ${filesOpen ? "active" : ""}`} ref={filesTrigger}
             title="Files" aria-label="Files" aria-expanded={filesOpen && browserLayout.visible} onClick={toggleFiles}><ActionIcon name="folder" active={filesOpen && browserLayout.visible} /></button>}
         </>} />
-      {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (iscp && connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
+      {error && <div className="localFeedback" role="alert"><p>{error}</p><button type="button" onClick={() => void reload().then(async () => { if (connection?.state === "connected") await refreshGlobal(); setError(""); }).catch(surfaceError)}>{zh ? "重试读取" : "Retry loading"}</button></div>}
       {notice && <p className="localFeedback" role="status">{notice}</p>}
       {connection?.state === "service_unavailable" && <div className="localFeedback" role="status"><p>{zh ? "连接暂时不可用，请重新连接后继续。" : "Connection unavailable. Reconnect to continue."}</p><button type="button" disabled={busy} onClick={() => void action(async () => { setConnection(await desktop.retryLocalConnection()); })}>{zh ? "重新连接" : "Reconnect"}</button></div>}
       {settings ? <div className="settingsPageContent"><header className="settingsPageHeader"><h1>{copy.settingsTitles[tab]}</h1>{tab !== "memory" && tab !== "approvals" && <p>{copy.settingsDescriptions[tab]}</p>}</header><InspectorColumn key={settingsScope} settingsPage showTabs={false} tab={tab} onTabChange={setTab}
-        settingsAccess={settingsAccess} activityUnavailable={iscp ? iscpSettingsUnavailable(language) : undefined}
+        settingsAccess={settingsAccess} activityUnavailable={connection ? linkSurfaceUnavailable(language) : undefined}
         text={text} language={language} pendingApprovalCount={pendingApprovals.length} pendingCandidateCount={pendingCandidates.length}
         toolCalls={toolCalls} approvals={approvals} candidates={candidates} memories={memories} traceRun={traceRun} traceList={traceList} traceLoading={traceLoading}
         ready={ready} modelCalls={modelCalls} auditEvents={auditEvents} artifacts={artifacts} episodes={episodes} evalRuns={evalRuns} runtimeConfig={runtimeConfig}
@@ -677,7 +655,7 @@ export function LocalWorkbench() {
           {capabilities.browser && browserState?.browser_host?.unknown_writes?.filter((command) => command.local_conversation_id === selected).map((command) => <section className="localUnknownWrite" role="alert" key={command.command_id}>
             <h2>{zh ? "浏览器操作结果不确定" : "Browser action outcome uncertain"}</h2>
             <p>{zh ? "此操作不能重发。先独立检查网站的实际状态，再记录你已确认的结果。" : "This action cannot be resent. Inspect the actual website state independently, then record the outcome you verified."}</p>
-            {desktop.reconcileBrowserHost && <div className="localTaskActions">{(["observed_completed", "observed_not_applied"] as const).map((outcome) => <button type="button" disabled={busy || !iscp || connection?.state !== "connected"} key={outcome} onClick={() => void action(async () => {
+            {desktop.reconcileBrowserHost && <div className="localTaskActions">{(["observed_completed", "observed_not_applied"] as const).map((outcome) => <button type="button" disabled={busy || connection?.state !== "connected"} key={outcome} onClick={() => void action(async () => {
               await desktop.reconcileBrowserHost!(command.command_id, command.digest, outcome);
               setBrowserState(await desktop.state());
               setNotice(zh ? "已记录核实结果，没有重发浏览器操作。" : "Verified outcome recorded. The browser action was not resent.");
@@ -724,7 +702,7 @@ export function LocalWorkbench() {
             enabled={!busy && connection?.state === "connected" && capabilities.approvals} onDecide={decideApproval} />}
           activeAttachments={activeAttachments} busy={busy} voice={voice} composerInputRef={composerInputRef}
           filesEnabled={capabilities.files} mailEnabled={capabilities.mail && connection?.state === "connected"}
-          canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready && (!iscp || Boolean(ownerProfile))}
+          canCompose={drafts.ready} canSend={connection?.state === "connected" && drafts.ready && Boolean(ownerProfile)}
           onInputChange={(value) => { draftRef.current = value; setDraft(value); }}
           onUploadDocument={saveFile}
           onChooseDocument={() => setDocumentPickerOpen(true)}

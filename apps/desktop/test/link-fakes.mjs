@@ -26,7 +26,7 @@ export function fakeHelper(handlers = {}) {
             const result = message.method === "request" ? await handler?.(message.op, message.params, message) : await handler?.(message);
             emit({ id: message.id, result: result ?? { ok: true } });
           } catch (error) {
-            emit({ id: message.id, error: { code: error.code || "internal", message: error.message, retryable: error.retryable } });
+            emit({ id: message.id, error: { code: error.code || "internal", message: error.message, retryable: error.retryable, ...(error.notSent ? { not_sent: true } : {}), ...(error.reason ? { reason: error.reason } : {}) } });
           }
         })();
       }
@@ -47,8 +47,8 @@ export function fakeHelper(handlers = {}) {
   };
 }
 
-export function linkError(code, message = code, retryable = false) {
-  return Object.assign(new Error(message), { code, retryable });
+export function linkError(code, message = code, retryable = false, reason = "") {
+  return Object.assign(new Error(message), { code, retryable, ...(reason ? { reason } : {}) });
 }
 
 export const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -111,8 +111,12 @@ export function fakeBackend() {
         case "run.subscribe": return { subscription: `run:${params.session_id}`, status: { session_id: params.session_id, state: "idle" } };
         case "run.status": return backend.runStatus?.(params) ?? { session_id: params.session_id, state: "idle" };
         case "message.send": {
+          const prior = (messages.get(params.session_id) || []).find(m => m.client_message_id === params.client_message_id);
+          if (prior) return { message: prior, run_id: prior.run_id, replayed: true };
+          if (params.replay_only) throw Object.assign(new Error("this message never reached the backend"), { code: "not_found", notSent: true });
           const user = backend.addMessage(params.session_id, "user", params.content, { client_message_id: params.client_message_id, attachments: params.attachments });
-          return { message: user, run_id: backend.nextRun?.() ?? `run_${user.seq}` };
+          user.run_id = backend.nextRun?.() ?? `run_${user.seq}`;
+          return { message: user, run_id: user.run_id };
         }
         default: throw Object.assign(new Error(`unexpected ${op}`), { code: "unsupported_capability" });
       }

@@ -313,7 +313,7 @@ export class MedicineSyncClient {
           error.status < 500 &&
           error.status !== 408 &&
           error.status !== 429) ||
-        error.name === "ISCPRequestNotSentError"
+        error.name === "LinkRequestNotSentError"
       ) {
         this.store.finishMutation(scope, pending.operation_id, {
           rejected: true,

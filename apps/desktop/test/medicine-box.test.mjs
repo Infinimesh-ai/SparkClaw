@@ -6,7 +6,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { MedicineStore } from "../src/main/medicine-store.mjs";
 import { MedicineBoxCapability } from "../src/main/medicine-capability.mjs";
-import { projectISCPCapabilities } from "../src/main/iscp-capabilities.mjs";
+import { projectLinkCapabilities } from "../src/main/link-capabilities.mjs";
 
 const owner = { deployment_id: "deployment", owner_id: "owner" };
 const medicine = (fields = {}) => ({ id: "", name: "布洛芬缓释胶囊", category: "fever", quantity: 12, unit: "capsule", expires_on: "2027-12-31", no_expiry: false,
@@ -151,32 +151,22 @@ test("medicine box IPC takes its scope from the authenticated identity and rejec
 });
 
 test("text reading is a surface of its own, so an older Gateway only disables text entry", () => {
-  const manifest = { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "session", authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: ["medicine.recognize", "medicine.parse"] };
-  const rows = ["medicine", "medicine_text"].map((id) => ({ id, supported: true, permitted: true, qualified: true, enabled: true, dependencies_ready: true }));
-  const report = { schema_version: 2, profile: manifest.profile, session_id: "session", authorization_revision: 1, expires_at: manifest.expires_at, capabilities: rows };
-  const both = projectISCPCapabilities(manifest, report).surfaces;
+  const both = projectLinkCapabilities({ operations: ["medicine.recognize", "medicine.parse"] }).surfaces;
   assert.deepEqual([both.medicine.enabled, both.medicine_text.enabled], [true, true]);
-  const older = projectISCPCapabilities({ ...manifest, operations: ["medicine.recognize"] }, { ...report, capabilities: rows.slice(0, 1) }).surfaces;
+  const older = projectLinkCapabilities({ operations: ["medicine.recognize"] }).surfaces;
   assert.deepEqual([older.medicine.enabled, older.medicine_text.enabled, older.medicine_text.reason], [true, false, "permission_or_implementation_missing"]);
 });
 
-test("photo recognition is its own ISCP surface", () => {
-  const manifest = { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "session", authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: ["medicine.recognize"] };
-  const row = { id: "medicine", supported: true, permitted: true, qualified: true, enabled: true, dependencies_ready: true };
-  const report = { schema_version: 2, profile: manifest.profile, session_id: "session", authorization_revision: 1, expires_at: manifest.expires_at, capabilities: [row] };
-  assert.equal(projectISCPCapabilities(manifest, report).surfaces.medicine.enabled, true);
-  assert.equal(projectISCPCapabilities({ ...manifest, operations: [] }, report).surfaces.medicine.enabled, false);
-  assert.equal(projectISCPCapabilities(manifest, { ...report, capabilities: [{ ...row, enabled: false, reason: "dependency_unavailable" }] }).surfaces.medicine.reason, "dependency_unavailable");
+test("photo recognition is its own surface", () => {
+  assert.equal(projectLinkCapabilities({ operations: ["medicine.recognize"] }).surfaces.medicine.enabled, true);
+  assert.equal(projectLinkCapabilities({ operations: [] }).surfaces.medicine.enabled, false);
 });
 
 test('inventory write capability requires the separate read capability without hiding original recognition', () => {
   const read = ['medicine.sync', 'medicine.operations.get'];
   const write = ['medicine.items.create', 'medicine.items.update', 'medicine.items.delete', 'medicine.items.batch', 'medicine.import'];
-  const manifest = { schema_version: 2, profile: 'sparkclaw.workbench.transport.v2', session_id: 'session', authorization_revision: 1, expires_at: new Date(Date.now() + 60000).toISOString(), operations: [...read, ...write, 'medicine.recognize'] };
-  const capabilities = ['medicine_box_read', 'medicine_box_write', 'medicine'].map(id => ({ id, supported: true, permitted: true, qualified: true, enabled: true, dependencies_ready: true }));
-  const report = { ...manifest, capabilities };
-  assert.equal(projectISCPCapabilities(manifest, report).surfaces.medicine_box_write.enabled, true);
-  const limited = projectISCPCapabilities({ ...manifest, operations: [...write, 'medicine.recognize'] }, report).surfaces;
+  assert.equal(projectLinkCapabilities({ operations: [...read, ...write, 'medicine.recognize'] }).surfaces.medicine_box_write.enabled, true);
+  const limited = projectLinkCapabilities({ operations: [...write, 'medicine.recognize'] }).surfaces;
   assert.equal(limited.medicine_box_write.enabled, false); assert.equal(limited.medicine.enabled, true);
 });
 

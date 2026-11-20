@@ -91,9 +91,9 @@ try {
     const manifest = { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "fixture_session", authorization_revision: 1,
       expires_at: new Date(Date.now()+300000).toISOString(), operations: [...CONTROLLER_OPERATIONS, "browser.receipt", "browser.reconcile"],
       limits: { body_bytes: 63488, response_bytes: 63488, concurrent: 8 } };
-    const auth = { descriptor: { transport: "iscp" }, connection: { ownerID: binding.owner_id, clientID: binding.client_id },
+    const auth = { descriptor: { transport: "link" }, connection: { ownerID: binding.owner_id, clientID: binding.client_id },
       status: { state: "connected", capabilities: { browser: true } }, transport: { capabilities: manifest },
-      invokeISCP: async () => ({ fences: [] }) };
+      invokeDomain: async () => ({ fences: [] }) };
     Object.assign(binding, { host_id: iscpHostID(binding, manifest.session_id), runtime_generation: `iscp_${manifest.session_id}`,
       connection_epoch: manifest.session_id, authorization_digest: iscpAuthorizationDigest(manifest.session_id, 1), lease_expires_at: "0001-01-01T00:00:00Z" });
     forwarder = new BrowserControllerForwarder({ auth, registry, runtime, userDataDir: app.getPath("userData") });

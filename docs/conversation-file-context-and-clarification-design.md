@@ -85,7 +85,7 @@ A handle is not an upload. No file bytes are transferred at submission. Handle m
 - `input_files` keeps its meaning: files explicitly selected for the current turn, still uploaded before admission.
 - Handle IDs are unique within one envelope. One message carries at most `resultFiles` handles, and one envelope carries at most 32 handles in total. When a handle ID also appears in the current `input_files`, the current input wins and that handle is not materialized separately.
 - A handle's workspace locator is `conversation-files/<file-id>/<name>`; current inputs keep their file names.
-- **Text-only executions and sessions without file authorization carry no handles.** The desktop attaches no handles when `capabilities.files` is unavailable. The gateway rejects an envelope that carries handles in a text-only execution (`!expanded || !AllowFiles` in [`workbench_iscp.go`](../services/gateway/internal/gateway/workbench_iscp.go)), and the materializer is not enabled there.
+- **Text-only executions and sessions without file authorization carry no handles.** The desktop attaches no handles when `capabilities.files` is unavailable. In the retired workbench adapter, Gateway rejected such handles before materialization. Device conversation attachments now use the link’s attachment condition and object operations. [Link contract](link-contract.md).
 
 Following the direct cutover rule of the [workbench convergence design](workbench-runtime-convergence-design.md), schema 1 is retired without dual parsing. Gateway and desktop must ship as a matched release. Gateway decoding keeps `DisallowUnknownFields`.
 

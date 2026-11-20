@@ -1,6 +1,8 @@
 # Network-Native Mail Architecture (v4)
 
 > Language: English | [简体中文](../zh-cn/docs/email-network-native-architecture.md)
+>
+> **2026-11-20** — The workbench helper, 8 KiB objects and adapter in the presentation row of §2.1 are retired. Desktop mail uses link domain methods and link objects. The acquisition design and provider measurements refer to the separate backend mail service. [Link contract](link-contract.md).
 
 For current source limitations and the next bounded changes, start with the
 [mail diagnostics and change-control baseline](email-diagnostics-and-change-control.md).

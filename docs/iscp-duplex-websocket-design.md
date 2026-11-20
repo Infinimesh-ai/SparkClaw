@@ -2,6 +2,8 @@
 
 Language: English | [简体中文](../zh-cn/docs/iscp-duplex-websocket-design.md)
 
+> **2026-11-20** — The workbench responder shown as an endpoint is retired. This proposal records the duplex Relay binding. ISCP Relay continues to serve the link connector, and the separate ISCP Bridge still has its own protocol. [Link contract](link-contract.md).
+
 Date: 2026-10-19. Status: proposed design. Source baseline: SparkClaw `cf9b81de`, ISCP fork `10fe37b3` (imported onto upstream `47f1f6c`); SparkClaw dependency remains `v0.2.0-rc.1`. This document proposes a new Relay transport binding, not a change to the cryptographic envelope or an implemented release. InfiniCenter proposal 0038 records the cross-project review boundary.
 
 ## 1 Decision and scope

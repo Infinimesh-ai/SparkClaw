@@ -32,14 +32,14 @@ func (h *ToolHub) mcdRead(ctx context.Context, args map[string]any, session, run
 	if active.Workflow.ActiveNodeIDs[0] == "cart" && args["operation"] != "pickup_slots" {
 		return Result{}, errors.New("mcd_order_workflow_required")
 	}
-	if h.resources == nil || h.resources.MCDSelection == nil {
+	if h.mcdSelection() == nil {
 		return Result{}, errors.New("mcd_selection_unavailable")
 	}
 	raw, err := json.Marshal(args)
 	if err != nil {
 		return Result{}, err
 	}
-	result, err := h.resources.MCDSelection.Read(ctx, raw)
+	result, err := h.mcdSelection().Read(ctx, raw)
 	// Result content belongs only to the execution's bounded transient store.
 	return Result{Output: result}, err
 }

@@ -1,6 +1,8 @@
 # Workbench release cutover
 
 > Language: English | [简体中文](../zh-cn/docs/workbench-release.md)
+>
+> **2026-11-20** — The desktop enrollment, per-installation conversation ownership, HTTP submission and ACK procedures below describe the retired release. For a current device use console enrollment and the link contract. Host WebChat keeps its HTTP interface and host storage. [Link contract](link-contract.md).
 
 This is the source release's clean-start contract for the backend, host WebChat and
 desktop workbench. Ship all three from the same tested revision. This document and

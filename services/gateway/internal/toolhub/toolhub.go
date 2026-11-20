@@ -21,6 +21,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/document"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/documentocr"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/infinimeshinfo"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcddining"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/modelrouter"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/remindertarget"
@@ -43,6 +44,9 @@ type Repository interface {
 }
 
 type ToolHub struct {
+	// mcd is a run's McDonald's ordering resources on a hub derived with
+	// WithMCDSelection (execution scopes carry theirs in resources).
+	mcd                   *mcddining.Selection
 	medicine              *medicine.Service
 	aiChatExporter        AIChatExporter
 	cfg                   config.Config

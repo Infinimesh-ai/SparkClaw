@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"net/http"
@@ -95,51 +96,55 @@ func (s *Server) checkEmailProvider(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, errors.New("email provider is required"))
 		return
 	}
-	principal := principalForRequest(r)
-	status, err := s.email.Check(r.Context(), principal.OwnerID, principal.ActorID, provider)
+	s.emailProviderCheck(r.Context(), principalForRequest(r), provider).write(w)
+}
+
+// emailProviderCheck checks a provider's login and reports its sync health.
+func (s *Server) emailProviderCheck(ctx context.Context, principal requestPrincipal, provider string) domainReply {
+	status, err := s.email.Check(ctx, principal.OwnerID, principal.ActorID, provider)
 	if err != nil {
-		writeEmailError(w, err)
-		return
+		return emailErrorReply(err)
 	}
 	health := emailmanagement.SyncHealth{State: emailmanagement.SyncHealthUnavailable, CheckedAt: time.Now().UTC()}
 	if s.emailManagement != nil {
-		health, err = s.emailManagement.ProviderSyncHealth(r.Context(), principal.OwnerID, provider)
+		health, err = s.emailManagement.ProviderSyncHealth(ctx, principal.OwnerID, provider)
 		if err != nil {
-			writeEmailError(w, err)
-			return
+			return emailErrorReply(err)
 		}
 	}
-	writeJSON(w, http.StatusOK, struct {
+	return reply(http.StatusOK, struct {
 		emailautomation.ProviderStatus
 		SyncHealth emailmanagement.SyncHealth `json:"sync_health"`
 	}{status, health})
 }
 
 func writeEmailError(w http.ResponseWriter, err error) {
+	emailErrorReply(err).write(w)
+}
+
+func emailErrorReply(err error) domainReply {
 	if errors.Is(err, store.ErrEmailProviderSettingConflict) || store.StoreErrorCodeOf(err) == store.StoreErrorConflict {
-		writeError(w, http.StatusConflict, err)
-		return
+		return replyError(http.StatusConflict, err)
 	}
 	switch emailautomation.ErrorCode(err) {
 	case app.ToolErrorEmailInvalidInput:
-		writeError(w, http.StatusBadRequest, err)
+		return replyError(http.StatusBadRequest, err)
 	case app.ToolErrorEmailNotConfigured, app.ToolErrorEmailLoginRequired, app.ToolErrorEmailAccountAmbiguous, app.ToolErrorEmailAdmissionStale, app.ToolErrorEmailDraftConflict:
-		writeError(w, http.StatusConflict, err)
+		return replyError(http.StatusConflict, err)
 	case app.ToolErrorEmailPageContractChanged, app.ToolErrorEmailDraftVerificationFailed, app.ToolErrorEmailSendControlUnverified, app.ToolErrorEmailScriptInvalidOutput, app.ToolErrorEmailSendNotDispatched:
-		writeError(w, http.StatusUnprocessableEntity, err)
+		return replyError(http.StatusUnprocessableEntity, err)
 	case app.ToolErrorEmailProviderUnavailable, app.ToolErrorEmailScriptTimeout, app.ToolErrorEmailBrowserCleanupPending:
-		writeError(w, http.StatusServiceUnavailable, err)
+		return replyError(http.StatusServiceUnavailable, err)
 	case app.ToolErrorEmailSendOutcomeUnknown:
-		writeError(w, http.StatusBadGateway, err)
+		return replyError(http.StatusBadGateway, err)
 	default:
 		if code := store.StoreErrorCodeOf(err); code != "" {
 			// Store failures carry driver text; the client gets a stable code
 			// and a bounded message like the sibling integration endpoints.
-			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			return reply(http.StatusServiceUnavailable, map[string]any{
 				"error": "email provider settings are temporarily unavailable", "code": "store_" + string(code), "retryable": true,
 			})
-			return
 		}
-		writeError(w, http.StatusInternalServerError, err)
+		return replyError(http.StatusInternalServerError, err)
 	}
 }

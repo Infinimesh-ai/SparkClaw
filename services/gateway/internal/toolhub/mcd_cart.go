@@ -57,7 +57,7 @@ func mcdCartRegistration(kind string) toolRegistration {
 				return Result{}, err
 			}
 		}
-		if h.resources == nil || h.resources.MCDSelection == nil {
+		if h.mcdSelection() == nil {
 			return Result{}, errors.New("mcd_selection_unavailable")
 		}
 		raw, err := json.Marshal(args)
@@ -67,12 +67,12 @@ func mcdCartRegistration(kind string) toolRegistration {
 		var output map[string]any
 		if kind == "quote" {
 			if args["operation"] == "checkout_abort" {
-				output, err = h.resources.MCDSelection.AbortPreparation(ctx)
+				output, err = h.mcdSelection().AbortPreparation(ctx)
 			} else {
-				output, err = h.resources.MCDSelection.Quote(ctx, raw)
+				output, err = h.mcdSelection().Quote(ctx, raw)
 			}
 		} else {
-			output, err = h.resources.MCDSelection.Cart(ctx, raw, kind == "write")
+			output, err = h.mcdSelection().Cart(ctx, raw, kind == "write")
 		}
 		return Result{Output: output}, err
 	}

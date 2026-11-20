@@ -59,6 +59,22 @@ func workbenchBindingFor(principal requestPrincipal, session app.Session, reques
 	return execution.WorkbenchBinding{OwnerID: principal.OwnerID, ActorID: principal.ActorID, ClientID: principal.ClientID, WorkspaceID: execution.Digest([]byte(filepath.Clean(session.WorkspaceRoot))), SessionID: session.ID, RequestID: requestID}
 }
 
+// workbenchAdmissionBinding identifies one admitted message: its request
+// and the digest of its input.
+func workbenchAdmissionBinding(principal requestPrincipal, session app.Session, input webMessageInput, ingress app.MessageIngressContext) (execution.WorkbenchBinding, error) {
+	binding := workbenchBindingFor(principal, session, input.RequestID)
+	raw, err := json.Marshal(struct {
+		Input   webMessageInput           `json:"input"`
+		Ingress app.MessageIngressContext `json:"ingress"`
+	}{input, ingress})
+	if err != nil {
+		return execution.WorkbenchBinding{}, err
+	}
+	binding.InputDigest = execution.Digest(raw)
+	binding.SubmittedDraftRevision = input.DraftRevision
+	return binding, nil
+}
+
 func (s *Server) admittedWorkbenchResult(ctx context.Context, binding execution.WorkbenchBinding, status execution.WorkbenchStatus) (workbenchRequestStatus, error) {
 	out := workbenchRequestStatus{WorkbenchStatus: status}
 	if status.State == "running" {
@@ -98,16 +114,10 @@ func (s *Server) admitWorkbenchMessageFor(requestCtx context.Context, principal 
 	if !execution.UUID(input.RequestID) {
 		return nil, nil, errors.New("request_id must be a UUID")
 	}
-	binding := workbenchBindingFor(principal, session, input.RequestID)
-	raw, err := json.Marshal(struct {
-		Input   webMessageInput           `json:"input"`
-		Ingress app.MessageIngressContext `json:"ingress"`
-	}{input, ingress})
+	binding, err := workbenchAdmissionBinding(principal, session, input, ingress)
 	if err != nil {
 		return nil, nil, err
 	}
-	binding.InputDigest = execution.Digest(raw)
-	binding.SubmittedDraftRevision = input.DraftRevision
 	service, err := s.executionService()
 	if err != nil {
 		return nil, nil, err

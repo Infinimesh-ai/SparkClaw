@@ -2,6 +2,8 @@
 
 [简体中文](../zh-cn/docs/iscp-latency-optimization.md)
 
+> **2026-11-20** — These timings measure the retired SparkX helper and Gateway workbench endpoint on the named deployments. Current run subscriptions, sync and recovery use the link. [Link contract](link-contract.md).
+
 Measured on 2026-10-14 using the original installed Mac SparkX interface,
 the existing Main identity, TEST1 public Relay and work2 Gateway. The final
 Mac/work2 runtime is `3ddde02b`; TEST1 Relay is `f19847c3` with a 55-second

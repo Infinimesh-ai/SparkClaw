@@ -141,14 +141,14 @@ describe("useVoiceInput", () => {
   function renderHook(
     speech: SpeechStatus = batchSpeech,
     onTranscript: (result: SpeechTranscriptionResult, anchor: VoiceDraftAnchor) => boolean | Promise<boolean> = vi.fn(() => true),
-    iscp = false
+    desktopSpeech = false
   ) {
     const container = document.createElement("div");
     const root = createRoot(container);
     roots.push(root);
     let value: HookValue | undefined;
     function Harness() {
-      value = useVoiceInput({ speech, iscp, iscpRealtime: false, sessionId: "session-a", language: "auto", externallyDisabled: false, onTranscript });
+      value = useVoiceInput({ speech, desktopSpeech, desktopRealtime: false, sessionId: "session-a", language: "auto", externallyDisabled: false, onTranscript });
       return null;
     }
     act(() => root.render(<StrictMode><Harness /></StrictMode>));

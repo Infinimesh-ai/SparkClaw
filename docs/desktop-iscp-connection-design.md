@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-iscp-connection-design.md)
 >
+> **2026-11-20** — The dedicated SparkX helper, Gateway workbench responder and local lab below are retired. Devices join through the console and use the link over LAN or ISCP Relay. The commands and acceptance results below describe the October build. [Link contract](link-contract.md).
+>
 > Date: 2026-10-08. Status: baseline implementation pushed, local Docker reference Relay and installed real-backend text acceptance passed. Automatic grant renewal is implemented; isolated tests, live recovery after the seed Grant expired, installed native-window delivery/reopen and headless original-request reconnect have passed.
 > Scope: implement local SparkX/Gateway integration, without InfiniCenter.
 
@@ -130,7 +132,7 @@ See the pinned [Relay source](https://github.com/Infinimesh-ai/ISCP/blob/fa1d493
 
 ### 3.3 Automatic grant renewal
 
-The [grant lifecycle client](../services/gateway/internal/iscpbridge/grant_lifecycle_client.go), [local issuer lifecycle](../services/gateway/internal/iscplocalissuer/renewal.go), and [endpoint worker](../services/gateway/internal/iscpworkbench/grant_lifecycle.go) implement device-owned renewal. SparkX, the Grant subject, sends the standard `POST /v2/relay/devices/auto-renew-grant` request to the pinned issuer using SDK device PoP and `Idempotency-Key`. The request carries device identity and `identity_proof`; it uses neither the Relay access token nor the issuer's management token. Only the configured subject can renew. The responder obtains the pair's current signed Grant through `POST /v1/grants/current`, also with device PoP and an idempotency key. Current is a supplementary local-issuer interface, not an existing reference Relay endpoint, and does not mint a Grant.
+The [grant lifecycle client](../services/gateway/internal/iscpbridge/grant_lifecycle_client.go), [local issuer lifecycle](../services/gateway/internal/iscplocalissuer/renewal.go), and endpoint worker (`grant_lifecycle.go`, since removed) implement device-owned renewal. SparkX, the Grant subject, sends the standard `POST /v2/relay/devices/auto-renew-grant` request to the pinned issuer using SDK device PoP and `Idempotency-Key`. The request carries device identity and `identity_proof`; it uses neither the Relay access token nor the issuer's management token. Only the configured subject can renew. The responder obtains the pair's current signed Grant through `POST /v1/grants/current`, also with device PoP and an idempotency key. Current is a supplementary local-issuer interface, not an existing reference Relay endpoint, and does not mint a Grant.
 
 Before these calls, `GET /v1/renewal-capability` must return an actual SDK `SignedDescriptor` (`iscp.signed_descriptor.v2`) containing a `TrustRootDescriptor` (`iscp.trust_root.descriptor.v2`). The client verifies its signature with the pinned issuer key, a descriptor lifetime of at most five minutes, and fixed Domain, issuer/key, Relay, subject/audience pair and `sparkclaw.workbench.v1` permission. Separate Grant continuity checks retain the confirmation key, prevent revocation-epoch rollback and reject TTL expansion. Signed metadata declares the renewal purpose, `grant_renewal=true`, and absolute `authorization_expires_at`; an ad hoc capability object or a wider scope is rejected.
 
@@ -158,11 +160,11 @@ The optional private helper setting is:
 |---|---|
 | Desktop auth/profile | Explicit private ISCP profile, fixed initiator role, separate credential schema and public identity binding; first import exposes workbench scope only after identity/installation verification |
 | Local test issuer | [SDK-backed issuer](../services/gateway/internal/iscplocalissuer/issuer.go) and [CLI](../services/gateway/cmd/iscp-local-issuer/main.go); fixed pair, signed renewal capability, PoP/idempotent lifecycle, absolute authorization deadline and redacted issuance journal |
-| Desktop transport | [Private helper pipes and fixed operation mapping](../apps/desktop/src/main/iscp-transport.mjs); deadlines, version/capability/identity validation, bounded calls, generation fencing, sleep/exit cleanup |
-| Go helper | [Initiator executable](../services/gateway/cmd/iscp-workbench/main.go) and [encrypted endpoint](../services/gateway/internal/iscpworkbench/endpoint.go); fixed development/package path, SDK Hello/Ready, manifest, replay checks, liveness timeout and fresh-session reconnect |
-| Gateway responder | [Authenticated operation adapter](../services/gateway/internal/gateway/workbench_iscp.go); pinned peer mapped to an active issued Client, deployment/Owner/installation checks, revocation cancellation, existing in-process service handlers |
+| Desktop transport | Private helper pipes and fixed operation mapping (`iscp-transport.mjs`, since removed); deadlines, version/capability/identity validation, bounded calls, generation fencing, sleep/exit cleanup |
+| Go helper | Initiator executable (`main.go`, since removed) and encrypted endpoint (`endpoint.go`, since removed); fixed development/package path, SDK Hello/Ready, manifest, replay checks, liveness timeout and fresh-session reconnect |
+| Gateway responder | Authenticated operation adapter (`workbench_iscp.go`, since removed); pinned peer mapped to an active issued Client, deployment/Owner/installation checks, revocation cancellation, existing in-process service handlers |
 | Text-only runtime/UI | Reject files/attachments before admission, remove external tools from the runtime, and gate mail/files/approvals/Browser Host/speech/settings requests in SparkX |
-| Runner/package | [Private lab runner](../scripts/iscp-local-lab.mjs), [helper build](../scripts/build-iscp-helper.mjs), Mac/Linux package resource and executable/hash audit; current-source isolated Linux backend, dedicated SparkX SQLite, no published business HTTP port |
+| Runner/package | Private lab runner (`iscp-local-lab.mjs`, since removed), helper build (`build-iscp-helper.mjs`, since removed), Mac/Linux package resource and executable/hash audit; current-source isolated Linux backend, dedicated SparkX SQLite, no published business HTTP port |
 
 ISCP uses transport-specific validation; existing HTTPS/LAN descriptor and TLS pinning remain in force for HTTPS. Relay tokens and private paths stay in main/helper private configuration and never become Gateway bearer fields or renderer state.
 
@@ -174,7 +176,7 @@ The old phone-facing `agent.message.send.v1` remains separate from desktop execu
 
 ## 5. Application protocol and first execution
 
-The implemented application profile is `sparkclaw.workbench.transport.v1`, authorized by `sparkclaw.workbench.v1`. Its [operation registry](../services/gateway/internal/iscpworkbench/protocol.go) belongs to SparkClaw; it is not an upstream ISCP standard.
+The implemented application profile is `sparkclaw.workbench.transport.v1`, authorized by `sparkclaw.workbench.v1`. Its operation registry (`protocol.go`, since removed) belongs to SparkClaw; it is not an upstream ISCP standard.
 
 Use the fixed desktop-initiator/backend-responder handshake with official managed Hello/Ready envelopes, then encrypted capability manifests. Carry fixed operation IDs, request IDs, parameters/results, and errors in `task.invoke`/`task.result`. Unauthenticated owner/client fields never establish permission.
 
@@ -323,10 +325,7 @@ A Gateway Client is bound to one installation. Run headless and normal-window se
 
 An explicitly selected private profile can also survive normal Finder launches. Write `iscp-launch-profile.json` in SparkX's default user-data directory with mode `0600` and schema `{ "schema_version": 1, "test_mode": true, "profile_path": "/absolute/private/desktop-profile.json", "user_data_directory": "/absolute/private/userdata" }`. Its parent and dedicated user-data directory must be owned by the user, mode `0700`, and free of symbolic links. The file contains paths only; credentials remain in the private helper profile and vault. Explicit launcher environment variables override this selection. Qualification ignores it, and an invalid selection prevents startup. Removing the selection restores the previous default connection and data directory.
 
-| Peer | Explicit private test switches |
-|---|---|
-| SparkX | `SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST=1`, `SPARKCLAW_DESKTOP_ISCP_CONFIG=<lab>/desktop-profile.json`, `SPARKCLAW_DESKTOP_USER_DATA_DIR=<lab>/userdata` |
-| Gateway | `SPARKCLAW_WORKBENCH_ISCP_LOCAL_TEST=1`, `SPARKCLAW_WORKBENCH_ISCP_CONFIG=/lab/gateway-container-helper.json`, matching deployment and issued Client provisioning |
+The retired lab used private test profiles for both SparkX and the Gateway responder.
 
 Quit SparkX with Cmd-Q before `down`; closing a Mac window only hides it. `down` removes this lab's owned Gateway, issuer and Relay containers and both networks, retaining private state/evidence for inspection. It ends the in-memory Relay lifetime; a later test needs `prepare` in a new directory. Relay image and module downloads may require network during build; running peer and renewal profiles target the owned local services, with no hosted Relay dependency. Automatic Grant renewal operates only within the original explicit twenty-four-hour authorization; expiry or revocation never causes `up` to extend that authorization.
 

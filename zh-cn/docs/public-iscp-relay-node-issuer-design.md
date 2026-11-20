@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/public-iscp-relay-node-issuer-design.md)
 >
+> **2026-11-20** — 节点签发服务及其控制转发器已退役。本文保留十月签发系统的部署设计。设备现经控制台登记，ISCP Relay 仍承载连接层流量。[三端连接层设计](client-link-layer-design.md)。
+>
 > 日期：2026-10-12。状态：本次部署及要求的验收已完成。TEST1 公网 IP HTTPS/WSS、work2
 > 私有签发服务及 responder/控制 peer 已部署。原生 `16b00f17` 通过精确 Client
 > 迁移/默认 Main 冷启动、原 UI/数据、新鲜授权/同 Grant 轮询修复、E 模型/
@@ -259,7 +261,7 @@ token。常规客户端接入使用配置的邀请 signer 及签名票据路径�
 
 不能套用 agent 邀请模板反转方向，不能在续签时扩大权限，也不能将传输注册
 当作读取业务数据的授权。应用角色以现有
-[工作台校验器](../../services/gateway/internal/iscpworkbench/config.go)为参考。
+工作台校验器（`config.go`，已删除）为参考。
 
 ### 6.3 私有签发实现与权威记录
 

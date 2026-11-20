@@ -265,7 +265,6 @@ jobs:
       - name: Test browser controller
         run: |
           node scripts/sync-controller-operations.mjs --check
-          node scripts/sync-iscp-operations.mjs --check
           npm test --prefix tools/browser-controller
       - name: Test browser bridge
         run: npm test --prefix tools/browser-bridge

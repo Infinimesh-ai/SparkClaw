@@ -299,6 +299,7 @@ The old Bridge `agent.*.v1` entry is still used by JingSi and by LocalMind's MCP
 | P2b | Done. JingSi-Watch pairs with a console code and uses the pull profile, verified on a real 32-bit watch. Its commit stays local because that repository is read-only for this account |
 | P3 | Done. SparkX main process on `LinkClient` with a ClientStore cache (schema 17); the windows and interactions are unchanged |
 | P4 | Done. Business domains go through `domain.call`; the in-Gateway ISCP responder, its lifecycle, the v2 transport, `clients.*`, `authorizations.*` and the plaintext JingSi LAN entry are deleted; the node issuer and the control forwarder are stopped and their code deleted |
+| Workbench retirement (2026-11-20) | Implemented, not deployed. Every business domain is a typed domain method calling the business functions directly ([migration](workbench-retirement-migration.md)); `link_domain_bridge.go`, the domain adapters, their receipt journal, the operation table and the `iscpworkbench` and `iscpobjects` packages are deleted |
 
 **Deployment**
 
@@ -313,7 +314,7 @@ The old Bridge `agent.*.v1` entry is still used by JingSi and by LocalMind's MCP
 - The Relay registers console devices through an operator bind (ISCP `59057fe`). The node-authority file is unchanged.
 - The device presents its Grant in a plaintext envelope `sparkclaw.link.grant.v1` before the session hello, so the connector needs no Grant sync from the console.
 - The pull profile has no subscriptions or pushes. The watch keeps the connection only while the app is in the foreground.
-- `domain.call` runs the existing domain adapters for the link principal: the method is the operation name and the arguments are the former v2 envelope. The operation table remains as the registry of those methods. The 92 HTTP-shaped methods were not rewritten as direct functions.
+- `domain.call` reaches typed domain methods only (since 2026-11-20). The settings and mail methods answer with the domain result `{status, body}` the desktop's original screens read; the other domains answer typed values and fail with link errors carrying the domain's reason (link contract section 4).
 - Device keys are kept in private state files (`link-device.json`), not in the OS keyring.
 - Device management (`clients.*`) answers 410 `devices_are_managed_on_the_console`; the console is the only place to join and revoke devices.
-- The desktop's isolated qualification launcher still uses the former ISCP helper `iscp-workbench` with its local fixtures. Ordinary profiles use only the link layer.
+- The desktop's isolated qualification launcher starts `link-qualification-backend`, a Gateway with a memory store and a mock model on the LAN connector (since 2026-11-20). The former ISCP helper `iscp-workbench` is deleted.

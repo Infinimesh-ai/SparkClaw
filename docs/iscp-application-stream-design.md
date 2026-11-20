@@ -1,6 +1,8 @@
 # ISCP and SparkClaw Streaming Output Design
 
 > Language: English | [简体中文](../zh-cn/docs/iscp-application-stream-design.md)
+>
+> **2026-11-20** — The proposed SparkX workbench stream binding has been retired. Desktop run updates now use link subscriptions and ordered run events. The underlying Relay discussion and provider streaming have separate scopes. [Link contract](link-contract.md).
 
 - Status: design proposal for discussion, associated with InfiniCenter ProjectGroup-2 decision **0036 proposed**. This change produces documentation only; no implementation, release or deployment.
 - Initial draft: 2026-10-16; revised: 2026-10-18 (internal-use proposal v3).
@@ -300,9 +302,9 @@ Line numbers refer to the historical initial-draft baselines. Repository links p
 | --- | --- |
 | Model SSE and Agent buffering | [router.go](../services/gateway/internal/modelrouter/router.go) 612, 642, 672; [agent.go](../services/gateway/internal/agent/agent.go) 960–994 |
 | Execution source and old preview | [execution_workflow.go](../services/gateway/internal/gateway/execution_workflow.go) 120; [progress.go](../services/gateway/internal/execution/progress.go) 11, 86, 128, 154; [execution_progress.go](../services/gateway/internal/gateway/execution_progress.go) 43 |
-| One-shot response and dispatch | [endpoint_rpc.go](../services/gateway/internal/iscpworkbench/endpoint_rpc.go) 27, 67, 156, 273; [endpoint.go](../services/gateway/internal/iscpworkbench/endpoint.go) 557, 635 |
-| Negotiation and fresh authority | [negotiation.go](../services/gateway/internal/iscpworkbench/negotiation.go) 201, 224; [authorization.go](../services/gateway/internal/iscpnodeclient/authorization.go) |
-| Helper, client and UI | [helper](../services/gateway/cmd/iscp-workbench/main.go) 153, 246, 291; [execution-progress.mjs](../apps/desktop/src/main/execution-progress.mjs) 77; [execution-client.mjs](../apps/desktop/src/main/execution-client.mjs) 243, 261; [LocalWorkbench.tsx](../apps/webchat/src/desktop/LocalWorkbench.tsx) 225, 476; [messages.tsx](../apps/webchat/src/components/messages.tsx) 94 |
+| One-shot response and dispatch | endpoint_rpc.go (`endpoint_rpc.go`, since removed) 27, 67, 156, 273; endpoint.go (`endpoint.go`, since removed) 557, 635 |
+| Negotiation and fresh authority | negotiation.go (`negotiation.go`, since removed) 201, 224; authorization.go (`authorization.go`, since removed) |
+| Helper, client and UI | helper (`main.go`, since removed) 153, 246, 291; execution-progress.mjs (`execution-progress.mjs`, since removed) 77; execution-client.mjs (`execution-client.mjs`, since removed) 243, 261; [LocalWorkbench.tsx](../apps/webchat/src/desktop/LocalWorkbench.tsx) 225, 476; [messages.tsx](../apps/webchat/src/components/messages.tsx) 94 |
 | SparkClaw Relay patch | `receive.go`; [deployment record](public-iscp-node-deployment.md); [prior latency measurements](iscp-latency-optimization.md) |
 | ISCP envelopes and sequence state | [envelope.go](https://github.com/Infinimesh-ai/ISCP/blob/47f1f6c231c56c92eff6b6c5d398e037ebcf9602/pkg/iscp/envelope/envelope.go#L34); [session.go](https://github.com/Infinimesh-ai/ISCP/blob/47f1f6c231c56c92eff6b6c5d398e037ebcf9602/pkg/iscp/session/session.go#L243) |
 | Upstream drain, allowance and queue | [server.go](https://github.com/Infinimesh-ai/ISCP/blob/47f1f6c231c56c92eff6b6c5d398e037ebcf9602/services/relay-reference/internal/relay/server.go#L546); [PostgreSQL claim](https://github.com/Infinimesh-ai/ISCP/blob/47f1f6c231c56c92eff6b6c5d398e037ebcf9602/pkg/server/repository/relay.go#L254) |

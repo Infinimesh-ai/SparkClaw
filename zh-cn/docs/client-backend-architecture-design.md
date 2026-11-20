@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/client-backend-architecture-design.md)
 
-> 部分被取代（2026-11-19）：第 1、2 节里"会话、消息、任务历史归各客户端本地所有"的规定，由[三端连接层设计](client-link-layer-design.md)取代，新设计下后端保存全部会话和附件。该设计尚未实现；实现之前，代码仍按下文的边界运行。
+> 部分已被取代（2026-11-19）：第 1、2 节中“会话归各客户端本地所有”的边界，以及设置里按设备签发凭据的做法，已由[三端连接层设计](client-link-layer-design.md)和[自建官网设计](self-hosted-console-design.md)取代。会话和附件现在全部保存在后端，设备的加入和撤销在官网进行。
 
 > 历史设计：当前工作台行为与全新初始化路径以[架构](architecture.md)、[实施记录](workbench-convergence-implementation.md)和[发布指南](workbench-release.md)为准。下文保留原有日期下的设计理由与验收证据。
 
@@ -13,8 +13,6 @@
 > 范围，当前初始化与发布规则以新方案为准。WebChat 属于正常工作台，资源和外部契约边界仍适用。
 
 日期：2026-10-03。P0–P5 Linux／共享源码与适用隔离检查完成，具体交付范围及剩余阶段门见[实施与验收记录](client-r3-implementation.md)。状态：用户已确认产品边界、不迁移旧测试数据、离线任务策略，以及第 2 节后端临时处理／控制记录边界和未交付结果最长 24 小时的保留规则；Mac 验收与生产架构切换待完成。本文是 SparkClaw 自有客户端的目标架构；[架构](architecture.md)、[Store](store.md) 和 [WebChat](webchat.md) 中标明的内容仍描述现行实现。本文不表示已经部署、清除数据或修改已接受的跨项目契约。
-
-> 部分已被取代（2026-11-19）：第 1、2 节中“会话归各客户端本地所有”的边界，以及设置里按设备签发凭据的做法，已由[三端连接层设计](client-link-layer-design.md)和[自建官网设计](self-hosted-console-design.md)取代。会话和附件现在全部保存在后端，设备的加入和撤销在官网进行。
 
 ## 1. 已确认的边界
 

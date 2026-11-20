@@ -1,6 +1,8 @@
 # Workbench convergence implementation
 
 > Language: English | [简体中文](../zh-cn/docs/workbench-convergence-implementation.md)
+>
+> **2026-11-20** — This ledger covers the October desktop transport, local conversation ownership and its original acceptance. Devices now synchronize backend conversations over the link. Host WebChat continues to use the host HTTP entry. [Client link layer design](client-link-layer-design.md).
 
 Date: 2026-10-06. Implementation branch: `codex/workbench-runtime-convergence`.
 Starting commit: `9b92968d`. This record covers source and isolated verification,

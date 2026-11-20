@@ -2,6 +2,8 @@
 
 [English](../../docs/iscp-rpc-diagnostics.md)
 
+> **2026-11-20** — 工作台 helper、其反向 RPC 跟踪阶段及下述事故分析脚本已退役。本文保留以供解读历史 trace，浏览器健康和私有耗时记录仍由相应组件产生。[连接协议](link-contract.md)。
+
 排查 SparkX 浏览器健康检查时，从任务请求 ID 或
 `browser.controller.status` 的 RPC ID 入手。RPC ID 在经鉴权的加密请求中，
 Relay 无法读取。发送端分别记录请求和回包的 RPC ID 与信封 ID 对应关系，

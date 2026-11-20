@@ -176,33 +176,51 @@ func (s *Server) registerMedicineRoutes() {
 }
 
 func (s *Server) recognizeMedicine(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Image       string `json:"image"`
-		ContentType string `json:"content_type"`
-	}
+	var input medicineRecognizeInput
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMedicineRequestBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil || decoder.Decode(new(any)) != io.EOF {
 		writeError(w, http.StatusBadRequest, errMedicinePhotoInvalid)
 		return
 	}
-	photo, err := medicinePhoto(input.Image, input.ContentType)
+	result, err := s.medicineRecognize(r.Context(), input)
+	if errors.Is(err, errMedicineModelUnavailable) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "medicine recognition is unavailable", "code": "medicine_recognition_unavailable", "retryable": true})
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// errMedicineModelUnavailable reports that the model call itself failed.
+var errMedicineModelUnavailable = errors.New("medicine model unavailable")
+
+type medicineRecognizeInput struct {
+	Image       string `json:"image"`
+	ContentType string `json:"content_type"`
+}
+
+// medicineRecognize reads one package photo; shared by the HTTP handler and
+// the link domain method.
+func (s *Server) medicineRecognize(ctx context.Context, input medicineRecognizeInput) (medicineRecognition, error) {
+	photo, err := medicinePhoto(input.Image, input.ContentType)
+	if err != nil {
+		return medicineRecognition{}, err
+	}
 	started := time.Now().UTC()
-	result, chat, err := recognizeMedicinePhoto(r.Context(), s.models, photo, input.ContentType)
+	result, chat, err := recognizeMedicinePhoto(ctx, s.models, photo, input.ContentType)
 	if s.store != nil {
-		if _, saveErr := s.store.SaveModelCall(r.Context(), modelCallFromChat("", "", string(modelcapacity.OperationMedicineRecognize), chat, err, started, time.Now().UTC())); saveErr != nil {
+		if _, saveErr := s.store.SaveModelCall(ctx, modelCallFromChat("", "", string(modelcapacity.OperationMedicineRecognize), chat, err, started, time.Now().UTC())); saveErr != nil {
 			slog.Warn("medicine recognition model call persistence unavailable", "code", store.StoreErrorCodeOf(saveErr))
 		}
 	}
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "medicine recognition is unavailable", "code": "medicine_recognition_unavailable", "retryable": true})
-		return
+		return medicineRecognition{}, errMedicineModelUnavailable
 	}
-	writeJSON(w, http.StatusOK, result)
+	return result, nil
 }
 
 func medicinePhoto(encoded, contentType string) ([]byte, error) {
@@ -258,34 +276,49 @@ func recognizeMedicinePhoto(ctx context.Context, model medicineVisionModel, phot
 }
 
 func (s *Server) parseMedicine(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Text  string `json:"text"`
-		Today string `json:"today"`
-	}
+	var input medicineParseInput
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxMedicineParseBodyBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil || decoder.Decode(new(any)) != io.EOF {
 		writeError(w, http.StatusBadRequest, errMedicineTextInvalid)
 		return
 	}
+	result, err := s.medicineParse(r.Context(), input)
+	if errors.Is(err, errMedicineModelUnavailable) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "medicine text reading is unavailable", "code": "medicine_parse_unavailable", "retryable": true})
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+type medicineParseInput struct {
+	Text  string `json:"text"`
+	Today string `json:"today"`
+}
+
+// medicineParse reads one typed sentence; shared by the HTTP handler and
+// the link domain method.
+func (s *Server) medicineParse(ctx context.Context, input medicineParseInput) (medicineTextParse, error) {
 	text := strings.TrimSpace(input.Text)
 	if runes := utf8.RuneCountInString(text); !utf8.ValidString(text) || runes == 0 || runes > maxMedicineInputRunes ||
 		strings.ContainsFunc(text, func(r rune) bool { return r < 0x20 || r == 0x7f }) || medicineDate(input.Today) == "" {
-		writeError(w, http.StatusBadRequest, errMedicineTextInvalid)
-		return
+		return medicineTextParse{}, errMedicineTextInvalid
 	}
 	started := time.Now().UTC()
-	result, chat, err := parseMedicineText(r.Context(), s.models, text, input.Today)
+	result, chat, err := parseMedicineText(ctx, s.models, text, input.Today)
 	if s.store != nil {
-		if _, saveErr := s.store.SaveModelCall(r.Context(), modelCallFromChat("", "", string(modelcapacity.OperationMedicineParse), chat, err, started, time.Now().UTC())); saveErr != nil {
+		if _, saveErr := s.store.SaveModelCall(ctx, modelCallFromChat("", "", string(modelcapacity.OperationMedicineParse), chat, err, started, time.Now().UTC())); saveErr != nil {
 			slog.Warn("medicine text model call persistence unavailable", "code", store.StoreErrorCodeOf(saveErr))
 		}
 	}
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "medicine text reading is unavailable", "code": "medicine_parse_unavailable", "retryable": true})
-		return
+		return medicineTextParse{}, errMedicineModelUnavailable
 	}
-	writeJSON(w, http.StatusOK, result)
+	return result, nil
 }
 
 // Reads one sentence into the box's fields. The reply is checked again: a

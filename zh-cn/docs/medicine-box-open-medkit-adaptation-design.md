@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/medicine-box-open-medkit-adaptation-design.md)
 >
+> **2026-11-20** — 实现范围中列出的工作台操作表、同步脚本及桌面传输模块已退役。药品解析与识别设计仍适用，设备通过连接层调用 medicine.parse 和 medicine.recognize。[连接协议](link-contract.md)。
+>
 > 日期：2026-11-02。状态：设计已定稿，负责人于 2026-11-02 确认第 9 节各项。两个阶段已于 2026-11-02 实现（见第 10 节）；真实模型抽查已于当天通过，配对发布也于当天上线（见 10.1 节）。参考项目：[MonoYan/open-medkit](https://github.com/MonoYan/open-medkit) 提交 `8c2217ba707cf239ec3c8285c3ff3aa3b357a1c4`（MIT 许可）。范围：桌面端药箱的工作区页面、详情、添加／编辑弹窗、药品字段与本机数据迁移，以及文字录入。模块栏、药箱侧栏和照片识别链路保留。
 
 ## 1. 背景与目标

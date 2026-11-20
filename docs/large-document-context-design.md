@@ -190,10 +190,9 @@ so gateway and env must be released together.
 
 ### 4.1 Scope and entry points
 
-Upload limits stay as they are: WebChat uploads accept 25 MiB per file
-(`gateway/documents_endpoints.go`) and desktop ISCP execution inputs 8 MiB per
-file (`iscpobjects/store.go`), without chunked upload. Large documents
-therefore reach the strategy in two ways:
+Host WebChat accepts uploads of 25 MiB per file. The desktop workbench input path described in the original design (8 MiB per file) is retired. Devices now upload conversation attachments as chunked link objects with a 25 MiB file limit. [Link contract](link-contract.md).
+
+The document strategy can read two kinds of input.
 
 - **Uploads** up to 25 MiB whose text cannot be read in one piece.
 - **Workspace files** that never went through upload (placed in the workspace

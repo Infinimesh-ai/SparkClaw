@@ -1,6 +1,8 @@
 # SparkClaw Mac 源码同步与连接指南
 
 > 语言：简体中文 | [English](../../docs/macos-connection-guide.md)
+>
+> **2026-11-20** — 下述桌面预置和局域网连接流程属于已退役工作台。当前 Mac 客户端用控制台签发的凭据加入，再通过局域网或 ISCP Relay 连接器通信。[三端连接层设计](client-link-layer-design.md)。
 
 当前源码发布：全新存储、登记、API 路径与重启行为见[配套工作台发布指南](workbench-release.md)；具体验证边界见[实施记录](workbench-convergence-implementation.md)。
 

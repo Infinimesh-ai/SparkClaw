@@ -99,7 +99,7 @@ func (h *ToolHub) unavailableResource(name string) executionResource {
 	if h.resources == nil {
 		return ""
 	}
-	if strings.HasPrefix(name, "mcd.") && h.resources.MCDSelection == nil {
+	if strings.HasPrefix(name, "mcd.") && h.mcdSelection() == nil {
 		return resourceToolPermission
 	}
 	if h.resources.TextOnly {
@@ -158,6 +158,26 @@ func (h *ToolHub) ExecutionTextOnly() bool { return h.resources != nil && h.reso
 // for example a desktop's built-in browser reached over the link layer.
 // Everything else (repository, workspace, connectors, memory) is the
 // resident hub's.
+// WithMCDSelection returns a hub whose McDonald's tools use selection, the
+// ordering resources a run's device is authorized for; the rest of the hub
+// is shared. The caller closes selection when the run ends.
+func (h *ToolHub) WithMCDSelection(selection *mcddining.Selection) *ToolHub {
+	if h == nil || selection == nil {
+		return h
+	}
+	scoped := *h
+	scoped.mcd = selection
+	scoped.ownsProviders = false
+	return &scoped
+}
+
+func (h *ToolHub) mcdSelection() *mcddining.Selection {
+	if h.resources != nil && h.resources.MCDSelection != nil {
+		return h.resources.MCDSelection
+	}
+	return h.mcd
+}
+
 func (h *ToolHub) WithBrowser(adapter browserautomation.Adapter) *ToolHub {
 	if h == nil || adapter == nil {
 		return h

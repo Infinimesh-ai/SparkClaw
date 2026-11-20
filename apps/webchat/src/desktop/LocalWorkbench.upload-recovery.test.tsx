@@ -67,7 +67,7 @@ async function fixture() {
   window.sparkclawClientStore = store as unknown as ClientStoreAPI;
   window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
     localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-      backend: { schema_version: 3, transport: "iscp", deployment_id: "test", origin: "https://fixture.invalid" },
+      backend: { schema_version: 3, transport: "link", deployment_id: "test", origin: "https://fixture.invalid" },
       capabilities: { surfaces: { files: { enabled: true } } } })) } as unknown as SparkClawDesktop;
   const host = document.createElement("div"); document.body.append(host); const root = createRoot(host);
   await act(async () => root.render(<LocalWorkbench />));

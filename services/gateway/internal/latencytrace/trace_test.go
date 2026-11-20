@@ -124,8 +124,7 @@ func TestTracePressureAndStorageFailureNeverBlockProducer(t *testing.T) {
 }
 
 func TestDisabledTracingPreservesContextAndDoesNotReadClock(t *testing.T) {
-	// The normal unit suite has no opt-in. Enabled-process integration is in
-	// iscpworkbench's isolated child so the immutable process setting stays true.
+	// Tracing reads its process-wide setting once. This check requires an unset opt-in.
 	if os.Getenv(Environment) != "" {
 		t.Skip("explicit trace environment supplied")
 	}

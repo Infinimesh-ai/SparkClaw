@@ -73,10 +73,10 @@ In the current clients the pull profile still opens one connection while the app
 | `session.archive` | `{session_id, archived}` → header | |
 | `session.delete` | `{session_id}` → `{session_id, deleted}` | Deleting twice succeeds. Uploaded attachments are deleted with the conversation |
 | `session.messages` | `{session_id, before_seq?, after_seq?, limit}` → `{session, messages[], more}` | Oldest first. `before_seq: 0` returns the latest page |
-| `message.send` | `{session_id, client_message_id, content, attachments[], client_timezone, client_presentation?}` → `{message, run_id, replayed}` | The same `client_message_id` replays. A second send while a run is in progress returns `busy`. A desktop may declare `client_presentation {schema_version, schedule_show, timezone, requested_at, local_conversation_id}`; the backend may then answer with `extra.client_action` (`schedule.show`) in the final message instead of reading local schedules |
+| `message.send` | `{session_id, client_message_id, content, attachments[], client_timezone, client_presentation?, replay_only?}` → `{message, run_id, replayed}` | The same `client_message_id` replays. With `replay_only` the backend only answers whether the message arrived: the original reply, or `not_found` with `not_sent` when it never did; it never starts a late run. A second send while a run is in progress returns `busy`. A desktop may declare `client_presentation {schema_version, schedule_show, timezone, requested_at, local_conversation_id}`; the backend may then answer with `extra.client_action` (`schedule.show`) in the final message instead of reading local schedules |
 | `run.subscribe` | `{session_id}` → `{subscription, status}` | duplex only. The current snapshot first, then `run` events |
 | `run.unsubscribe` | `{session_id}` → `{ok}` | duplex only |
-| `run.status` | `{session_id}` → RunStatus | `state`: `idle`, `running`, `approval_pending`, `completed`, `failed`, `cancelled` or `blocked`. Also carries `preview`, `progress`, `final_message` and `pending_approvals` |
+| `run.status` | `{session_id}` → RunStatus | `state`: `idle`, `running`, `approval_pending`, `completed`, `failed`, `cancelled` or `blocked`. Also carries `preview`, `progress`, `final_message`, `pending_approvals` and `seq`, the last run event the snapshot includes. A finished run is answered from the stored conversation |
 | `run.cancel` | `{session_id, run_id?}` → RunStatus | |
 | `approval.list` | `{session_id?, pending?}` → `{approvals[]}` | |
 | `approval.resolve` | `{approval_id, decision: approve\|reject, inputs?, idempotency_key}` → `{approval}` | |
@@ -85,11 +85,13 @@ In the current clients the pull profile still opens one connection while the app
 
 | Operation | Notes |
 |---|---|
-| `object.upload.begin` | Params: `{upload_key, name, size, content_type, sha256, session_id}`. Returns `{upload_id, received, chunk_size}`. The same `upload_key` resumes the upload |
+| `object.upload.begin` | Params: `{upload_key, name, size, content_type, sha256, session_id}` or, for a business domain's object, `{…, purpose}` without `session_id`. Returns `{upload_id, received, chunk_size}`. The same `upload_key` resumes the upload |
 | `object.upload.chunk` | Params: `{upload_id, offset, data}`, where `data` is base64 |
 | `object.upload.commit` | Verifies the SHA-256 and returns `object_id` |
 | `object.describe` | Does not require the `attachments` condition |
 | `object.read` | Params: `{object_id, offset, length}`. Returns `{object, offset, data, eof}` |
+
+A domain object (uploaded with a `purpose`, or returned by a domain method) belongs to the device that uploaded or received it, is read only by that device, never enters a workspace and expires after 24 hours. Its id is a UUID. Purposes in use: `mail_send_attachment`, `speech_recording`, `domain_args`, `domain_result`, `mail_attachment`.
 
 Quotas:
 - at most 25 MiB per file;
@@ -99,17 +101,32 @@ Quotas:
 
 ### Business domains
 
-`domain.call` takes `{domain, method, args, idempotency_key}` and returns `{result}`.
+`domain.call` takes `{domain, method, args, args_object?, idempotency_key?, replay_only?}` and returns `{result}`.
 
-- `method` is the domain operation's name, for example `mail.mailboxes.list`. `domain` is its first segment.
-- `args` holds the operation's typed fields: `{params, body, body_object, expected_revision, input_digest, request_id}`.
-- `result` is the domain's own outcome: `{status, body, body_object, error_code, error, retryable}`.
-- Mutations need `idempotency_key`, a UUID. A retry returns the original outcome from the receipt journal.
-- Large bodies travel through the `transfer.*` methods. Large results come back as `body_object` and are read with the `object.*` methods of the same tunnel.
+- `method` is a typed domain method, for example `mail.conversations.list`; `domain` is its first segment. `device.describe` lists the domains the backend serves.
+- `args` are the method's own typed fields. The records a desktop route names (a mail, a conversation, a binding) are fields too, never a path. Unknown fields are ignored.
+- Arguments larger than one frame are uploaded first as a domain object of purpose `domain_args`; `args_object` names it instead of `args`. The call and its receipt are those of the arguments.
+- Mutations need `idempotency_key`, a UUID. The backend records the attempt before it runs, and a retry with the same key gets the original result, `conflict` (the same key with other content) or `outcome_unknown` (the attempt started and never finished). It never runs twice.
+- `replay_only: true` answers only the original outcome of a mutation and never starts it: `not_found` with `not_sent` means it never ran.
 
-Operations replaced by core operations, or owned by the console, are refused with a reason: `execution.*`, `approvals.*`, `clients.*`, `authorizations.*`, `installation.*`, `phone.*`, `capabilities.*`, `workbench.*`, `state.*` and `audio.*`.
+Two result shapes:
 
-The `mcd.*` and `browser.*` domain methods require the browser surface.
+- **Typed results** (`medicine`, `notifications`, `speech`, `browser`, `mcd`): the method's value. A failure is a link error whose `reason` is the domain's own (for example `medicine_sync_reset_required`); a model outage is `backend_unavailable` with the message 模型暂时不可用.
+- **Domain results** (`settings`, `mail`, `presentation`): `{status, body, body_object?}`, the status and JSON body the host WebChat answers the same business call with, which the desktop's original screens read unchanged. A file or a body larger than one frame comes back as `body_object`, a domain object read with `object.read`. A business failure is a result with its status (for example `409 revision_conflict`); link errors stay for the call itself.
+
+| Domain | Methods |
+|---|---|
+| `medicine` | `medicine.sync`, `.operations.get`, `.items.create`, `.items.update`, `.items.delete`, `.items.batch`, `.import`, `.recognize`, `.parse` |
+| `notifications` | `notifications.list` `{limit?, after?}` (with a sealed `watermark`), `.read` `{id}`, `.read_all` `{watermark}` |
+| `speech` (condition `microphone`) | `speech.status`, `.transcribe` `{session_id, request_id, language, audio_object}`, `.cancel`, `.session.open`, `.session.frame`, `.session.events`, `.session.finish`, `.session.cancel` |
+| `browser`, `mcd` (condition `browser_surface`) | `browser.receipt`, `browser.reconcile`; `mcd.session.provision`, `.revoke`, `.status` |
+| `settings` | `settings.owner.get`/`.patch`, `.connectors.list`/`.patch`, `.integrations.list`, `.credentials.add`/`.activate`/`.check`/`.delete`, `.bindings.list`/`.start`/`.get`/`.poll`/`.revoke`/`.login`, `.browser.get`/`.save`/`.check`/`.delete`, `.mcp.catalog`/`.transports`/`.tickets.*`/`.bindings.*`/`.records.delete`/`.pairing.*` |
+| `mail` | `mail.providers.*`, `.intake.update`, `.intake.reconcile`, `.mailboxes`, `.sync`, `.attachment`, `.message`, `.conversations.*`, `.pending`, `.notifications`, `.interaction`, `.sent_sources`, `.sender_rules.*`, `.verification`, `.render_preview`, `.file`, `.presentations.*`, `.compose.capabilities`, `.sync.*`, `.drafts.*`, `.send`, `.replies.polish`, `.source.cleanup`, `.classification`, `.assignment`, `.viewed`, `.reanalyze` |
+| `presentation` | `presentation.config`, `.owner`, `.ready` |
+
+The settings owner, connector and integration values come as `{revision, value}`; a change carries the `expected_revision` it was made against and a stale one answers `409 revision_conflict`.
+
+A receiving change (`mail.intake.update`) whose reply was lost and whose attempt is unknown is settled with `mail.intake.reconcile` `{idempotency_key, original}`, where `original` is the change's own arguments: the mailbox tells whether it was applied, and that answer becomes the change's receipt (`{state: "completed", idempotency_key, response}`). A login attempt whose provider failed (`mail.providers.login`) stays `outcome_unknown`, since the login window may have opened.
 
 ### Projections
 
@@ -127,14 +144,15 @@ For a watch the backend trims the data it returns:
 
 | Topic | Data |
 |---|---|
-| `run` | `{session_id, run_id, kind: state\|delta\|progress\|final, text?, status?}` |
+| `run` | `{session_id, run_id, seq, kind: state\|delta\|progress\|final, text?, status?}`. `seq` increases by one per event of a conversation, across runs; one subscription receives them in order. A gap means events were lost: read `run.status` again |
 | `sync` | `{cursor}`: a conversation changed; call `sync.changes` |
 | `approval` | `{pending}`: the set of pending approvals changed |
+| `domain` | `{domains[]}`: a business domain's state changed (for example `settings`, `mail`, `medicine`); read it again |
 | `device` | `{state: "revoked"}`: sent right before the backend closes the connection |
 
 ## 6. Errors
 
-`error` is `{code, message, retryable}`. The codes are:
+`error` is `{code, message, retryable, not_sent?, reason?}`. `not_sent` means the request never reached a handler (no path was up, the frame could not be written, or the backend refused it before running it): it had no effect and may be sent again. `reason` is a business domain's own reason. The codes are:
 
 - `unsupported_capability`
 - `invalid_request`
@@ -149,6 +167,7 @@ For a watch the backend trims the data it returns:
 - `internal`
 - `quota_exceeded`
 - `timeout`
+- `outcome_unknown`: a retried mutation whose original attempt started and never finished. It is never run again; the client reconciles the business state
 
 `backend_unavailable` means the backend is unreachable. Clients fail the operation at once and queue nothing (design 3.12). A request that was sent but got no reply is retried with the same idempotency key, only to learn its outcome.
 

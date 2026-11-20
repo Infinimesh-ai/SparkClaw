@@ -2,6 +2,8 @@
 
 Language: English | [简体中文](../zh-cn/docs/iscp-application-stream-implementation.md)
 
+> **2026-11-20** — Historical implementation and measurements for the retired workbench stream. Current clients use run.subscribe or run.status. The UI observations below apply to the tested builds. [Link contract](link-contract.md).
+
 Date: 2026-10-18. This is a local implementation of the [internal v3 design](iscp-application-stream-design.md), based on `cd7d5ccc`. It is not an installed release or ISCP upstream acceptance. Development and all disposable profiles belong to the dedicated `codex/iscp-application-stream-v3` worktree. InfiniCenter decision 0036 retains the implementation authorization separately from proposed upstream standardization. Existing JingSi, IMMS and App-CLI contracts remain unchanged.
 
 ## Implementation

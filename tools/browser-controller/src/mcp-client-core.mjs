@@ -274,7 +274,7 @@ export class PlaywrightMCPClient {
         return this.#handoff(requiredPageID(args.page_id));
       case "tabs.close":
         exactArgs(args, [], ["page_id"]);
-        return this.#closePage(optionalPageID(args.page_id) || this.currentPageID);
+        return this.#closePage(optionalPageID(args.page_id) || this.currentPageID, true);
       case "page.info":
         exactArgs(args, [], ["page_id"]);
         return this.#pageInfo(optionalPageID(args.page_id));
@@ -348,7 +348,7 @@ export class PlaywrightMCPClient {
     return this.#ownedPages(after);
   }
 
-  async #closePage(candidate) {
+  async #closePage(candidate, continueSession = false) {
     const pageID = requiredPageID(candidate);
     const page = this.#requirePage(pageID);
     const before = await this.#providerTabs();
@@ -365,6 +365,15 @@ export class PlaywrightMCPClient {
     }
     this.currentPageID = currentOwnedPageID(this.pages, after);
     this.#invalidateSnapshots();
+    // Playwright selects a survivor locally when the current tab closes;
+    // Electron learns which task page to observe through Page.bringToFront.
+    // Confirm only the provider's surviving owned tab during an active session.
+    if (continueSession && this.electronConnection && before[page.index].current && this.currentPageID) {
+      this.#assertTopology(after);
+      const selected = await this.#selectTab(this.#requirePage(this.currentPageID));
+      this.lastProviderTabs = selected;
+      return this.#ownedPages(selected);
+    }
     return this.#ownedPages(after);
   }
 
@@ -390,14 +399,19 @@ export class PlaywrightMCPClient {
     const tabs = await this.#providerTabs();
     this.#assertTopology(tabs);
     if (!tabs[page.index]?.current) {
-      const result = await this.#callJSONTool("browser_tabs", { action: "select", index: page.index });
-      const selected = tabsFromPayload(result.payload);
-      this.#assertTopology(selected);
-      if (!selected[page.index]?.current) throw pageStale("task page selection was not confirmed");
+      await this.#selectTab(page);
       this.#invalidateSnapshots();
     }
     this.currentPageID = page.pageID;
     return page;
+  }
+
+  async #selectTab(page) {
+    const result = await this.#callJSONTool("browser_tabs", { action: "select", index: page.index });
+    const selected = tabsFromPayload(result.payload);
+    this.#assertTopology(selected);
+    if (!selected[page.index]?.current) throw pageStale("task page selection was not confirmed");
+    return selected;
   }
 
   async #pageInfo(candidate) {

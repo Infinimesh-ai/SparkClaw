@@ -2,6 +2,8 @@
 
 语言：[English](../../docs/iscp-application-stream-implementation.md) | 简体中文
 
+> **2026-11-20** — 本文记录已退役工作台流式传输的实现和测量。当前客户端通过 run.subscribe 或 run.status 获取进度，以下界面观察对应当时的构建。[连接协议](link-contract.md)。
+
 日期：2026-10-18。本次从 `cd7d5ccc` 实现[内部 v3 设计](iscp-application-stream-design.md)，属于本地开发，不代表已安装发布或获得 ISCP 上游接受。开发及临时配置均属于独立的 `codex/iscp-application-stream-v3` worktree。InfiniCenter 0036 分别保留本地实施授权和仍为 proposed 的上游标准化状态；既有 JingSi、IMMS、App-CLI 契约不变。
 
 ## 实现

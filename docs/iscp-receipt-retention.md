@@ -2,6 +2,8 @@
 
 [简体中文](../zh-cn/docs/iscp-receipt-retention.md)
 
+> **2026-11-20** — The workbench domain journal and its seven-day sweeper are retired. This is the retention policy of that journal. The link maintains its own mutation receipts. Relay and issuer receipt policies have separate scopes. [Link contract](link-contract.md).
+
 SparkClaw automatically removes completed **business result bodies** after seven
 days. It retains an encrypted, compact record of the original scoped operation
 key, input digest and operation type. An expired result never makes an old

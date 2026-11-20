@@ -1,6 +1,8 @@
 # Desktop Client And Embedded Browser Design
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-client-embedded-browser-design.md)
+>
+> **2026-11-20** — The standalone workbench LAN and ISCP controller routes are retired. The embedded browser and the separate backend acquisition lane remain in use. Current desktop browser commands travel as reverse link calls. [Link contract](link-contract.md).
 
 > Latest client control design (2026-11-09): [packaged Controller over ISCP](desktop-embedded-browser-controller-iscp-design.md)
 > specifies the next Mac/Linux generic automation chain, recovery and UI-preserving cutover.

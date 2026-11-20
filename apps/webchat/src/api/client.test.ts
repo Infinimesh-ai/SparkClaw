@@ -102,7 +102,7 @@ describe("identity read deadline by native transport", () => {
       const controller = new AbortController(); setTimeout(() => controller.abort(), milliseconds); return controller.signal;
     });
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
-      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", backend: { transport: "iscp" } })) } as unknown as NonNullable<typeof window.sparkclawDesktop>;
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", backend: { transport: "link" } })) } as unknown as NonNullable<typeof window.sparkclawDesktop>;
     const identity = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
     const fetch = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((resolve, reject) => {
       const timer = setTimeout(() => resolve(new Response(JSON.stringify(identity))), 6000);

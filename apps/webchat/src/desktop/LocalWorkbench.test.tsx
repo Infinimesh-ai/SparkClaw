@@ -89,6 +89,11 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  // Every desktop backend reads its owner, configuration and readiness on
+  // connection; tests that care override these.
+  vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
+  vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
+  vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "Test", created_at: "", updated_at: "" });
 });
 
 describe("workbench local workbench", () => {
@@ -104,7 +109,7 @@ describe("workbench local workbench", () => {
       submit: vi.fn(), saveFile: vi.fn(), exportFile: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(),
       scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-      backend: { schema_version: 3, transport: "iscp", deployment_id: "test" } })) } as unknown as SparkClawDesktop;
+      backend: { schema_version: 3, transport: "link", deployment_id: "test" } })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"), root = createRoot(host);
     const previousLanguage = document.documentElement.lang;
     const input = () => host.querySelector<HTMLTextAreaElement>("form.composer textarea")!;
@@ -142,7 +147,7 @@ describe("workbench local workbench", () => {
     } finally { await act(async () => root.unmount()); document.documentElement.lang = previousLanguage; }
   });
 
-  it.each(["iscp", "lan"] as const)("opens the original browser panel without manual authorization over %s", async transport => {
+  it.each(["link"] as const)("opens the original browser panel without manual authorization over %s", async transport => {
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
     vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
@@ -153,7 +158,7 @@ describe("workbench local workbench", () => {
     let changed = (_status: DesktopConnectionStatus) => {};
     let browserEnabled = true;
     const connectionStatus = (enabled: boolean): DesktopConnectionStatus => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-      backend: transport === "iscp" ? { schema_version: 3, transport: "iscp", deployment_id: "test", origin: "https://fixture.invalid" } : { schema_version: 2, deployment_id: "test", origin: "https://fixture.invalid" },
+      backend: transport === "link" ? { schema_version: 3, transport: "link", deployment_id: "test", origin: "https://fixture.invalid" } : { schema_version: 2, deployment_id: "test", origin: "https://fixture.invalid" },
       capabilities: { operations: [], files: false, mail: false, browser: enabled, speech: false, approvals: false, settings: false,
         surfaces: { browser: { enabled, reason: "" } } } });
     const desktopState = { pages: [], downloads: [], permissions: [], presentation: { panel_bounds: { x: 0, y: 0, width: 1, height: 1 }, insufficient_space: false, presented_page_ref: "", layout_revision: 0 } };
@@ -196,16 +201,16 @@ describe("workbench local workbench", () => {
       expect(window.localStorage.getItem("sparkx.inspector-width")).toBeNull();
       await act(async () => host.querySelector<HTMLButtonElement>(".desktopBrowserWindowActions button")!.click());
       expect(host.querySelector("main.browserFocus")).not.toBeNull();
-      if (transport === "iscp") await act(async () => { browserEnabled = false; changed(connectionStatus(false)); });
+      if (transport === "link") await act(async () => { browserEnabled = false; changed(connectionStatus(false)); });
       else await act(async () => [...host.querySelectorAll<HTMLButtonElement>(".desktopBrowserWindowActions button")].at(-1)!.click());
       expect(host.querySelector("main.browserFocus, main.withInspector")).toBeNull();
       expect(host.querySelector<HTMLElement>(".desktopBrowserPanel")?.hidden).toBe(true);
       expect(host.querySelector(".chatColumn")?.hasAttribute("inert")).toBe(false);
-      expect(host.querySelector<HTMLButtonElement>(".rightSidebarToggle")?.disabled).toBe(transport === "iscp");
+      expect(host.querySelector<HTMLButtonElement>(".rightSidebarToggle")?.disabled).toBe(transport === "link");
     } finally { await act(async () => root.unmount()); }
   });
 
-  it.each(["iscp", "lan"] as const)("keeps the uncertain browser write notice and both reconciliation actions on %s", async (transport) => {
+  it.each(["link"] as const)("keeps the uncertain browser write notice and both reconciliation actions on %s", async (transport) => {
     vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
     vi.spyOn(api, "ready").mockResolvedValue({ ok: true } as Awaited<ReturnType<typeof api.ready>>);
     vi.spyOn(api, "owner").mockResolvedValue({ id: "owner", display_name: "Test", created_at: "", updated_at: "" });
@@ -221,7 +226,7 @@ describe("workbench local workbench", () => {
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, reconcileBrowserHost,
       state: vi.fn(async () => desktopState()), onState: vi.fn(() => () => {}), hideBrowser: vi.fn(async () => ({})),
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-        backend: transport === "iscp" ? { schema_version: 3, transport, deployment_id: "test", origin: "https://fixture.invalid" } : { schema_version: 2, deployment_id: "test", origin: "https://fixture.invalid" },
+        backend: transport === "link" ? { schema_version: 3, transport, deployment_id: "test", origin: "https://fixture.invalid" } : { schema_version: 2, deployment_id: "test", origin: "https://fixture.invalid" },
         capabilities: { operations: [], files: false, mail: false, browser: true, speech: false, approvals: false, settings: false, surfaces: { browser: { enabled: true, reason: "" } } } })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"), root = createRoot(host);
     try {
@@ -231,11 +236,7 @@ describe("workbench local workbench", () => {
       expect(notice?.textContent).toContain("Browser action outcome uncertain");
       const buttons = [...notice.querySelectorAll<HTMLButtonElement>(".localTaskActions button")];
       expect(buttons.map(button => button.textContent)).toEqual(["I verified the action completed", "I verified no change occurred"]);
-      expect(buttons.every(button => button.disabled === (transport === "lan"))).toBe(true);
-      if (transport === "lan") {
-        expect(reconcileBrowserHost).not.toHaveBeenCalled();
-        return;
-      }
+      expect(buttons.every(button => !button.disabled)).toBe(true);
       await act(async () => buttons[1].click());
       expect(reconcileBrowserHost).toHaveBeenCalledWith("cmd_click", unknown.digest, "observed_not_applied");
       expect(host.querySelector(".localUnknownWrite")).toBeNull();
@@ -263,7 +264,7 @@ describe("workbench local workbench", () => {
       scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-        backend: { schema_version: 3, transport: "iscp", deployment_id: "test" } })) } as unknown as SparkClawDesktop;
+        backend: { schema_version: 3, transport: "link", deployment_id: "test" } })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"), root = createRoot(host);
     try {
       await act(async () => root.render(<LocalWorkbench />));
@@ -310,7 +311,7 @@ describe("workbench local workbench", () => {
       submit, reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn(),
       saveFile: vi.fn(), exportFile: vi.fn(), onChange: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; } };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1, localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-      backend: { schema_version: 3, transport: "iscp", deployment_id: "test" } })) } as unknown as SparkClawDesktop;
+      backend: { schema_version: 3, transport: "link", deployment_id: "test" } })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"), root = createRoot(host);
     const select = (index: number) => host.querySelectorAll<HTMLButtonElement>(".sessionSelect")[index].click();
     try {
@@ -370,7 +371,7 @@ describe("workbench local workbench", () => {
       submit: vi.fn(), reconcile: vi.fn(), cancel: vi.fn(), decideApproval: vi.fn(), scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     const state = vi.fn();
     window.sparkclawDesktop = { runtimeKind: 'electron', capabilityVersion: 1, state,
-      localConnection: vi.fn(async () => ({ schema_version: 1, state: 'service_unavailable', client_id: 'client', backend: { schema_version: 3, transport: 'iscp', deployment_id: 'deployment' }, capabilities: { surfaces: { files: { enabled: true } } } })) } as unknown as SparkClawDesktop;
+      localConnection: vi.fn(async () => ({ schema_version: 1, state: 'service_unavailable', client_id: 'client', backend: { schema_version: 3, transport: 'link', deployment_id: 'deployment' }, capabilities: { surfaces: { files: { enabled: true } } } })) } as unknown as SparkClawDesktop;
     const fetch = vi.fn(() => { throw new Error('Unexpected Gateway access'); }); vi.stubGlobal('fetch', fetch);
     const OriginalURL = URL;
     vi.stubGlobal('URL', class extends OriginalURL { static createObjectURL() { return 'blob:local-image'; } static revokeObjectURL() {} });
@@ -441,7 +442,7 @@ describe("workbench local workbench", () => {
       scheduleCreate: vi.fn(), scheduleCheck: vi.fn(), scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "service_unavailable", client_id: "client",
-        backend: { schema_version: 2, transport: "iscp", deployment_id: "deployment" } })) } as unknown as SparkClawDesktop;
+        backend: { schema_version: 2, transport: "link", deployment_id: "deployment" } })) } as unknown as SparkClawDesktop;
     const fetch = vi.fn(() => { throw new Error("unexpected network request"); }); vi.stubGlobal("fetch", fetch);
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
     const host = document.createElement("div"), root = createRoot(host);
@@ -657,7 +658,7 @@ describe("workbench local workbench", () => {
       expect(host.textContent).not.toContain("ISCP connection");
     } finally { await act(async () => root.unmount()); }
   });
-  it("ISCP startup reads real config, owner and readiness while gating unsupported services", async () => {
+  it("link startup reads real config, owner and readiness while gating unsupported services", async () => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, "en");
     const config = vi.spyOn(api, "config").mockResolvedValue({ speech: { default_language: "auto" } } as Awaited<ReturnType<typeof api.config>>);
     vi.spyOn(api, "ready").mockResolvedValue({ ok: true, workspace_root: "/test", trace_dir: "/test/traces", state_backend: "file", state_path: "/test/state", model_mode: "mock", gateway_binding: "local-test",
@@ -682,7 +683,7 @@ describe("workbench local workbench", () => {
       onState: (listener: typeof stateChanged) => { stateChanged = listener; return () => {}; },
       selectConversation: vi.fn(async () => { stateChanged(unavailableBrowser); return { page_ref: "" }; }),
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", test_mode: true,
-        backend: { schema_version: 3, transport: "iscp", origin: "https://iscp.invalid", deployment_id: "deployment" } })) } as unknown as SparkClawDesktop;
+        backend: { schema_version: 3, transport: "link", origin: "https://backend.sparkclaw-link.invalid", deployment_id: "deployment" } })) } as unknown as SparkClawDesktop;
     const host = document.createElement("div"), root = createRoot(host);
     try {
       await act(async () => root.render(<LocalWorkbench />));
@@ -711,7 +712,7 @@ describe("workbench local workbench", () => {
       for (const name of ["Devices & credentials", "Models & tools", "Permissions", "Memory", "Approvals", "Timeline"]) {
         await act(async () => settingsTab(name).click());
         expect(host.querySelector('[aria-current="page"]')?.textContent).toBe(name);
-        expect(host.textContent).toContain("This action is unavailable through the current connection.");
+        expect(host.textContent).toContain(name === "Devices & credentials" ? "Devices join and are removed on the SparkClaw console." : "This action is unavailable through the current connection.");
       }
       expect(fetch).not.toHaveBeenCalled();
       for (const spy of unsupported) expect(spy).not.toHaveBeenCalled();
@@ -752,7 +753,7 @@ describe("workbench local workbench", () => {
       scheduleCancel: vi.fn(), scheduleRunNow: vi.fn() };
     window.sparkclawDesktop = { runtimeKind: "electron", capabilityVersion: 1,
       localConnection: vi.fn(async () => ({ schema_version: 1, state: "connected", client_id: "client", owner_id: "owner",
-        backend: { schema_version: 3, transport: "iscp", origin: "https://iscp.invalid", deployment_id: "deployment" },
+        backend: { schema_version: 3, transport: "link", origin: "https://backend.sparkclaw-link.invalid", deployment_id: "deployment" },
         capabilities: { operations: [], files: false, mail: false, browser: false, speech: false, approvals: false, settings: true,
           surfaces: { settings_connectors: { enabled: true, reason: "" }, settings_bindings: { enabled: true, reason: "" } } },
       })) } as unknown as SparkClawDesktop;

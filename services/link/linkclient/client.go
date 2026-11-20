@@ -216,7 +216,13 @@ func (c *Client) WaitReady(ctx context.Context) error {
 
 // ErrBackendUnreachable is returned at once when no path is up (design
 // 3.12: nothing is queued; the caller shows the backend as offline).
-var ErrBackendUnreachable = &contract.Error{Code: contract.CodeBackendUnavailable, Message: "the backend is unreachable", Retryable: true}
+var ErrBackendUnreachable = &contract.Error{Code: contract.CodeBackendUnavailable, Message: "the backend is unreachable", Retryable: true, NotSent: true}
+
+// errLostReply is returned when a sent request's path ended before its
+// reply; the outcome is unknown.
+func errLostReply() error {
+	return &contract.Error{Code: contract.CodeBackendUnavailable, Message: "connection lost before the reply", Retryable: true}
+}
 
 // Request sends one request on the active path and waits for its response.
 // out may be nil. A request that was sent but got no reply returns an
@@ -248,12 +254,12 @@ func (c *Client) Request(ctx context.Context, op string, params, out any) error 
 		p.mu.Unlock()
 	}()
 	if err := p.send(ctx, raw); err != nil {
-		return &contract.Error{Code: contract.CodeBackendUnavailable, Message: "request not sent: " + err.Error(), Retryable: true}
+		return &contract.Error{Code: contract.CodeBackendUnavailable, Message: "request not sent: " + err.Error(), Retryable: true, NotSent: true}
 	}
 	select {
 	case resp, ok := <-ch:
 		if !ok {
-			return &contract.Error{Code: contract.CodeBackendUnavailable, Message: "connection lost before the reply", Retryable: true}
+			return errLostReply()
 		}
 		if resp.OK == nil || !*resp.OK {
 			if resp.Error != nil {
@@ -270,7 +276,7 @@ func (c *Client) Request(ctx context.Context, op string, params, out any) error 
 		_ = p.send(context.Background(), cancel)
 		return &contract.Error{Code: contract.CodeTimeout, Message: "no reply in time", Retryable: true}
 	case <-p.done:
-		return &contract.Error{Code: contract.CodeBackendUnavailable, Message: "connection lost before the reply", Retryable: true}
+		return errLostReply()
 	}
 }
 

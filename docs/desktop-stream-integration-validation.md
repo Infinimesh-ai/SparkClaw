@@ -2,6 +2,8 @@
 
 Language: English | [简体中文](../zh-cn/docs/desktop-stream-integration-validation.md)
 
+> **2026-11-20** — The stream and reconnect measurements here cover the retired workbench helper. The selection, scrolling and layout checks remain evidence for the original renderer on those builds. [Link contract](link-contract.md).
+
 Date: 2026-10-18. The user authorized integration and local `main` after validation, with no push or deployment. This report supersedes the separate branches' pending integration gates in [desktop validation](desktop-experience-validation.md) and [stream implementation](iscp-application-stream-implementation.md). All new runs use disposable identities, profiles and PostgreSQL data. The installed client and live services are unchanged.
 
 ## Integrated source

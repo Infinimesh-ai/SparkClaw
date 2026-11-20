@@ -18,8 +18,9 @@ async function fixture() {
   const link = new EventEmitter();
   link.online = true;
   link.request = async (op, params) => {
-    if (!link.online) throw new LinkError("backend_unavailable", "The backend is unreachable", true);
-    return structuredClone(await backend.request(op, structuredClone(params)));
+    if (!link.online) throw new LinkError("backend_unavailable", "The backend is unreachable", true, true);
+    try { return structuredClone(await backend.request(op, structuredClone(params))); }
+    catch (error) { throw error instanceof LinkError || !error.code ? error : new LinkError(error.code, error.message, error.retryable, error.notSent); }
   };
   const auth = { link, status: { state: "connected" } };
   let changes = 0;
@@ -234,4 +235,90 @@ test("cutover clears old local conversations once and keeps the welcome draft", 
   assert.equal(store.draft(scope, "").content, "unsent welcome text");
   assert.equal(store.linkCutover(scope), false, "only once");
   store.close();
+});
+
+test("a path switch during a run subscribes again and the stream continues", async () => {
+  const f = await fixture();
+  f.conversations.start();
+  await until(() => f.backend.calls.some(c => c.op === "sync.changes"));
+  const created = await f.conversations.create(scope, "Switch", false);
+  const task = f.store.enqueue(scope, created.id, "Long answer");
+  await f.conversations.submit(scope, task.request_id);
+  const remote = f.store.linkConversation(scope, created.id).remote_id;
+  const runID = f.store.linkTask(scope, task.request_id).run_id;
+  f.run(remote, runID, "delta", { text: "one ", seq: 1 });
+  f.run(remote, runID, "delta", { text: "two ", seq: 2 });
+  assert.equal(f.conversations.progressContent(scope, task.request_id), "one two ");
+  f.backend.handlers["run.subscribe"] = (p) => ({ subscription: `run:${p.session_id}`, status: { session_id: p.session_id, run_id: runID, state: "running", preview: "one two ", seq: 2 } });
+  f.backend.runStatus = () => ({ session_id: remote, run_id: runID, state: "running", preview: "one two ", seq: 2 });
+  const before = f.backend.calls.filter(c => c.op === "run.subscribe").length;
+  f.link.emit("state", { path: "iscp", previous: "lan" });
+  await until(() => f.backend.calls.filter(c => c.op === "run.subscribe").length > before);
+  await until(() => f.backend.calls.some(c => c.op === "run.status"));
+  f.run(remote, runID, "delta", { text: "three", seq: 3 });
+  assert.equal(f.conversations.progressContent(scope, task.request_id), "one two three", "the stream continues on the new path");
+  f.store.close();
+});
+
+test("run events apply in seq order: a repeat is dropped and a gap reads the run back", async () => {
+  const f = await fixture();
+  const created = await f.conversations.create(scope, "Order", false);
+  const task = f.store.enqueue(scope, created.id, "Count");
+  await f.conversations.submit(scope, task.request_id);
+  const remote = f.store.linkConversation(scope, created.id).remote_id;
+  const runID = f.store.linkTask(scope, task.request_id).run_id;
+  f.run(remote, runID, "delta", { text: "a", seq: 1 });
+  f.run(remote, runID, "delta", { text: "a", seq: 1 });
+  assert.equal(f.conversations.progressContent(scope, task.request_id), "a", "the same event over a second path counts once");
+  f.backend.runStatus = () => ({ session_id: remote, run_id: runID, state: "running", preview: "abc", seq: 3 });
+  f.run(remote, runID, "delta", { text: "c", seq: 3 });
+  await until(() => f.conversations.progressContent(scope, task.request_id) === "abc");
+  f.run(remote, runID, "delta", { text: "d", seq: 4 });
+  assert.equal(f.conversations.progressContent(scope, task.request_id), "abcd");
+  f.store.close();
+});
+
+test("only not_sent marks a message unsent; a lost reply is retried with its attachments", async () => {
+  const f = await fixture();
+  const created = await f.conversations.create(scope, "Lost reply", false);
+  const file = f.store.saveFile(scope, created.id, "a.txt", new Uint8Array(Buffer.from("abc")));
+  f.backend.handlers["object.upload.begin"] = () => ({ upload_id: "up_1", received: 3, chunk_size: 262144, object_id: "ws_a" });
+  // The backend admits the message, then the reply is lost.
+  let lose = true;
+  f.backend.handlers["message.send"] = (p) => {
+    const prior = f.backend.messages.get(p.session_id).find(m => m.client_message_id === p.client_message_id);
+    if (prior) { assert.deepEqual(p.attachments, prior.attachments, "the retry digests like the original"); return { message: prior, run_id: prior.run_id, replayed: true }; }
+    const user = f.backend.addMessage(p.session_id, "user", p.content, { client_message_id: p.client_message_id, attachments: p.attachments, run_id: "run_lost" });
+    if (lose) { lose = false; throw new LinkError("backend_unavailable", "the reply did not arrive", true, false); }
+    return { message: user, run_id: user.run_id };
+  };
+  f.backend.runStatus = () => ({ session_id: f.store.linkConversation(scope, created.id).remote_id, run_id: "run_lost", state: "running" });
+  const task = f.store.enqueue(scope, created.id, "With a file", [file.id]);
+  await assert.rejects(f.conversations.submit(scope, task.request_id));
+  assert.equal(f.store.linkTask(scope, task.request_id).status, "submission_pending", "a sent request without a reply is not marked unsent");
+  await f.conversations.reconcilePending();
+  const sends = f.backend.calls.filter(c => c.op === "message.send");
+  assert.equal(sends.length, 2);
+  assert.deepEqual(sends[1].params.attachments, sends[0].params.attachments, "the retry carries the original attachments");
+  assert.equal(sends[1].params.client_message_id, task.request_id);
+  assert.equal(sends[1].params.replay_only, true, "the retry only learns the outcome");
+  assert.equal(f.store.linkTask(scope, task.request_id).run_id, "run_lost", "the retry adopts the original run");
+  assert.equal(f.store.linkTask(scope, task.request_id).status, "running");
+
+  // A send whose original never arrived is reported not sent, not run late.
+  f.backend.handlers["message.send"] = (p) => {
+    if (!p.replay_only) throw new LinkError("timeout", "no reply in time", true, false);
+    throw Object.assign(new Error("this message never reached the backend"), { code: "not_found", notSent: true });
+  };
+  const lost = f.store.enqueue(scope, created.id, "Lost before arrival");
+  await assert.rejects(f.conversations.submit(scope, lost.request_id));
+  await f.conversations.reconcilePending();
+  assert.equal(f.store.linkTask(scope, lost.request_id).status, "failed");
+  assert.match(f.store.read(scope, created.id).messages.at(-1).content, /never reached the backend/u);
+
+  f.backend.handlers["message.send"] = () => { throw new LinkError("backend_unavailable", "connection lost before the reply", true, true); };
+  const second = f.store.enqueue(scope, created.id, "Not delivered");
+  await assert.rejects(f.conversations.submit(scope, second.request_id), /offline/u);
+  assert.equal(f.store.linkTask(scope, second.request_id).status, "failed", "not_sent decides, not the message text");
+  f.store.close();
 });

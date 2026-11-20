@@ -2,6 +2,8 @@
 
 语言：简体中文 | [English](../../docs/desktop-stream-integration-validation.md)
 
+> **2026-11-20** — 文中流式传输与重连数据来自已退役的工作台 helper；选区、滚动及布局验证仍是当时版本原渲染界面的证据。[连接协议](link-contract.md)。
+
 日期：2026-10-18。用户授权集成并在验收后合并本地 `main`，暂不推送或部署。本报告补齐[桌面验收](desktop-experience-validation.md)及[流式实施](iscp-application-stream-implementation.md)中待完成的集成门。新增运行均使用一次性身份、配置和 PostgreSQL 测试数据。已安装客户端与现网服务未变更。
 
 ## 集成源码

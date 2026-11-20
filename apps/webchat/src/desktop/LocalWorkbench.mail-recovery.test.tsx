@@ -10,7 +10,7 @@ import type { DesktopConnectionStatus, SparkClawDesktop } from "./types";
 const file = { id: "12345678-1234-4123-8123-123456789abc", name: "local-private.txt", size: 10, sha256: "a".repeat(64), created_at: "today" };
 const initial: DesktopConnectionStatus = {
   schema_version: 1, state: "connected", owner_id: "owner", client_id: "client", authorization_revision: 2,
-  backend: { schema_version: 3, transport: "iscp", origin: "https://iscp.invalid", deployment_id: "deployment" },
+  backend: { schema_version: 3, transport: "link", origin: "https://backend.sparkclaw-link.invalid", deployment_id: "deployment" },
   capabilities: { operations: [], files: true, mail: true, browser: false, speech: false, approvals: true, settings: false,
     surfaces: Object.fromEntries(["files", "mail_popup", "mail_read", "mail_send", "mail_send_attachments"].map(name => [name, { enabled: true, reason: "" }])) },
 };

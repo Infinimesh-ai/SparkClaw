@@ -287,14 +287,7 @@ empty value when these endpoints do not require bearer authentication. The ASR
 value is the service root because Gateway appends
 `/v1/audio/transcriptions`; OCR is an OpenAI-compatible `/v1` base URL.
 
-After provisioning an independent node issuer, set
-`SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT` to its absolute private directory in the
-selected environment file. Both standard product startup paths reapply
-`compose.node-issuer.yaml`, so reconciliation retains the node transport. Startup
-rejects incomplete, symlinked or nonprivate node paths. Gateway receives only the
-responder identity, public pins, private issuer socket/token, peer registry and
-writable responder enrollment; issuer signing keys and database credentials stay
-on the host. This option does not publish another port or change the LAN setting.
+Device enrollment now uses a console-issued credential. When upgrading a private Compose environment file from the node-issuer deployment, remove its obsolete node-root override before running the startup script. The private-file validator accepts only supported overrides. See the [client link layer design](client-link-layer-design.md).
 
 Before changing containers, remote startup validates every model URL. It rejects
 Compose service names such as `sparkclaw-*`, `localhost`, `*.localhost`,

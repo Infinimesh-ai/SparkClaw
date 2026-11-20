@@ -70,3 +70,21 @@ test("navigation during snapshot and content read rejects the completed snapshot
   assert.equal(captures, 2);
   await assert.rejects(f.client.execute("page.click", { ref: "e1" }), { code: "browser_page_stale" });
 });
+
+test("closing the current Electron task tab confirms the surviving owned observation target", async t => {
+  const f = await fixture(t);
+  await f.client.execute("tabs.new", { url: "https://background.test/" });
+  await f.client.execute("tabs.new", { url: "https://popup.test/" });
+  await f.client.execute("tabs.close", { page_id: "page_2" });
+  const result = await f.client.execute("tabs.close", { page_id: "page_3" });
+  assert.equal(result.pages.length, 1);
+  assert.equal(result.pages[0].page_id, "page_1");
+  assert.equal(result.pages[0].selected, true);
+  assert.equal((await f.client.execute("page.snapshot", {})).page.url, "https://example.test/");
+  await f.client.execute("tabs.close", { page_id: "page_1" });
+  const changes = (await f.logs()).filter(row => row.name === "browser_tabs" && ["close", "select"].includes(row.arguments.action));
+  // Closing a background page needs no selection. Closing the last owned
+  // page must never bring the surviving owner tab (index zero) to the front.
+  assert.deepEqual(changes.map(row => [row.arguments.action, row.arguments.index]),
+    [["close", 2], ["close", 2], ["select", 1], ["close", 1]]);
+});

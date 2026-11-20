@@ -39,7 +39,6 @@ func (s *Server) registerLinkHandlers(svc *link.Service) {
 	svc.Handle(contract.OpDomainCall, s.linkDomainCall)
 	svc.Handle(contract.OpProjectionSnapshot, s.linkProjectionSnapshot)
 	svc.Handle(contract.OpProjectionActivity, s.linkProjectionActivity)
-	s.registerLinkPresentation()
 }
 
 func linkTime(t time.Time) string {
@@ -150,7 +149,7 @@ func (s *Server) linkSessionCreate(ctx context.Context, req *link.Request) (any,
 		return nil, link.Errorf(contract.CodeInvalidRequest, "client_request_id is required")
 	}
 	key := req.Principal.DeviceID + "\x00session.create\x00" + p.ClientRequestID
-	raw, err := s.link.receipts.Do(key, linkDigest(p), func() (any, error) {
+	raw, err := s.link.receipts.Do(key, linkDigest(p), linkReceiptOptions{}, func() (any, error) {
 		profile, found, err := s.store.GetOwnerProfileByID(ctx, req.Principal.OwnerID)
 		if err != nil {
 			return nil, linkStoreError(err)
@@ -343,7 +342,7 @@ func (s *Server) linkApprovalResolve(ctx context.Context, req *link.Request) (an
 		return nil, link.Errorf(contract.CodeInvalidRequest, "idempotency_key is required")
 	}
 	key := req.Principal.DeviceID + "\x00approval.resolve\x00" + p.IdempotencyKey
-	raw, err := s.link.receipts.Do(key, linkDigest(p), func() (any, error) {
+	raw, err := s.link.receipts.Do(key, linkDigest(p), linkReceiptOptions{}, func() (any, error) {
 		var input approvalDecisionInput
 		if len(p.Inputs) > 0 {
 			if err := json.Unmarshal(p.Inputs, &input.ApprovalInputSubmission); err != nil {

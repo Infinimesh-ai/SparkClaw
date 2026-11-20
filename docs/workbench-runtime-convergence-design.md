@@ -1,6 +1,8 @@
 # Workbench and execution service convergence design
 
 > Language: English | [简体中文](../zh-cn/docs/workbench-runtime-convergence-design.md)
+>
+> **2026-11-20** — The desktop transport and client-local ownership of conversations in this design are historical. Devices use the link and the backend owns conversations and their attachments. The host WebChat HTTP entry and shared business services continue to apply. [Client link layer design](client-link-layer-design.md).
 
 Source extension (2026-10-30): [conversation files and signed clarification](conversation-file-context-and-clarification-design.md)
 keep this ownership model. Execution envelopes now require schema 2 with message

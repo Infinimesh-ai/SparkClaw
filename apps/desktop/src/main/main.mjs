@@ -31,19 +31,16 @@ import { ClientControllerRuntime } from "../browser/controller-runtime.mjs";
 import { adapterSecretPath, adapterSocketPath } from "../browser/protocol.mjs";
 import { BrowserPresentation } from "./presentation.mjs";
 import { DesktopCapability, isDesktopSessionAuthorized } from "./desktop-capability.mjs";
-import { DesktopAuth, authorizeWorkbenchSender } from "./desktop-auth.mjs";
+import { authorizeWorkbenchSender } from "./workbench-sender.mjs";
 import { LinkAuth } from "./link-auth.mjs";
 import { LinkConversations } from "./link-conversations.mjs";
 import { operationTransport } from "./backend-transport.mjs";
 import os from "node:os";
-import { traceISCPRead } from "./iscp-read-diagnostics.mjs";
 import { prepareDefaultLatencyTrace } from "./latency-trace-directory.mjs";
 import { SecureCredentialStore } from "./secure-credential-store.mjs";
 import { OwnerBrowserServices } from "./owner-browser-services.mjs";
 import { linuxLoginStartup } from "./login-startup.mjs";
-import { resolveDesktopConnectionPaths } from "./connection-paths.mjs";
 import { ClientStore } from "./client-store.mjs";
-import { ExecutionClient } from "./execution-client.mjs";
 import { ScheduleClient } from "./schedule-client.mjs";
 import { MailSyncStore } from "./mail-sync-store.mjs";
 import { MailSyncClient } from "./mail-sync-client.mjs";
@@ -57,15 +54,15 @@ import { LocalFilesCapability } from "./local-files-capability.mjs";
 import { LocalPreviewBroker } from "./local-preview-broker.mjs";
 import { createLocalPreviewProtocolHandler, previewRequestAllowed, guardLocalPreviewNavigation } from "./local-preview-protocol.mjs";
 import { exportLocalFile } from "./export-local-file.mjs";
-import { ISCPEventClient } from "./iscp-event-client.mjs";
-import { ISCPSpeechClient } from "./iscp-audio-client.mjs";
-import { ISCPRecordingClient } from "./iscp-recording-client.mjs";
+import { LinkDomainEvents } from "./link-domain-events.mjs";
+import { LinkSpeechClient } from "./link-speech-client.mjs";
+import { LinkRecordingClient } from "./link-recording-client.mjs";
 import { configureWorkbenchPermissions } from "./workbench-permissions.mjs";
 import { proxyAPIAllowed, settledBackendState } from "./workbench-proxy-policy.mjs";
 import { bindWorkbenchActivation } from "./workbench-activation.mjs";
 import { bindWindowChrome } from "./window-chrome.mjs";
 import { bindDesktopShutdown } from "./shutdown.mjs";
-import { resolveISCPLaunchProfile } from "./iscp-launch-profile.mjs";
+import { resolveDesktopUserData } from "./user-data-directory.mjs";
 
 // Packagers must never silently turn isolation off when user namespaces are
 // unavailable. Reject their fallback before any profile, window, or IPC opens.
@@ -78,13 +75,8 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DESKTOP_ICON_PATH = path.join(MODULE_DIR, "..", "assets", "icon.png");
 const workbenchQualification = process.argv.includes("--qualification-workbench");
 const qualification = process.argv.includes("--qualification") || workbenchQualification;
-const defaultUserData = app.getPath("userData");
-const { configuredUserData, iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP, source: launchSource } = resolveISCPLaunchProfile({ defaultUserData, qualification });
-const launchSelectionDirectory = launchSource === "environment" && configuredUserData ? configuredUserData : defaultUserData;
-if (configuredUserData) {
-  if (!path.isAbsolute(configuredUserData)) throw new Error("Desktop user-data path must be absolute");
-  app.setPath("userData", configuredUserData);
-}
+const userData = resolveDesktopUserData({ defaultUserData: app.getPath("userData"), qualification });
+if (userData) app.setPath("userData", userData);
 
 protocol.registerSchemesAsPrivileged([{
   scheme: "sparkclaw-internal",
@@ -133,9 +125,9 @@ void app.whenReady().then(start).catch((error) => {
   app.exit(1);
 });
 
-let iscpEvents;
-let iscpSpeech;
-let iscpRecording;
+let domainEvents;
+let speechClient;
+let recordingClient;
 const backendStateWaiters = new Set();
 
 function publishBackendState(status) {
@@ -168,11 +160,7 @@ async function start() {
   secureSession(browserSession);
   protocol.handle("sparkclaw-internal", internalProtocolHandler);
   browserSession.protocol.handle("sparkclaw-internal", internalProtocolHandler);
-  const qualificationPaths = qualification ? await localBackendPaths().catch(() => undefined) : undefined;
   if (!qualification) localStore = new ClientStore(path.join(app.getPath("userData"), "workbench"));
-  // A desktop joins its backend through the link layer (design P3). The
-  // previous descriptor/HTTPS/ISCP-helper connection remains only for the
-  // isolated qualification launcher's fixtures.
   const authCallbacks = {
     onCapabilitiesChanged: publishBackendState,
     onChange: (status) => {
@@ -180,8 +168,8 @@ async function start() {
       localFilesService?.refreshIdentity();
       if (status.state === "connected" && !suspended) {
         executionClient?.start();
-        void iscpRecording?.start().catch(() => {});
-        if(status.capabilities?.events)iscpEvents?.start();else iscpEvents?.close();
+        void recordingClient?.start().catch(() => {});
+        domainEvents?.start();
         scheduleClient?.start();
         if (!operationTransport(status.backend) || status.capabilities?.surfaces?.medicine_box_read?.enabled) medicineClient?.start();
         else medicineClient?.close();
@@ -194,9 +182,9 @@ async function start() {
           ["reconnecting", "service_unavailable"].includes(status.state);
         if (temporaryStreamLoss) executionClient?.pauseProgress({ authorityExpired: desktopAuth.transportStage === "authorization_expired" });
         else executionClient?.close();
-        iscpEvents?.close();
-        iscpSpeech?.close();
-        iscpRecording?.close();
+        domainEvents?.close();
+        speechClient?.close();
+        recordingClient?.close();
         scheduleClient?.close();
         mailClient?.close(); medicineClient?.close();
         void browserHost?.suspend({ preserve: temporaryStreamLoss }).catch(() => {});
@@ -212,9 +200,9 @@ async function start() {
       mcdHost?.close();
       localFilesService?.refreshIdentity();
       executionClient?.close();
-      iscpEvents?.close();
-      iscpSpeech?.close();
-      iscpRecording?.close();
+      domainEvents?.close();
+      speechClient?.close();
+      recordingClient?.close();
       scheduleClient?.close();
       mailClient?.close(); medicineClient?.close();
       await browserHost?.stop();
@@ -223,7 +211,9 @@ async function start() {
       adapter = undefined;
     },
   };
-  if (!qualification) desktopAuth = new LinkAuth({
+  // A desktop joins its backend through the link layer; the isolated
+  // qualification launcher joins its fixture backend the same way.
+  desktopAuth = new LinkAuth({
     stateDirectory: path.join(app.getPath("userData"), "link"), userDataDirectory: app.getPath("userData"),
     vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
     readLocalFile: (scope, id, byteLimit) => localStore.file(scope, id, byteLimit),
@@ -231,25 +221,10 @@ async function start() {
     packaged: app.isPackaged, resourcesPath: process.resourcesPath,
     // The backend derives one installation per link device.
     onJoined: (installationID) => {
-      localStore.setInstallationID(installationID);
+      localStore?.setInstallationID(installationID);
       if (mailClient) mailClient.installationID = installationID;
       if (medicineClient) medicineClient.installationID = installationID;
     },
-    ...authCallbacks,
-  });
-  else desktopAuth = new DesktopAuth({
-    installationID: localStore?.installationID,
-    readLocalFile: (scope, id, byteLimit) => localStore.file(scope, id, byteLimit),
-    vault: new SecureCredentialStore({ directory: path.join(app.getPath("userData"), "authentication"), safeStorage }),
-    descriptorPath: path.join(app.getPath("userData"), "backend.json"),
-    qualificationPaths,
-    qualification,
-    requireLAN: process.platform === "darwin" && !qualification,
-    fetcher: electronNet.fetch,
-    iscpProfilePath, allowLocalISCPTest, allowNodeManagedISCP,
-    launchSelectionPath: path.join(launchSelectionDirectory, "iscp-launch-profile.json"), userDataDirectory: app.getPath("userData"),
-    packaged: app.isPackaged, resourcesPath: process.resourcesPath,
-    browserRuntimeAvailable: false,
     ...authCallbacks,
   });
   await desktopAuth.initialize();
@@ -268,7 +243,7 @@ async function start() {
     },
     issue: params => callMCDHelper(app.isPackaged ? path.join(process.resourcesPath, "ezmcd", "bin", "python3") : path.resolve(MODULE_DIR, "../../../../.cache/ezmcd-adapter/venv/bin/python"), { operation: "session.issue", params }, { verifyBundle: app.isPackaged }),
     capture: params => callMCDHelper(app.isPackaged ? path.join(process.resourcesPath, 'ezmcd', 'bin', 'python3') : path.resolve(MODULE_DIR, '../../../../.cache/ezmcd-adapter/venv/bin/python'), { operation: 'host.capture', params }, { role: 'host', verifyBundle: app.isPackaged }),
-    invoke: (operation, body) => desktopAuth.invokeISCP(operation, body),
+    invoke: (operation, body) => desktopAuth.invokeDomain(operation, body),
     selectSource: async () => {
       const selected = await dialog.showOpenDialog(window, { title: "选择已验证的麦当劳账号", properties: ["openFile", "showHiddenFiles"], filters: [{ name: "账号", extensions: ["json"] }] });
       if (selected.canceled || selected.filePaths.length !== 1) return undefined;
@@ -304,14 +279,14 @@ async function start() {
   trustedHandler("sparkclaw-local-backend:check-new-authorization", () => desktopAuth.checkNewAuthorization());
   trustedHandler("sparkclaw-local-backend:delete-authorization", async () => { mcdHost?.close(); await mcdSession.whenIdle(); await mcdSession.disableLocal().catch(()=>{}); return desktopAuth.deleteAuthorization(); });
   trustedHandler("sparkclaw-local-backend:logout", async () => { mcdHost?.close(); await mcdSession.whenIdle(); await mcdSession.disableLocal().catch(()=>{}); await mcdSession.maintain().catch(()=>{}); return desktopAuth.logout(); });
-  iscpSpeech = new ISCPSpeechClient(desktopAuth);
-  trustedHandler("sparkclaw-speech:stream", (request) => iscpSpeech.dispatch(request));
-  iscpRecording = new ISCPRecordingClient(desktopAuth);
-  trustedHandler("sparkclaw-speech:transcribe", (request) => iscpRecording.transcribe(request));
-  trustedHandler("sparkclaw-speech:cancel-recording", (request) => iscpRecording.cancel(request));
-  trustedHandler("sparkclaw-speech:pending-recordings", (request) => iscpRecording.pending(request));
-  trustedHandler("sparkclaw-speech:ack-recording", (request) => iscpRecording.acknowledge(request));
-  void iscpRecording.start().catch(() => {});
+  speechClient = new LinkSpeechClient(desktopAuth);
+  trustedHandler("sparkclaw-speech:stream", (request) => speechClient.dispatch(request));
+  recordingClient = new LinkRecordingClient(desktopAuth);
+  trustedHandler("sparkclaw-speech:transcribe", (request) => recordingClient.transcribe(request));
+  trustedHandler("sparkclaw-speech:cancel-recording", (request) => recordingClient.cancel(request));
+  trustedHandler("sparkclaw-speech:pending-recordings", (request) => recordingClient.pending(request));
+  trustedHandler("sparkclaw-speech:ack-recording", (request) => recordingClient.acknowledge(request));
+  void recordingClient.start().catch(() => {});
   trustedHandler("sparkclaw-desktop:login-startup", async (enabled) => {
     if (!app.isPackaged) return { supported: false, enabled: false };
     if (typeof enabled !== "undefined" && typeof enabled !== "boolean") throw new TypeError("Invalid login startup value");
@@ -378,26 +353,19 @@ async function start() {
       if (window && !window.isDestroyed()) window.webContents.send("sparkclaw-client-store:changed");
     };
     // Conversations are the backend's; the local store is their cache.
-    executionClient = desktopAuth instanceof LinkAuth
-      ? new LinkConversations({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged,
-        onCancelTask: binding => browserHost?.cancelTask?.(binding),
-        onTaskTerminal: (binding, reason) => browserHost?.endTask(binding, reason) })
-      : new ExecutionClient({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged,
-        onCancelTask: binding => browserHost?.cancelTask?.(binding),
-        onTaskTerminal: (binding, reason) => browserHost?.endTask(binding, reason) });
-    if (desktopAuth.status.state === "connected" || !(desktopAuth instanceof LinkAuth)) executionClient.start();
-    // Business invalidations (mail, medicine, settings) still arrive as
-    // events.*; link runs are reconciled by run.status, not by snapshots.
-    const eventStore = executionClient instanceof LinkConversations
-      ? new Proxy(localStore, { get: (target, key) => key === "pending" ? () => [] : typeof target[key] === "function" ? target[key].bind(target) : target[key] })
-      : localStore;
-    iscpEvents = new ISCPEventClient({ auth: desktopAuth, store: eventStore, execution: executionClient, getIdentity: localIdentity,
+    executionClient = new LinkConversations({ auth: desktopAuth, store: localStore, getIdentity: localIdentity, onChange: localChanged,
+      onCancelTask: binding => browserHost?.cancelTask?.(binding),
+      onTaskTerminal: (binding, reason) => browserHost?.endTask(binding, reason) });
+    if (desktopAuth.status.state === "connected") executionClient.start();
+    // Business invalidations (mail, medicine, settings, notifications) are
+    // pushed link domain events; conversation runs follow run events.
+    domainEvents = new LinkDomainEvents({ auth: desktopAuth,
       onEvents: (event) => { localChanged(); if (event.categories.includes("medicine")) void medicineClient?.sync().catch(() => {}); if(window&&!window.isDestroyed())window.webContents.send("sparkclaw-backend-events",event); } });
-    if(desktopAuth.status.capabilities?.events)iscpEvents.start();
+    if (desktopAuth.status.state === "connected") domainEvents.start();
     scheduleClient = new ScheduleClient({ auth: desktopAuth, store: localStore, execution: executionClient, getIdentity: localIdentity, onChange: localChanged }).start();
     {
     mailStore = new MailSyncStore(path.join(app.getPath("userData"), "workbench", "mail"));
-    // DesktopAuth binds this installation before publishing connected state.
+    // LinkAuth binds this installation before publishing connected state.
     mailClient = new MailSyncClient({
       store: mailStore, localStore, getConnection: () => desktopAuth.connection,
       getFetch: () => desktopAuth.authorizedFetch.bind(desktopAuth),
@@ -418,7 +386,7 @@ async function start() {
     medicineCapability = new MedicineBoxCapability({ ipcMain, window, store: medicineStore, client: medicineClient, getIdentity: localIdentity }).start();
     localStoreCapability = new ClientStoreCapability({
       ipcMain, window, store: localStore, execution: executionClient, schedules: scheduleClient,
-      ...(executionClient instanceof LinkConversations ? { conversations: executionClient } : {}),
+      conversations: executionClient,
       getIdentity: localIdentity,
       getCapabilities: () => operationTransport(desktopAuth.descriptor) ? desktopAuth.status.capabilities : { ...desktopAuth.status.capabilities, files: desktopAuth.status.state === "connected" },
       exportFile: (file) => exportLocalFile(file, { dialog, window }),
@@ -581,7 +549,7 @@ async function start() {
     runtime_kind: "electron",
     runtime_generation: runtimeGeneration,
     ...(adapter ? { adapter_socket: adapterSocketPath() } : {}),
-    browser_execution: adapter ? "legacy_qualification" : "client_controller_iscp",
+    browser_execution: adapter ? "legacy_qualification" : "client_controller_link",
     electron_version: process.versions.electron,
     chromium_version: process.versions.chrome,
     node_version: process.versions.node,
@@ -695,6 +663,13 @@ async function shutdown() {
   ownerBrowserServices?.close();
 }
 
+// The Linux test entry uses this in the main process to prepare a task
+// with the same controller binding used by the packaged browser.
+export function getLinuxQualificationAdapter() {
+  if (!qualification || process.platform !== "linux" || !adapter) throw new Error("Linux qualification adapter is unavailable");
+  return adapter;
+}
+
 async function qualificationLifecycle(action) {
   if (!qualification || !window) throw new Error("Qualification lifecycle is unavailable");
   if (action === "close") {
@@ -801,14 +776,6 @@ function webchatDistPath() {
     : path.resolve(MODULE_DIR, "../../../webchat/dist");
 }
 
-function localBackendPaths() {
-  return resolveDesktopConnectionPaths({
-    home: app.getPath("home"),
-    packaged: app.isPackaged,
-    moduleDirectory: MODULE_DIR,
-  });
-}
-
 function workbenchProtocolHandler(root, auth) {
   return async (request) => {
     try {
@@ -823,11 +790,11 @@ function workbenchProtocolHandler(root, auth) {
         });
         if (state === "identity_conflict") return new Response("Backend identity conflict", { status: 409 });
         if (["invalid_authentication", "locked", "secure_storage_unavailable"].includes(state)) return new Response("Desktop authentication is locked", { status: 401 });
-        if (state !== "connected") { traceISCPRead({ phase: "proxy-gate", path: new URL(proxy).pathname, auth, callerSignal: request.signal, responseStatus: 503 }); return new Response("Backend is unavailable", { status: 503 }); }
+        if (state !== "connected") return new Response("Backend is unavailable", { status: 503 });
         // Desktop conversations stay in the local Store; proxy only supported services.
         if (!qualification && !proxyAPIAllowed(new URL(proxy).pathname)) return new Response("Service is unavailable in this workbench", { status: 501 });
         try { return await proxyWorkbenchRequest(auth, request, proxy); }
-        catch (error) { traceISCPRead({ phase: "proxy-error", path: new URL(proxy).pathname, auth, error, callerSignal: request.signal, responseStatus: 503 }); return new Response("Backend is unavailable", { status: 503 }); }
+        catch { return new Response("Backend is unavailable", { status: 503 }); }
       }
       const pathname = decodeURIComponent(url.pathname === "/" ? "/index.html" : url.pathname);
       const filename = path.resolve(root, `.${pathname}`);

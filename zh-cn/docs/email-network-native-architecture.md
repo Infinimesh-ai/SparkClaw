@@ -1,6 +1,8 @@
 # 网络原生邮件架构（v4）
 
 > 语言：简体中文 | [English](../../docs/email-network-native-architecture.md)
+>
+> **2026-11-20** — §2.1 展示平面的工作台 helper、8 KiB 对象及适配器已退役。桌面邮件改用连接层业务方法与对象。采集设计与服务商测量属于独立的后端邮件服务。[连接协议](link-contract.md)。
 
 当前源码局限与后续修改边界先看[邮件诊断与修改基线](email-diagnostics-and-change-control.md)。
 下文带日期的部署观察继续作为历史证据保留。

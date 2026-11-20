@@ -6,7 +6,11 @@
       {"type": "request", "id": "c1", "op": "sync.changes", "params": {"cursor": 0}},
       {"type": "response", "id": "c1", "ok": true, "result": {"sessions": [], "cursor": 0}},
       {"type": "response", "id": "c2", "ok": false, "error": {"code": "unsupported_capability", "message": "x"}},
-      {"type": "event", "id": "e1", "subscription": "run:s_1", "topic": "run", "data": {"session_id": "s_1", "kind": "delta", "text": "你"}},
+      {"type": "event", "id": "e1", "subscription": "run:s_1", "topic": "run", "data": {"session_id": "s_1", "kind": "delta", "text": "你", "seq": 7}},
+      {"type": "event", "id": "e2", "topic": "domain", "data": {"domains": ["mail", "notifications"]}},
+      {"type": "response", "id": "c4", "ok": false, "error": {"code": "backend_unavailable", "message": "request not sent", "retryable": true, "not_sent": true}},
+      {"type": "response", "id": "c5", "ok": false, "error": {"code": "outcome_unknown", "message": "the original attempt did not finish"}},
+      {"type": "request", "id": "c6", "op": "domain.call", "params": {"domain": "mail", "method": "mail.drafts.send", "idempotency_key": "6f1c2d4e-8a9b-4c3d-9e8f-0a1b2c3d4e5f", "replay_only": true}},
       {"type": "cancel", "id": "c3"}
     ],
     "invalid": [

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,12 @@ import (
 
 func credentialServer(t *testing.T) (*Server, *store.MemoryStore) {
 	t.Helper()
-	cfg := testConfig(t.TempDir())
+	// Browser receipt storage rejects symlink ancestors, including macOS /var.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := testConfig(root)
 	cfg.Gateway.PairingRequired = true
 	cfg.Gateway.DeploymentID = "test-deployment"
 	repository := store.NewMemoryStore()

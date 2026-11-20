@@ -2,6 +2,8 @@
 
 Language: English | [简体中文](../zh-cn/docs/iscp-authentication-operation-recovery-design.md)
 
+> **2026-11-20** — The workbench endpoint and node-issuer flows in this proposal are retired. Relay authentication and the separate ISCP Bridge have their own lifecycles. Current device mutation keys, retries and results are defined in the [Link contract](link-contract.md).
+
 Date: 2026-10-19. Status: proposed design, with cross-project review recorded in InfiniCenter 0041. Source baselines: SparkClaw `cf9b81dec39b8872efc43650080bb8facaa58511` and the ISCP fork `10fe37b3bd02a56b4f9d6cb8dc0333d7eec5356a`. This proposal defines responsibilities and acceptance criteria; it does not change deployed behavior or accepted contracts.
 
 ## 1 Decision and intended behavior
@@ -22,7 +24,7 @@ The client persists a complete `LifecycleRequest`, including time-limited `Proof
 
 These are two different facts: **what operation the caller intends** and **whether this connection/request is currently authenticated**. Their lifetimes cannot share one immutable record. Increasing the proof lifetime, retaining one signature forever, clearing pending records, or generating a new operation ID on every reconnect does not solve that distinction.
 
-Evidence in the current source: [client persistence](../services/gateway/internal/iscpnodeclient/lifecycle.go), [issuer digest, freshness and sealing](../services/gateway/internal/iscpnodeissuer/lifecycle.go), `Relay recovery`, [workbench lifecycle](../services/gateway/internal/iscpworkbench/node_lifecycle.go). The fork carries the corresponding code under `extensions/sparkclaw/`.
+Evidence in the current source: client persistence (`lifecycle.go`, since removed), issuer digest, freshness and sealing (`lifecycle.go`, since removed), `Relay recovery`, workbench lifecycle (`node_lifecycle.go`, since removed). The fork carries the corresponding code under `extensions/sparkclaw/`.
 
 ## 3 Independent lifetimes and invariants
 

@@ -112,7 +112,7 @@ Mac 本地对话 -> 后端 Workflow / 授权
 | P4 | 文件交付及平台装配 | 验证本地保存，全新存储不导入测试历史，审核安装包白名单 |
 | P5 | 推送源码后由用户在 Mac 构建及完成硬件／签名／升级验收 | 同一提交的 Mac 构建记录、GUI／浏览器故障矩阵及分范围切换证据 |
 
-现有代码入口包括[桌面装配](../../apps/desktop/src/main/main.mjs)、[回环加载器](../../apps/desktop/src/main/local-backend.mjs)、[本地适配器](../../apps/desktop/src/browser/adapter-server.mjs)、[浏览器协议](../../apps/desktop/src/browser/protocol.mjs)、[页面呈现](../../apps/desktop/src/main/presentation.mjs)、[BrowserPanel](../../apps/webchat/src/desktop/BrowserPanel.tsx) 及[后端 Store 契约](../../services/gateway/internal/store/store.go)。它们现有的本机／共享状态行为不能证明 R3 已实现。
+现有代码入口包括[桌面装配](../../apps/desktop/src/main/main.mjs)、回环加载器（`local-backend.mjs`，已删除）、[本地适配器](../../apps/desktop/src/browser/adapter-server.mjs)、[浏览器协议](../../apps/desktop/src/browser/protocol.mjs)、[页面呈现](../../apps/desktop/src/main/presentation.mjs)、[BrowserPanel](../../apps/webchat/src/desktop/BrowserPanel.tsx) 及[后端 Store 契约](../../services/gateway/internal/store/store.go)。它们现有的本机／共享状态行为不能证明 R3 已实现。
 
 现有集成仍适用已接受的 App-CLI 持久账本及 JingSi Runtime v1 恢复保证。修改其保留／协议语义前，必须解决[跨项目门槛](client-backend-architecture-design.md#9-跨项目边界与待完成门槛)；内部适配器命名不能绕过契约。
 

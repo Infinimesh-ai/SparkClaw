@@ -1,6 +1,8 @@
 # 工作台与执行服务统一重构方案
 
 > 语言：简体中文 | [English](../../docs/workbench-runtime-convergence-design.md)
+>
+> **2026-11-20** — 本设计中的桌面传输和客户端独占会话的归属规则已退役。设备通过连接层通信，后端持有会话及其附件。宿主 WebChat 的 HTTP 入口及共用业务服务仍然适用。[三端连接层设计](client-link-layer-design.md)。
 
 源码扩展（2026-10-30）：[会话文件与签名澄清](conversation-file-context-and-clarification-design.md)
 保持本文的归属模型。执行 envelope 现要求 schema 2，携带 message ID、可选的受限文件清单、

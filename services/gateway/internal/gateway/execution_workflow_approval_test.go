@@ -27,6 +27,7 @@ import (
 // the model HTTP endpoint is synthetic; document routing, evidence, policy,
 // approval continuation, the actual editor and result delivery are real.
 func TestExecutionRealDocumentWorkflowWaitsForInstalledClientApproval(t *testing.T) {
+	requireLinuxExecutionWorkspace(t)
 	for _, fixture := range []struct{ name, goal, decision string }{
 		{"explicit_name_approve", "Edit notes.md and replace Original reflection with Improved reflection.", "approve"},
 		{"explicit_name_reject", "Edit notes.md and replace Original reflection with Improved reflection.", "reject"},

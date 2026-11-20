@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +41,8 @@ type linkRuntime struct {
 	runs      *linkRunHub
 	receipts  *linkReceipts
 	objects   *linkObjects
+	domainObj *linkDomainObjects
+	speech    *linkSpeech
 	stop      chan struct{}
 	stopOnce  sync.Once
 	clientsMu sync.Mutex
@@ -79,6 +82,14 @@ func (s *Server) StartLink(opts LinkOptions) error {
 		return err
 	}
 	rt.objects = objects
+	domainObjects, err := openLinkDomainObjects(filepath.Join(opts.StateDir, "objects", "domain"))
+	if err != nil {
+		return err
+	}
+	rt.domainObj = domainObjects
+	if rt.speech, err = newLinkSpeech(filepath.Join(opts.StateDir, "speech")); err != nil {
+		return err
+	}
 	s.link = rt
 	s.registerLinkHandlers(rt.service)
 	// Desktops with a built-in browser serve the controller and McDonald's
@@ -230,6 +241,12 @@ func (s *Server) watchLinkChanges(rt *linkRuntime) {
 			break
 		}
 	}
+	// Business-domain invalidations follow the Gateway event log from its
+	// tail at startup.
+	lastEvent := ""
+	if window, err := s.store.ReadEventWindow(startCtx, "", store.EventWindowLimit, true); err == nil {
+		lastEvent = window.Cursor
+	}
 	for {
 		select {
 		case <-rt.stop:
@@ -241,6 +258,7 @@ func (s *Server) watchLinkChanges(rt *linkRuntime) {
 		if len(rt.service.Connections("")) == 0 {
 			continue
 		}
+		lastEvent = s.broadcastLinkDomainEvents(rt, lastEvent)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		changes, err := s.store.SessionChanges(ctx, rt.opts.OwnerID, maxInt64(lastCursor, 0), 500)
 		if err == nil && len(changes) > 0 {
@@ -285,4 +303,46 @@ func maxInt64(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// linkEventDomains maps Gateway event categories to the business domains
+// a device reads again.
+var linkEventDomains = map[string]string{"email": "mail", "notifications": "notifications", "medicine": "medicine", "settings": "settings"}
+
+// broadcastLinkDomainEvents announces which business domains changed since
+// cursor and returns the new cursor. A lost cursor announces every domain.
+func (s *Server) broadcastLinkDomainEvents(rt *linkRuntime, cursor string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	window, err := s.store.ReadEventWindow(ctx, cursor, store.EventWindowLimit, false)
+	if err != nil {
+		return cursor
+	}
+	changed := map[string]bool{}
+	if cursor != "" && !window.CursorFound {
+		for _, d := range linkEventDomains {
+			changed[d] = true
+		}
+		if tail, err := s.store.ReadEventWindow(ctx, "", store.EventWindowLimit, true); err == nil {
+			window.Cursor = tail.Cursor
+		}
+	} else {
+		for _, event := range window.Events {
+			if d, ok := linkEventDomains[workbenchEventCategory(event.Type)]; ok && workbenchEventOwner(event) == rt.opts.OwnerID {
+				changed[d] = true
+			}
+		}
+	}
+	if len(changed) > 0 {
+		domains := make([]string, 0, len(changed))
+		for d := range changed {
+			domains = append(domains, d)
+		}
+		sort.Strings(domains)
+		rt.service.Broadcast(rt.opts.OwnerID, contract.TopicDomain, contract.DomainEvent{Domains: domains})
+	}
+	if window.Cursor != "" {
+		return window.Cursor
+	}
+	return cursor
 }

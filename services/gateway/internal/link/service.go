@@ -362,6 +362,8 @@ func (s *Service) Serve(ctx context.Context, p Principal, stream FrameStream) er
 		limit = 16
 	}
 	sem := make(chan struct{}, limit)
+	// Requests beyond the window wait in a bounded backlog.
+	backlog := limit * 8
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for ctx.Err() == nil {
@@ -392,23 +394,38 @@ func (s *Service) Serve(ctx context.Context, p Principal, stream FrameStream) er
 				_ = conn.write(contract.Failure(f.ID, contract.Errorf(contract.CodeConflict, "request id %s is already in flight", f.ID)))
 				continue
 			}
+			if len(conn.inflight) >= limit+backlog {
+				// The window and its backlog are full: refuse at once so the
+				// read loop keeps serving cancels and reverse replies.
+				conn.mu.Unlock()
+				rcancel()
+				_ = conn.write(contract.Failure(f.ID, &contract.Error{Code: contract.CodeBusy, Message: "too many requests in flight", Retryable: true, NotSent: true}))
+				continue
+			}
 			conn.inflight[f.ID] = rcancel
 			conn.mu.Unlock()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				rcancel()
-				return ctx.Err()
-			}
 			wg.Add(1)
 			go func(f contract.Frame) {
 				defer wg.Done()
+				defer func() {
+					conn.mu.Lock()
+					delete(conn.inflight, f.ID)
+					conn.mu.Unlock()
+					rcancel()
+				}()
+				// A request waits for a slot without holding the read loop;
+				// one cancelled while waiting never runs.
+				select {
+				case sem <- struct{}{}:
+				case <-rctx.Done():
+					_ = conn.write(contract.Failure(f.ID, &contract.Error{Code: contract.CodeCancelled, Message: "request cancelled", NotSent: true}))
+					return
+				}
 				defer func() { <-sem }()
 				resp := s.invoke(rctx, hd, &Request{Principal: conn.Principal, Op: f.Op, Params: f.Params, Conn: conn}, f.ID)
 				conn.mu.Lock()
 				delete(conn.inflight, f.ID)
 				conn.mu.Unlock()
-				rcancel()
 				_ = conn.write(resp)
 			}(f)
 		case contract.FrameCancel:

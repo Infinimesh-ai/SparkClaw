@@ -90,10 +90,6 @@ export async function auditPackageWithRuntime(context,verifyMCD) {
     await fs.access(path.join(resources, icon.endsWith(".icns") ? icon : `${icon}.icns`));
   }
   const webchat = path.join(resources, "webchat");
-  const helper = path.join(resources, "iscp-workbench");
-  const helperInfo = await fs.lstat(helper);
-  if (!helperInfo.isFile() || helperInfo.isSymbolicLink() || !(helperInfo.mode & 0o111)) throw new Error("Installation package requires an executable ISCP helper");
-  const helperSHA256 = crypto.createHash("sha256").update(await fs.readFile(helper)).digest("hex");
   // The link-layer client process (services/link/cmd/link-helper).
   const linkHelper = path.join(resources, "link-helper");
   const linkHelperInfo = await fs.lstat(linkHelper);
@@ -121,7 +117,6 @@ export async function auditPackageWithRuntime(context,verifyMCD) {
     client_scope: "public_client_source_and_ui", application_entries: listPackage(path.join(resources, "app.asar")).length,
     ui_files: entries.length,
     preview_files: previewEntries.length,
-    iscp_helper_sha256: helperSHA256,
     link_helper_sha256: linkHelperSHA256,
     ...(mcdRuntime ? { mcd_runtime: mcdRuntime } : {}),
     browser_controller: { protocol: controller.protocol, source_revision: controller.source_revision,

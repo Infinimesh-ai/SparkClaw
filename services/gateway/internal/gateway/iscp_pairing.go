@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -9,56 +10,75 @@ import (
 )
 
 func (s *Server) getISCPPairingStatus(w http.ResponseWriter, r *http.Request) {
+	s.mcpPairingStatus(r.Context()).write(w)
+}
+
+func (s *Server) mcpPairingStatus(ctx context.Context) domainReply {
 	if s.iscpPairing == nil {
-		writeJSON(w, http.StatusOK, iscppairing.Status{State: "unavailable", DisabledReason: "not_configured", ExpectedTicketType: iscppairing.DefaultTicketType})
-		return
+		return reply(http.StatusOK, iscppairing.Status{State: "unavailable", DisabledReason: "not_configured", ExpectedTicketType: iscppairing.DefaultTicketType})
 	}
-	writeJSON(w, http.StatusOK, s.iscpPairing.Status(r.Context()))
+	return reply(http.StatusOK, s.iscpPairing.Status(ctx))
 }
 
 func (s *Server) listISCPOnboardings(w http.ResponseWriter, r *http.Request) {
-	principal := principalForRequest(r)
+	s.mcpPairingOnboardings(r.Context(), principalForRequest(r)).write(w)
+}
+
+func (s *Server) mcpPairingOnboardings(ctx context.Context, principal requestPrincipal) domainReply {
 	if s.iscpPairing == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"onboardings": []any{}})
-		return
+		return reply(http.StatusOK, map[string]any{"onboardings": []any{}})
 	}
-	onboardings, err := s.iscpPairing.List(r.Context(), principal.OwnerID)
+	onboardings, err := s.iscpPairing.List(ctx, principal.OwnerID)
 	if err != nil {
 		status := iscpPairingFailureStatus(err)
 		if status == 0 {
 			status = http.StatusServiceUnavailable
 		}
-		writeError(w, status, err)
-		return
+		return replyError(status, err)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"onboardings": onboardings})
+	return reply(http.StatusOK, map[string]any{"onboardings": onboardings})
 }
 
 func (s *Server) startISCPPairing(w http.ResponseWriter, r *http.Request) {
+	var input iscppairing.StartRequest
+	answer, ready := s.mcpPairingReady(r.Context(), principalForRequest(r))
+	if ready {
+		if err := readJSON(r, &input); err != nil {
+			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		answer = s.mcpPairingStart(r.Context(), principalForRequest(r), input)
+	}
+	if !answer.failed() {
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Pragma", "no-cache")
+	}
+	answer.write(w)
+}
+
+// mcpPairingReady tells whether a pairing may start: MCP over ISCP is on.
+func (s *Server) mcpPairingReady(ctx context.Context, principal requestPrincipal) (domainReply, bool) {
 	if s.iscpPairing == nil {
-		writeError(w, http.StatusServiceUnavailable, iscppairing.ErrUnavailable)
-		return
+		return replyError(http.StatusServiceUnavailable, iscppairing.ErrUnavailable), false
 	}
-	principal := principalForRequest(r)
 	if s.connectors == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("MCP connector control is unavailable"))
-		return
+		return replyError(http.StatusServiceUnavailable, errors.New("MCP connector control is unavailable")), false
 	}
-	connector, err := s.connectors.Status(r.Context(), principal.OwnerID, "mcp")
+	connector, err := s.connectors.Status(ctx, principal.OwnerID, "mcp")
 	if err != nil || !connector.Enabled {
-		writeError(w, http.StatusConflict, errors.New("MCP connector is disabled"))
-		return
+		return replyError(http.StatusConflict, errors.New("MCP connector is disabled")), false
 	}
 	if !connector.ISCPEnabled {
-		writeError(w, http.StatusConflict, errors.New("MCP over ISCP is disabled"))
-		return
+		return replyError(http.StatusConflict, errors.New("MCP over ISCP is disabled")), false
 	}
-	var input iscppairing.StartRequest
-	if err := readJSON(r, &input); err != nil {
-		writeError(w, http.StatusBadRequest, err)
-		return
+	return domainReply{}, true
+}
+
+func (s *Server) mcpPairingStart(ctx context.Context, principal requestPrincipal, input iscppairing.StartRequest) domainReply {
+	if answer, ready := s.mcpPairingReady(ctx, principal); !ready {
+		return answer
 	}
-	issued, err := s.iscpPairing.Start(r.Context(), principal.OwnerID, principal.ActorID, input, time.Now().UTC())
+	issued, err := s.iscpPairing.Start(ctx, principal.OwnerID, principal.ActorID, input, time.Now().UTC())
 	if err != nil {
 		status := http.StatusBadGateway
 		if failureStatus := iscpPairingFailureStatus(err); failureStatus != 0 {
@@ -66,12 +86,9 @@ func (s *Server) startISCPPairing(w http.ResponseWriter, r *http.Request) {
 		} else if !errors.Is(err, iscppairing.ErrAuthority) {
 			status = http.StatusBadRequest
 		}
-		writeError(w, status, err)
-		return
+		return replyError(status, err)
 	}
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Pragma", "no-cache")
-	writeJSON(w, http.StatusCreated, issued)
+	return reply(http.StatusCreated, issued)
 }
 
 func iscpPairingFailureStatus(err error) int {

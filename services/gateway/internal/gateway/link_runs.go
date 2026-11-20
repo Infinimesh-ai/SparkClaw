@@ -14,6 +14,7 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/link"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/mcddining"
 	"github.com/Chiiz0/SparkClaw/services/link/contract"
 )
 
@@ -26,6 +27,9 @@ type linkRunHub struct {
 }
 
 type linkRunState struct {
+	// seq numbers this conversation's events; it never resets, so a client
+	// orders events across runs and connections.
+	seq     int64
 	status  contract.RunStatus
 	binding execution.WorkbenchBinding
 	subs    map[int]func(contract.RunEvent)
@@ -45,9 +49,92 @@ func (h *linkRunHub) state(sessionID string) *linkRunState {
 	return st
 }
 
+// publish numbers ev and hands it to every subscriber in order. Callers
+// hold h.mu, so events of one conversation are numbered and queued in the
+// order they happened.
 func (h *linkRunHub) publish(st *linkRunState, ev contract.RunEvent) {
+	st.seq++
+	ev.Seq = st.seq
+	st.status.Seq = st.seq
+	if ev.Status != nil {
+		ev.Status.Seq = st.seq
+	}
 	for _, fn := range st.subs {
 		fn(ev)
+	}
+}
+
+// linkEventQueue delivers one subscription's events in order from a single
+// goroutine. It never blocks the publisher; when the device falls too far
+// behind, the oldest events are dropped and the seq gap tells the device
+// to read run.status again.
+type linkEventQueue struct {
+	mu      sync.Mutex
+	events  []contract.RunEvent
+	wake    chan struct{}
+	stopped bool
+}
+
+const linkEventQueueLimit = 2048
+
+func newLinkEventQueue(ctx context.Context, emit func(contract.RunEvent) error) *linkEventQueue {
+	q := &linkEventQueue{wake: make(chan struct{}, 1)}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				q.stop()
+				return
+			case <-q.wake:
+			}
+			for {
+				q.mu.Lock()
+				if q.stopped || len(q.events) == 0 {
+					stopped := q.stopped
+					q.mu.Unlock()
+					if stopped {
+						return
+					}
+					break
+				}
+				ev := q.events[0]
+				q.events = q.events[1:]
+				q.mu.Unlock()
+				if emit(ev) != nil {
+					q.stop()
+					return
+				}
+			}
+		}
+	}()
+	return q
+}
+
+func (q *linkEventQueue) push(ev contract.RunEvent) {
+	q.mu.Lock()
+	if q.stopped {
+		q.mu.Unlock()
+		return
+	}
+	q.events = append(q.events, ev)
+	if len(q.events) > linkEventQueueLimit {
+		q.events = q.events[len(q.events)-linkEventQueueLimit:]
+	}
+	q.mu.Unlock()
+	select {
+	case q.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (q *linkEventQueue) stop() {
+	q.mu.Lock()
+	q.stopped = true
+	q.events = nil
+	q.mu.Unlock()
+	select {
+	case q.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -233,6 +320,9 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 	if err != nil {
 		return nil, linkConversationError(err)
 	}
+	if p.ReplayOnly {
+		return s.linkMessageReplay(ctx, principal, session, input, ingress, p)
+	}
 	admission, previous, err := s.admitWorkbenchMessageFor(ctx, principal, session, input, ingress, p.ClientMessageID)
 	if err != nil {
 		return nil, linkConversationError(err)
@@ -249,7 +339,7 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 	}
 	runID := admission.lease.RunID
 	sessionID := session.ID
-	rt := s.link
+	releaseMCD := func() {}
 	if req.Principal.Conditions.BrowserSurface && admission.runtime != nil {
 		// The desktop's built-in browser runs this conversation's browser
 		// tasks (design 3.12), as it did through the previous transport.
@@ -257,8 +347,17 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 			bound := admission.runtime.WithBrowser(adapter)
 			admission.runtime = &bound
 		}
+		// McDonald's ordering follows the device's own authorization
+		// (its conditions and declared reverse operations).
+		authorization := s.linkExecutionAuthorization(req.Principal, s.linkDeviceReverse(req))
+		var selection *mcddining.Selection
+		selection, releaseMCD = s.linkRunMCDSelection(admission.lease.Context, authorization, req.Principal.OwnerID, req.Principal.ClientID, linkInstallationID(req.Principal.DeviceID), input.RequestID)
+		if selection != nil {
+			bound := admission.runtime.WithMCDSelection(selection)
+			admission.runtime = &bound
+		}
 	}
-	rt.runs.begin(sessionID, runID, admission.binding)
+	s.linkRunBegin(sessionID, runID, admission.binding)
 	executionCtx := admission.context()
 	if presentation, ok := linkClientPresentation(req.Principal.Principal, p); ok {
 		// The desktop shows its local schedules itself, as it did through
@@ -270,15 +369,9 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 	go func() {
 		defer s.streamWG.Done()
 		defer admission.close()
+		defer releaseMCD()
 		result, err := s.streamMessage(executionCtx, sessionID, input.Content, cleaned, ingress, func(event agent.StreamEvent) error {
-			switch event.Type {
-			case "text_delta":
-				rt.runs.delta(sessionID, runID, event.Text)
-			case "tool_call.started", "tool_call.delta", "tool_call":
-				if event.ToolName != "" {
-					rt.runs.progress(sessionID, runID, event.ToolName)
-				}
-			}
+			s.linkRunStream(sessionID, runID, event)
 			return nil
 		})
 		var deliveryErr error
@@ -288,7 +381,7 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 		if finishErr := s.finishWorkbenchMessage(admission, result, err, deliveryErr); finishErr != nil && err == nil {
 			err = finishErr
 		}
-		rt.runs.finish(sessionID, s.linkRunStatusFromResult(context.WithoutCancel(executionCtx), sessionID, runID, result, err))
+		s.linkRunFinish(executionCtx, sessionID, runID, result, err)
 	}()
 	// The run is already admitted; a failed read only loses the stored
 	// form of the input message, which the admission lease describes.
@@ -297,6 +390,98 @@ func (s *Server) linkMessageSend(ctx context.Context, req *link.Request) (any, e
 		msg = app.Message{ID: admission.lease.InputMessageID, SessionID: sessionID, Role: "user", Content: p.Content, ClientMessageID: p.ClientMessageID, CreatedAt: time.Now().UTC()}
 	}
 	return contract.MessageSendResult{Message: linkMessage(msg), RunID: runID}, nil
+}
+
+// linkMessageReplay answers a send retried with replay_only: the original
+// admission of this client_message_id, or not_found when it never arrived.
+// Nothing is admitted.
+func (s *Server) linkMessageReplay(ctx context.Context, principal requestPrincipal, session app.Session, input webMessageInput, ingress app.MessageIngressContext, p contract.MessageSendParams) (any, error) {
+	binding, err := workbenchAdmissionBinding(principal, session, input, ingress)
+	if err != nil {
+		return nil, link.Errorf(contract.CodeInvalidRequest, "%v", err)
+	}
+	service, err := s.executionService()
+	if err != nil {
+		return nil, linkConversationError(err)
+	}
+	status, err := service.LookupWorkbenchClaim(binding)
+	if errors.Is(err, execution.ErrNotFound) {
+		return nil, &contract.Error{Code: contract.CodeNotFound, Message: "this message never reached the backend", NotSent: true}
+	}
+	if err != nil {
+		return nil, linkConversationError(err)
+	}
+	if status.InputDigest != binding.InputDigest {
+		return nil, link.Errorf(contract.CodeConflict, "client_message_id reused with different content")
+	}
+	msg, found, err := s.store.FindMessageByClientID(ctx, session.ID, p.ClientMessageID)
+	if err != nil {
+		return nil, linkConversationError(err)
+	}
+	if !found {
+		msg = app.Message{SessionID: session.ID, Role: "user", Content: p.Content, ClientMessageID: p.ClientMessageID}
+	}
+	return contract.MessageSendResult{Message: linkMessage(msg), RunID: status.RunID, Replayed: true}, nil
+}
+
+// linkRunBegin, linkRunStream and linkRunFinish let link devices follow a
+// run whichever entry admitted it (a link device or the host WebChat).
+func (s *Server) linkRunBegin(sessionID, runID string, binding execution.WorkbenchBinding) {
+	if s.link != nil {
+		s.link.runs.begin(sessionID, runID, binding)
+	}
+}
+
+func (s *Server) linkRunStream(sessionID, runID string, event agent.StreamEvent) {
+	if s.link == nil {
+		return
+	}
+	switch event.Type {
+	case "text_delta":
+		s.link.runs.delta(sessionID, runID, event.Text)
+	case "tool_call.started", "tool_call.delta", "tool_call":
+		if event.ToolName != "" {
+			s.link.runs.progress(sessionID, runID, event.ToolName)
+		}
+	}
+}
+
+func (s *Server) linkRunFinish(ctx context.Context, sessionID, runID string, result agent.Result, err error) {
+	if s.link != nil {
+		s.link.runs.finish(sessionID, s.linkRunStatusFromResult(context.WithoutCancel(ctx), sessionID, runID, result, err))
+	}
+}
+
+// linkStoredRunStatus answers run.status for a conversation whose latest
+// run this process did not follow (a schedule, a messaging channel, or a
+// run admitted before a restart): its persisted state decides.
+func (s *Server) linkStoredRunStatus(ctx context.Context, sessionID string) (contract.RunStatus, bool) {
+	runs, err := s.store.ListRuns(ctx, sessionID)
+	if err != nil || len(runs) == 0 {
+		return contract.RunStatus{}, false
+	}
+	latest := runs[0]
+	status := contract.RunStatus{SessionID: sessionID, RunID: latest.ID, UpdatedAt: linkTime(latest.StartedAt)}
+	if latest.CompletedAt != nil {
+		status.UpdatedAt = linkTime(*latest.CompletedAt)
+	}
+	switch latest.State {
+	case "running", "queued", "accepted":
+		status.State = contract.RunRunning
+	case "approval_pending", "browser_login_blocked":
+		status.State = contract.RunApprovalPending
+	case "completed":
+		status.State = contract.RunCompleted
+	case "failed":
+		status.State = contract.RunFailed
+	case "cancelled", "canceled":
+		status.State = contract.RunCancelled
+	case "blocked":
+		status.State = contract.RunBlocked
+	default:
+		return contract.RunStatus{}, false
+	}
+	return status, true
 }
 
 func (s *Server) linkRunStatusFromResult(ctx context.Context, sessionID, runID string, result agent.Result, runErr error) contract.RunStatus {
@@ -372,7 +557,16 @@ func (s *Server) linkRunStatus(ctx context.Context, req *link.Request) (any, err
 	if _, ok, err := s.sessionForPrincipal(ctx, linkRequestPrincipal(req), p.SessionID); err != nil || !ok {
 		return nil, link.Errorf(contract.CodeNotFound, "conversation not found")
 	}
-	status, _, _ := s.link.runs.snapshot(p.SessionID)
+	status, _, tracked := s.link.runs.snapshot(p.SessionID)
+	if (!tracked && status.State == contract.RunIdle) || (p.RunID != "" && status.RunID != p.RunID) {
+		if stored, ok := s.linkStoredRunStatus(ctx, p.SessionID); ok && (p.RunID == "" || stored.RunID == p.RunID || status.RunID == "") {
+			stored.Preview = ""
+			if stored.RunID == status.RunID {
+				stored.Seq = status.Seq
+			}
+			status = stored
+		}
+	}
 	if status.State != contract.RunRunning {
 		status.PendingApprovals = s.linkPendingApprovals(ctx, p.SessionID)
 		if len(status.PendingApprovals) > 0 && status.State == contract.RunIdle {
@@ -395,9 +589,10 @@ func (s *Server) linkRunSubscribe(ctx context.Context, req *link.Request) (any, 
 	}
 	subID := "run:" + p.SessionID
 	conn := req.Conn
-	status, cancel := s.link.runs.subscribe(p.SessionID, func(ev contract.RunEvent) {
-		go func() { _ = conn.Emit(subID, contract.TopicRun, ev) }()
-	})
+	qctx, stopQueue := context.WithCancel(conn.Context())
+	queue := newLinkEventQueue(qctx, func(ev contract.RunEvent) error { return conn.Emit(subID, contract.TopicRun, ev) })
+	status, unsubscribe := s.link.runs.subscribe(p.SessionID, queue.push)
+	cancel := func() { unsubscribe(); stopQueue() }
 	conn.OnClose(cancel)
 	linkRegisterSubscription(conn, subID, cancel)
 	if status.State != contract.RunRunning {

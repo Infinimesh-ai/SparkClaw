@@ -2,10 +2,14 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { projectISCPCapabilities, ISCP_SURFACES } from "./iscp-capabilities.mjs";
-import { ISCPTransport, ISCPRequestNotSentError } from "./iscp-transport.mjs";
-import { LinkDomainWire, linkManifest, V2_PROFILE } from "./link-domain-wire.mjs";
+import { projectLinkCapabilities } from "./link-capabilities.mjs";
+import { LinkDomainClient, LinkRequestNotSentError, DOMAIN_PROFILE } from "./link-domain-client.mjs";
 import { LinkError, LinkTransport, LINK_REVERSE_OPERATIONS } from "./link-transport.mjs";
+import { CONTROLLER_OPERATIONS, wireBytes } from "../browser/controller-wire.mjs";
+import { MCD_HOST_OPERATIONS } from "./mcd/host.mjs";
+
+// Reverse replies stay within one link frame.
+const REVERSE_RESPONSE_BYTES = 480 * 1024;
 
 export const LINK_CREDENTIAL_PREFIX = "sparkclaw-link-v1.";
 // An internal origin: requests never leave the main process by HTTP, the
@@ -13,9 +17,8 @@ export const LINK_CREDENTIAL_PREFIX = "sparkclaw-link-v1.";
 export const LINK_ORIGIN = "https://backend.sparkclaw-link.invalid";
 const CODE = /^\d{12}$/u;
 
-// The installation identity the Gateway derives for a link device
-// (link_domain_bridge.go linkInstallationID), so reverse calls and domain
-// state agree on one installation per device.
+// Keep the UUID derivation in sync with the Gateway's linkInstallationID.
+// Reverse calls and domain state use this installation ID for the same device.
 export function linkInstallationID(deviceID) {
   const sum = crypto.createHash("sha256").update(`sparkclaw-link-installation-v1\u0000${deviceID}`).digest();
   const b = Buffer.from(sum.subarray(0, 16));
@@ -25,27 +28,17 @@ export function linkInstallationID(deviceID) {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-// Operations the core link layer serves in place of the old v2 table rows
-// (approvals, execution inputs and files). They make the original surfaces
-// available; they are never sent through domain.call.
-const CORE_SUBSTITUTES = Object.freeze(["approvals.list", "approvals.get", "approvals.decide", "execution.input.put", "execution.file.get"]);
-
-// Projects the existing capability surfaces for a link connection. Every
-// feature is open unless the backend lacks the domain or the device lacks
-// the condition (design 3.9); there is no per-feature qualification report.
-export function linkCapabilities(manifest, browserRuntimeAvailable = true, now = Date.now()) {
-  if (!manifest) return projectISCPCapabilities(undefined, undefined, now, browserRuntimeAvailable);
-  const projected = { ...manifest, operations: [...new Set([...manifest.operations, ...CORE_SUBSTITUTES])] };
-  const report = { schema_version: 2, profile: V2_PROFILE, session_id: manifest.session_id, authorization_revision: manifest.authorization_revision, expires_at: manifest.expires_at,
-    capabilities: ISCP_SURFACES.map((id) => ({ id, qualified: true, enabled: true, permitted: true, supported: true, dependencies_ready: true })) };
-  return projectISCPCapabilities(projected, report, now, browserRuntimeAvailable);
+// Projects the existing capability surfaces for a link connection.
+export function linkCapabilities(manifest, browserRuntimeAvailable = true) {
+  return projectLinkCapabilities(manifest, browserRuntimeAvailable);
 }
 
 // LinkAuth is the desktop's backend connection on the link layer. It keeps
 // the interface the main-process clients already use (status, connection,
-// authorizedFetch, invokeISCP, transport) while every request travels over
-// one LinkTransport: core operations directly, business domains through
-// domain.call. A device joins once with a SparkClaw access credential.
+// authorizedFetch, invokeDomain, transport) while every request travels over
+// one LinkTransport: core operations directly, business domains with
+// domain.call through LinkDomainClient. A device joins once with a
+// SparkClaw access credential.
 export class LinkAuth {
   constructor({ stateDirectory, userDataDirectory, vault, readLocalFile, appVersion = "", hostName = os.hostname(), packaged = false, resourcesPath,
     linkFactory = (options) => new LinkTransport(options), onChange = () => {}, onCapabilitiesChanged = onChange, onLock = () => {}, onReverse,
@@ -167,7 +160,6 @@ export class LinkAuth {
     }
     // Backend offline: operations fail at once (design 3.12). Cached
     // conversations stay readable because the identity is retained.
-    this.wire?.disconnect();
     if (this.status.state === "connected" || this.status.state === "reconnecting") { ++this.generation; this.#set("service_unavailable"); }
   }
 
@@ -203,37 +195,47 @@ export class LinkAuth {
     return this.connecting;
   }
 
-  // The business-domain pipeline runs over a fresh wire per link connection.
+  // Business domains are reached with domain.call, one client per link
+  // connection so a change of backend identity never mixes their state.
   async #startPipeline() {
     this.transport?.close();
     const binding = { deployment_id: this.connection.deploymentID, owner_id: this.connection.ownerID, client_id: this.connection.clientID };
-    const transport = new ISCPTransport({
-      configPath: path.join(this.stateDirectory, "link-domain"), origin: LINK_ORIGIN, expectedBinding: binding,
-      installationID: this.installationID, readLocalFile: this.readLocalFile, timeoutMS: this.timeoutMS,
+    const transport = new LinkDomainClient({
+      link: this.link, origin: LINK_ORIGIN, binding, installationID: this.installationID, domains: this.domains,
+      readLocalFile: this.readLocalFile, timeoutMS: this.timeoutMS,
       canSendMailAttachments: () => this.status.capabilities?.surfaces?.mail_send_attachments?.enabled === true,
       journalRoot: path.join(this.userDataDirectory, "link-objects"), mutationProtector: this.vault,
-      spawnProcess: () => {
-        const wire = new LinkDomainWire({ link: this.link, binding, domains: this.domains, installationID: this.installationID });
-        this.wire = wire;
-        return wire;
-      },
-      onCapabilities: () => { if (this.transport === transport && this.status.state === "connected") this.#set("connected", this.onCapabilitiesChanged); },
-      onReverse: (request, session) => this.transport === transport && this.status.state === "connected" ? this.onReverse?.(request, session) : undefined,
-      onState: (state) => {
-        if (this.transport !== transport) return;
-        this.transportStage = state;
-        if (state === "disconnected" && this.status.state === "connected") { ++this.generation; this.#set("service_unavailable"); }
-      },
     });
     this.transport = transport;
+    this.transportStage = "transport_ready";
     await transport.start();
   }
 
-  // Reverse calls from the backend reach the same handlers that answered the
-  // previous helper's reverse_request frames.
+  // Reverse calls from the backend reach the original browser and
+  // McDonald's handlers with the request shape they take.
   async #reverse(op, params) {
-    if (!this.wire || this.status.state !== "connected") throw new LinkError("backend_unavailable", "The device link is not ready");
-    return this.wire.reverse(op, params);
+    const transport = this.transport;
+    if (!transport || this.status.state !== "connected" || transport.state !== "transport_ready") throw new LinkError("backend_unavailable", "The device link is not ready");
+    if (!CONTROLLER_OPERATIONS.includes(op) && !MCD_HOST_OPERATIONS.includes(op)) return { status: 403, error_code: "permission_denied", error: "Reverse operation is not accepted" };
+    const envelope = params && typeof params === "object" && !Array.isArray(params) && Object.hasOwn(params, "body") ? params : { body: params ?? {} };
+    const request = { type: "task.invoke", profile: DOMAIN_PROFILE, id: crypto.randomUUID(), operation: op,
+      installation_id: envelope.installation_id || this.installationID,
+      ...(envelope.params ? { params: envelope.params } : {}), ...(envelope.request_id ? { request_id: envelope.request_id } : {}),
+      ...(envelope.operation_id ? { operation_id: envelope.operation_id } : {}), body: envelope.body };
+    const session = { session_id: transport.sessionID, authorization_revision: 1 };
+    const chunk = op === "browser.controller.chunk";
+    if (chunk && (this.reverseChunks || 0) >= 4) return { status: 429, error_code: "throttled", error: "Browser result capacity is unavailable" };
+    let reply;
+    try {
+      if (chunk) this.reverseChunks = (this.reverseChunks || 0) + 1;
+      reply = await this.onReverse?.(request, session);
+    } catch { reply = { status: 500, error_code: "internal_error", error: "Browser command failed" }; }
+    finally { if (chunk) this.reverseChunks--; }
+    reply ??= { status: 503, error_code: "capability_unavailable", error: "Browser is unavailable" };
+    const response = { status: reply.status, ...(reply.body !== undefined ? { body: reply.body } : {}),
+      ...(reply.error_code ? { error_code: reply.error_code } : {}), ...(reply.error ? { error: String(reply.error) } : {}) };
+    if (wireBytes(response) > REVERSE_RESPONSE_BYTES) return { status: 413, error_code: "resource_limit", error: "Browser response exceeds the transfer limit" };
+    return response;
   }
 
   #event(frame) {
@@ -261,10 +263,19 @@ export class LinkAuth {
     return Promise.resolve(this.#set("service_unavailable"));
   }
 
-  async invokeISCP(operation, body, options = {}) {
+  async invokeDomain(operation, body, options = {}) {
     if (this.status.state !== "connected" || !this.transport) throw new Error("The backend is unreachable");
     const generation = this.generation;
     const value = await this.transport.invoke(operation, body, options);
+    if (generation !== this.generation) throw new Error("Backend connection changed");
+    return value;
+  }
+
+  // The original outcome of a change whose reply was lost; never runs it.
+  async replayDomain(operation, body, options = {}) {
+    if (this.status.state !== "connected" || !this.transport) throw new Error("The backend is unreachable");
+    const generation = this.generation;
+    const value = await this.transport.replay(operation, body, options);
     if (generation !== this.generation) throw new Error("Backend connection changed");
     return value;
   }
@@ -290,7 +301,7 @@ export class LinkAuth {
       if (generation !== this.generation) return new Response(null, { status: 503 });
       return response;
     } catch (error) {
-      if (error instanceof ISCPRequestNotSentError) throw error;
+      if (error instanceof LinkRequestNotSentError) throw error;
       throw new Error("Backend request is unavailable");
     }
   }

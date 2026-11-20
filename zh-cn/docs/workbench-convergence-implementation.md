@@ -1,6 +1,8 @@
 # 工作台收敛实施记录
 
 > 语言：简体中文 | [English](../../docs/workbench-convergence-implementation.md)
+>
+> **2026-11-20** — 本文记录十月的桌面传输、本地会话归属和当时的验收。设备现通过连接层同步后端会话，宿主 WebChat 继续使用宿主 HTTP 入口。[三端连接层设计](client-link-layer-design.md)。
 
 日期：2026-10-06。实施分支：`codex/workbench-runtime-convergence`，起点为
 `9b92968d`。本文记录源码和隔离验证，不代表运行服务已升级。

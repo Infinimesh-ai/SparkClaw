@@ -2,6 +2,8 @@
 
 [简体中文](../zh-cn/docs/iscp-rpc-diagnostics.md)
 
+> **2026-11-20** — The workbench helper, its reverse RPC trace stages and the incident script below are retired. This procedure is retained for historical traces. Browser health and private timing instrumentation still exist at the components that emit them. [Link contract](link-contract.md).
+
 For a failed SparkX browser health check, start with the task's request ID or
 the `browser.controller.status` RPC ID. The RPC ID is inside the authenticated
 encrypted request. Relay cannot see it. The sending endpoint records the

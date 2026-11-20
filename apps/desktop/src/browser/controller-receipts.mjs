@@ -42,5 +42,5 @@ export async function reconcileBrowserFence(owner, commandID, digest, outcome) {
 
 function invokeBrowserReceipt(owner, operation, body, installationID) {
   if (!operationTransport(owner.auth.descriptor)) throw new Error("Browser reconciliation requires the backend link");
-  return owner.auth.invokeISCP(operation, body, { installationID, timeoutMS: owner.receiptTimeoutMS });
+  return owner.auth.invokeDomain(operation, body, { installationID, timeoutMS: owner.receiptTimeoutMS });
 }

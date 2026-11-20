@@ -38,9 +38,8 @@ const connection: DesktopConnectionStatus = {
   owner_id: "owner-preview",
   authorization_revision: 1,
   backend: {
-    schema_version: 3, transport: "iscp", client_id: "client-preview-mac", domain_id: "domain-preview",
-    initiator_device_id: "device-preview-mac", responder_device_id: "device-preview-gateway",
-    responder_key_thumbprint: "preview-thumbprint", relay_profile: "production",
+    schema_version: 3, transport: "link", client_id: "client-preview-mac", domain_id: "domain-preview",
+    domain_name: "Preview", host_name: "SparkClaw preview",
     origin: GATEWAY, deployment_id: "deployment-preview", owner_id: "owner-preview",
   },
   capabilities: {

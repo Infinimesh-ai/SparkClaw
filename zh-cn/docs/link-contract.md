@@ -75,10 +75,10 @@
 | `session.archive` | `{session_id, archived}` → 会话头 | |
 | `session.delete` | `{session_id}` → `{session_id, deleted}` | 重复删除视为成功；会话中上传的附件一并删除 |
 | `session.messages` | `{session_id, before_seq?, after_seq?, limit}` → `{session, messages[], more}` | 按时间从旧到新；`before_seq: 0` 返回最新一页 |
-| `message.send` | `{session_id, client_message_id, content, attachments[], client_timezone, client_presentation?}` → `{message, run_id, replayed}` | 相同的 `client_message_id` 返回原结果；运行中再发送返回 `busy`。电脑端可声明 `client_presentation {schema_version, schedule_show, timezone, requested_at, local_conversation_id}`；后端随后可在最终消息的 `extra.client_action`（`schedule.show`）里交回本机日程展示，而不读取本机日程 |
+| `message.send` | `{session_id, client_message_id, content, attachments[], client_timezone, client_presentation?, replay_only?}` → `{message, run_id, replayed}` | 相同的 `client_message_id` 返回原结果。带 `replay_only` 时后端只回答消息是否到达：返回原回复；从未到达则返回带 `not_sent` 的 `not_found`，不会补跑。运行中再发送返回 `busy`。电脑端可声明 `client_presentation {schema_version, schedule_show, timezone, requested_at, local_conversation_id}`；后端随后可在最终消息的 `extra.client_action`（`schedule.show`）里交回本机日程展示，而不读取本机日程 |
 | `run.subscribe` | `{session_id}` → `{subscription, status}` | 仅 duplex；先返回当前快照，之后推送 `run` 事件 |
 | `run.unsubscribe` | `{session_id}` → `{ok}` | 仅 duplex |
-| `run.status` | `{session_id}` → RunStatus | `state` 取 idle、running、approval_pending、completed、failed、cancelled 或 blocked；另带 `preview`、`progress`、`final_message`、`pending_approvals` |
+| `run.status` | `{session_id}` → RunStatus | `state` 取 idle、running、approval_pending、completed、failed、cancelled 或 blocked；另带 `preview`、`progress`、`final_message`、`pending_approvals`，以及 `seq`：快照包含的最后一个运行事件。已结束的运行从已存会话中回答 |
 | `run.cancel` | `{session_id, run_id?}` → RunStatus | |
 | `approval.list` | `{session_id?, pending?}` → `{approvals[]}` | |
 | `approval.resolve` | `{approval_id, decision: approve\|reject, inputs?, idempotency_key}` → `{approval}` | |
@@ -87,11 +87,13 @@
 
 | 操作 | 说明 |
 |---|---|
-| `object.upload.begin` | 参数 `{upload_key, name, size, content_type, sha256, session_id}`，返回 `{upload_id, received, chunk_size}`。相同的 `upload_key` 从断点续传 |
+| `object.upload.begin` | 参数 `{upload_key, name, size, content_type, sha256, session_id}`；业务域对象改用 `{…, purpose}`，不带 `session_id`。返回 `{upload_id, received, chunk_size}`。相同的 `upload_key` 从断点续传 |
 | `object.upload.chunk` | 参数 `{upload_id, offset, data}`，`data` 为 base64 |
 | `object.upload.commit` | 校验 SHA-256 后返回 `object_id` |
 | `object.describe` | 不要求 `attachments` 条件 |
 | `object.read` | 参数 `{object_id, offset, length}`，返回 `{object, offset, data, eof}` |
+
+业务域对象（带 `purpose` 上传，或由业务域方法返回）属于上传或接收它的设备，只有该设备能读，不进入工作区，24 小时后过期，id 是 UUID。目前使用的用途：`mail_send_attachment`、`speech_recording`、`domain_args`、`domain_result`、`mail_attachment`。
 
 配额：
 
@@ -102,17 +104,32 @@
 
 ### 业务域
 
-`domain.call` 的参数是 `{domain, method, args, idempotency_key}`，返回 `{result}`：
+`domain.call` 的参数是 `{domain, method, args, args_object?, idempotency_key?, replay_only?}`，返回 `{result}`：
 
-- `method` 是业务域操作的名称，例如 `mail.mailboxes.list`；`domain` 是它的第一段。
-- `args` 是该操作的类型化字段：`{params, body, body_object, expected_revision, input_digest, request_id}`。
-- `result` 原样返回业务域自己的结果：`{status, body, body_object, error_code, error, retryable}`。
-- 修改类操作必须带 `idempotency_key`（UUID）。重试时从回执日志返回原结果。
-- 大的请求体走 `transfer.*` 方法上传；大的结果以 `body_object` 返回，再用同一通道的 `object.*` 方法读取。
+- `method` 是类型化的业务域方法，例如 `mail.conversations.list`；`domain` 是它的第一段。`device.describe` 列出后端提供的业务域。
+- `args` 是方法自己的类型化字段。电脑端路由指名的记录（一封邮件、一个会话、一个绑定）也是字段，绝不是路径。未知字段会被忽略。
+- 超过一帧的参数先作为用途 `domain_args` 的业务域对象上传，用 `args_object` 指名，代替 `args`。调用及其回执都按参数内容计算。
+- 修改类操作必须带 `idempotency_key`（UUID）。后端在执行前记下这次尝试；用同一键重试，得到原结果、`conflict`（同一键但内容不同）或 `outcome_unknown`（尝试开始后没有结束），绝不会执行两次。
+- `replay_only: true` 只返回修改类操作的原结果，从不启动它；带 `not_sent` 的 `not_found` 表示它从未执行。
 
-以下操作已由核心操作取代或归官网管理，通过 `domain.call` 调用会被拒绝并给出原因：`execution.*`、`approvals.*`、`clients.*`、`authorizations.*`、`installation.*`、`phone.*`、`capabilities.*`、`workbench.*`、`state.*`、`audio.*`。
+结果有两种形态：
 
-`mcd.*` 和 `browser.*` 方法要求设备有内置浏览器界面。
+- **类型化结果**（`medicine`、`notifications`、`speech`、`browser`、`mcd`）：方法的值。失败是链路错误，`reason` 是业务域自己的原因（例如 `medicine_sync_reset_required`）；模型故障是 `backend_unavailable`，消息为“模型暂时不可用”。
+- **业务结果**（`settings`、`mail`、`presentation`）：`{status, body, body_object?}`，即宿主 WebChat 对同一业务调用给出的状态码和 JSON 正文，电脑端原有界面原样读取。文件或超过一帧的正文以 `body_object` 返回，这是一个用 `object.read` 读取的业务域对象。业务失败是带状态码的结果（例如 `409 revision_conflict`）；链路错误只用于调用本身。
+
+| 业务域 | 方法 |
+|---|---|
+| `medicine` | `medicine.sync`、`.operations.get`、`.items.create`、`.items.update`、`.items.delete`、`.items.batch`、`.import`、`.recognize`、`.parse` |
+| `notifications` | `notifications.list` `{limit?, after?}`（带密封的 `watermark`）、`.read` `{id}`、`.read_all` `{watermark}` |
+| `speech`（条件 `microphone`） | `speech.status`、`.transcribe` `{session_id, request_id, language, audio_object}`、`.cancel`、`.session.open`、`.session.frame`、`.session.events`、`.session.finish`、`.session.cancel` |
+| `browser`、`mcd`（条件 `browser_surface`） | `browser.receipt`、`browser.reconcile`；`mcd.session.provision`、`.revoke`、`.status` |
+| `settings` | `settings.owner.get`/`.patch`、`.connectors.list`/`.patch`、`.integrations.list`、`.credentials.add`/`.activate`/`.check`/`.delete`、`.bindings.list`/`.start`/`.get`/`.poll`/`.revoke`/`.login`、`.browser.get`/`.save`/`.check`/`.delete`、`.mcp.catalog`/`.transports`/`.tickets.*`/`.bindings.*`/`.records.delete`/`.pairing.*` |
+| `mail` | `mail.providers.*`、`.intake.update`、`.intake.reconcile`、`.mailboxes`、`.sync`、`.attachment`、`.message`、`.conversations.*`、`.pending`、`.notifications`、`.interaction`、`.sent_sources`、`.sender_rules.*`、`.verification`、`.render_preview`、`.file`、`.presentations.*`、`.compose.capabilities`、`.sync.*`、`.drafts.*`、`.send`、`.replies.polish`、`.source.cleanup`、`.classification`、`.assignment`、`.viewed`、`.reanalyze` |
+| `presentation` | `presentation.config`、`.owner`、`.ready` |
+
+设置中的主人资料、连接器和集成的值以 `{revision, value}` 返回；修改时带上它所依据的 `expected_revision`，版本已过期则返回 `409 revision_conflict`。
+
+收信设置的修改（`mail.intake.update`）若回复丢失且结果未知，用 `mail.intake.reconcile` `{idempotency_key, original}` 了结，其中 `original` 是该修改自己的参数：由邮箱判断修改是否生效，这个答复随即成为该修改的回执（`{state: "completed", idempotency_key, response}`）。邮箱登录（`mail.providers.login`）在服务商失败时保持 `outcome_unknown`，因为登录窗口可能已经打开。
 
 ### 投影
 
@@ -131,14 +148,15 @@
 
 | 主题 | 数据 |
 |---|---|
-| `run` | `{session_id, run_id, kind: state\|delta\|progress\|final, text?, status?}` |
+| `run` | `{session_id, run_id, seq, kind: state\|delta\|progress\|final, text?, status?}`。`seq` 在一个会话的所有运行中逐一递增，一个订阅按顺序收到。出现缺口说明有事件丢失，应重新读取 `run.status` |
 | `sync` | `{cursor}`：有会话发生变化，客户端应调用 `sync.changes` |
 | `approval` | `{pending}`：待处理的审批有变化 |
+| `domain` | `{domains[]}`：某个业务域的状态有变化（例如 `settings`、`mail`、`medicine`），应重新读取 |
 | `device` | `{state: "revoked"}`：后端随后会关闭连接 |
 
 ## 6. 错误
 
-`error` 的格式是 `{code, message, retryable}`。错误码如下：
+`error` 的格式是 `{code, message, retryable, not_sent?, reason?}`。`not_sent` 表示请求从未到达处理方（没有可用路径、帧没能写出，或后端在执行前拒绝）：它没有产生任何效果，可以再次发送。`reason` 是业务域自己的原因。错误码如下：
 
 - `unsupported_capability`
 - `invalid_request`
@@ -153,6 +171,7 @@
 - `internal`
 - `quota_exceeded`
 - `timeout`
+- `outcome_unknown`：重试的修改类操作，其原尝试开始后没有结束。它不会再执行，由客户端核对业务状态
 
 `backend_unavailable` 表示后端不可达：客户端立即报错，不排队（设计文档 3.12）。请求已发出但没有收到回复时，用同一幂等键重试，目的只是查明结果。
 

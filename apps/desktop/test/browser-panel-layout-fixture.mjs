@@ -234,11 +234,11 @@ app.whenReady().then(async () => {
     window.close();
     assert.equal(window.isVisible(), false);
     authorized = false;
-    window.webContents.send("sparkclaw-local-backend:state", { state: "reconnecting", backend: { transport: "iscp" }, capabilities: { surfaces: { browser: { enabled: false } } } });
+    window.webContents.send("sparkclaw-local-backend:state", { state: "reconnecting", backend: { transport: "link" }, capabilities: { surfaces: { browser: { enabled: false } } } });
     await until(() => evaluate("document.querySelector('.desktopBrowserPanel').hidden"), "unavailable browser must collapse");
     await pause(100);
     authorized = true;
-    window.webContents.send("sparkclaw-local-backend:state", { state: "connected", backend: { transport: "iscp" }, capabilities: { surfaces: { browser: { enabled: true } } } });
+    window.webContents.send("sparkclaw-local-backend:state", { state: "connected", backend: { transport: "link" }, capabilities: { surfaces: { browser: { enabled: true } } } });
     app.emit("activate");
     await pause(100);
     assert.equal(record.view.getVisible(), false, "close/reopen after reconnect must not cover the conversation");

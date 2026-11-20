@@ -169,6 +169,12 @@ func hashSecret(secret string) string {
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
+	writeJSON(w, status, errorPayload(err))
+}
+
+// errorPayload is the JSON body of a failure: its message, and its code and
+// retryability when the error carries them.
+func errorPayload(err error) map[string]any {
 	payload := map[string]any{"error": err.Error()}
 	if code := errorCode(err); code != "" {
 		payload["code"] = code
@@ -177,7 +183,7 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	if errors.As(err, &retryable) {
 		payload["retryable"] = retryable.Retryable()
 	}
-	writeJSON(w, status, payload)
+	return payload
 }
 
 func errorCode(err error) string {

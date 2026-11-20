@@ -205,14 +205,15 @@ func (s *Server) claimPairing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request) {
-	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
-	status := strings.TrimSpace(r.URL.Query().Get("status"))
-	principal := principalForRequest(r)
+	s.notificationBindings(r.Context(), principalForRequest(r), strings.TrimSpace(r.URL.Query().Get("channel")), strings.TrimSpace(r.URL.Query().Get("status"))).write(w)
+}
+
+// notificationBindings lists the bindings of the principal's endpoint.
+func (s *Server) notificationBindings(ctx context.Context, principal requestPrincipal, channel, status string) domainReply {
 	visible := []app.NotificationBinding{}
-	bindings, err := s.store.ListNotificationBindings(r.Context(), channel, status)
+	bindings, err := s.store.ListNotificationBindings(ctx, channel, status)
 	if err != nil {
-		writeConnectorError(w, err)
-		return
+		return connectorErrorReply(err)
 	}
 	for _, binding := range bindings {
 		actorID := strings.TrimSpace(binding.ActorID)
@@ -223,7 +224,7 @@ func (s *Server) listNotificationBindings(w http.ResponseWriter, r *http.Request
 			visible = append(visible, binding)
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return reply(http.StatusOK, map[string]any{
 		"bindings": publicNotificationBindings(visible),
 	})
 }
@@ -274,21 +275,15 @@ func (s *Server) updateConnector(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
+// notificationBindingStart is the input of starting a binding.
+type notificationBindingStart struct {
+	DefaultForChannel bool   `json:"default_for_channel"`
+	CredentialSecret  string `json:"credential_secret"`
+	BotToken          string `json:"bot_token"`
+}
+
 func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request) {
-	if s.connectors == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
-		return
-	}
-	channel := strings.ToLower(strings.TrimSpace(r.PathValue("channel")))
-	if channel == "" {
-		writeError(w, http.StatusBadRequest, errors.New("channel is required"))
-		return
-	}
-	var input struct {
-		DefaultForChannel bool   `json:"default_for_channel"`
-		CredentialSecret  string `json:"credential_secret"`
-		BotToken          string `json:"bot_token"`
-	}
+	var input notificationBindingStart
 	if r.Body != nil && r.Body != http.NoBody {
 		r.Body = http.MaxBytesReader(w, r.Body, 4096)
 		if err := readJSON(r, &input); err != nil && !errors.Is(err, io.EOF) {
@@ -296,7 +291,18 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	principal := principalForRequest(r)
+	s.notificationBindingStart(r.Context(), principalForRequest(r), r.PathValue("channel"), input).write(w)
+}
+
+// notificationBindingStart starts binding a messaging channel.
+func (s *Server) notificationBindingStart(ctx context.Context, principal requestPrincipal, channel string, input notificationBindingStart) domainReply {
+	if s.connectors == nil {
+		return replyError(http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
+	}
+	channel = strings.ToLower(strings.TrimSpace(channel))
+	if channel == "" {
+		return replyError(http.StatusBadRequest, errors.New("channel is required"))
+	}
 	requested := app.NotificationBinding{
 		OwnerID:           principal.OwnerID,
 		ActorID:           principal.ActorID,
@@ -308,54 +314,60 @@ func (s *Server) startNotificationBinding(w http.ResponseWriter, r *http.Request
 	if credentialSecret == "" {
 		credentialSecret = input.BotToken
 	}
-	started, err := s.connectors.StartNotificationBinding(r.Context(), requested, binding.StartOptions{CredentialSecret: credentialSecret})
+	started, err := s.connectors.StartNotificationBinding(ctx, requested, binding.StartOptions{CredentialSecret: credentialSecret})
 	if err != nil {
-		writeConnectorError(w, err)
-		return
+		return connectorErrorReply(err)
 	}
-	writeJSON(w, http.StatusCreated, publicNotificationBinding(started, true))
+	return reply(http.StatusCreated, publicNotificationBinding(started, true))
+}
+
+// ownedNotificationBinding is the principal's binding id, or a reply.
+func (s *Server) ownedNotificationBinding(ctx context.Context, principal requestPrincipal, id string) (app.NotificationBinding, *domainReply) {
+	record, ok, err := s.store.GetNotificationBinding(ctx, strings.TrimSpace(id))
+	if err != nil {
+		failure := connectorErrorReply(err)
+		return record, &failure
+	}
+	if !ok || record.OwnerID != principal.OwnerID || firstEndpointActor(record) != principal.ActorID {
+		failure := replyError(http.StatusNotFound, errors.New("notification binding not found"))
+		return record, &failure
+	}
+	return record, nil
 }
 
 func (s *Server) getNotificationBinding(w http.ResponseWriter, r *http.Request) {
-	bindingID := strings.TrimSpace(r.PathValue("id"))
-	binding, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
-	if err != nil {
-		writeConnectorError(w, err)
-		return
+	s.notificationBinding(r.Context(), principalForRequest(r), r.PathValue("id")).write(w)
+}
+
+func (s *Server) notificationBinding(ctx context.Context, principal requestPrincipal, id string) domainReply {
+	record, failure := s.ownedNotificationBinding(ctx, principal, id)
+	if failure != nil {
+		return *failure
 	}
-	principal := principalForRequest(r)
-	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
-		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
-		return
-	}
-	writeJSON(w, http.StatusOK, publicNotificationBinding(binding))
+	return reply(http.StatusOK, publicNotificationBinding(record))
 }
 
 func (s *Server) pollNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	s.notificationBindingPoll(r.Context(), principalForRequest(r), r.PathValue("id")).write(w)
+}
+
+// notificationBindingPoll advances a pending binding.
+func (s *Server) notificationBindingPoll(ctx context.Context, principal requestPrincipal, id string) domainReply {
 	if s.connectors == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
-		return
+		return replyError(http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
 	}
-	bindingID := strings.TrimSpace(r.PathValue("id"))
-	current, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	current, failure := s.ownedNotificationBinding(ctx, principal, id)
+	if failure != nil {
+		return *failure
+	}
+	updated, err := s.connectors.PollNotificationBinding(ctx, current.ID)
 	if err != nil {
-		writeConnectorError(w, err)
-		return
-	}
-	principal := principalForRequest(r)
-	if !ok || current.OwnerID != principal.OwnerID || firstEndpointActor(current) != principal.ActorID {
-		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
-		return
-	}
-	updated, err := s.connectors.PollNotificationBinding(r.Context(), bindingID)
-	if err != nil {
-		writeConnectorError(w, err)
-		return
+		return connectorErrorReply(err)
 	}
 	if !isPendingNotificationBinding(updated.Status) {
-		s.closeNotificationBindingBrowser(r.Context(), updated)
+		s.closeNotificationBindingBrowser(ctx, updated)
 	}
-	writeJSON(w, http.StatusOK, publicNotificationBinding(updated))
+	return reply(http.StatusOK, publicNotificationBinding(updated))
 }
 
 func (s *Server) openNotificationBindingBrowser(w http.ResponseWriter, r *http.Request) {
@@ -408,29 +420,24 @@ func (s *Server) closeNotificationBindingBrowser(ctx context.Context, binding ap
 }
 
 func (s *Server) revokeNotificationBinding(w http.ResponseWriter, r *http.Request) {
+	s.notificationBindingRevoke(r.Context(), principalForRequest(r), r.PathValue("id")).write(w)
+}
+
+// notificationBindingRevoke revokes a binding and closes its login window.
+func (s *Server) notificationBindingRevoke(ctx context.Context, principal requestPrincipal, id string) domainReply {
 	if s.connectors == nil {
-		writeError(w, http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
-		return
+		return replyError(http.StatusServiceUnavailable, errors.New("connector control is unavailable"))
 	}
-	bindingID := strings.TrimSpace(r.PathValue("id"))
-	binding, ok, err := s.store.GetNotificationBinding(r.Context(), bindingID)
+	record, failure := s.ownedNotificationBinding(ctx, principal, id)
+	if failure != nil {
+		return *failure
+	}
+	revoked, err := s.connectors.RevokeNotificationBinding(ctx, record.ID)
+	s.closeNotificationBindingBrowser(ctx, record)
 	if err != nil {
-		writeConnectorError(w, err)
-		return
+		return connectorErrorReply(err)
 	}
-	principal := principalForRequest(r)
-	if !ok || binding.OwnerID != principal.OwnerID || firstEndpointActor(binding) != principal.ActorID {
-		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
-		return
-	}
-	revoked, err := s.connectors.RevokeNotificationBinding(r.Context(), bindingID)
-	if err != nil {
-		s.closeNotificationBindingBrowser(r.Context(), binding)
-		writeConnectorError(w, err)
-		return
-	}
-	s.closeNotificationBindingBrowser(r.Context(), binding)
-	writeJSON(w, http.StatusOK, publicNotificationBinding(revoked))
+	return reply(http.StatusOK, publicNotificationBinding(revoked))
 }
 
 func connectorStartStatus(code string) int {
@@ -463,19 +470,52 @@ func connectorStartStatus(code string) int {
 }
 
 func writeConnectorError(w http.ResponseWriter, err error) {
+	connectorErrorReply(err).write(w)
+}
+
+func connectorErrorReply(err error) domainReply {
 	switch store.StoreErrorCodeOf(err) {
 	case store.StoreErrorNotFound:
-		writeError(w, http.StatusNotFound, errors.New("notification binding not found"))
+		return replyError(http.StatusNotFound, errors.New("notification binding not found"))
 	case store.StoreErrorConflict:
-		writeError(w, http.StatusConflict, errors.New("notification binding changed"))
+		return replyError(http.StatusConflict, errors.New("notification binding changed"))
 	case store.StoreErrorInvalid:
-		writeError(w, http.StatusBadRequest, errors.New("notification binding request is invalid"))
+		return replyError(http.StatusBadRequest, errors.New("notification binding request is invalid"))
 	case store.StoreErrorCanceled:
-		writeError(w, http.StatusRequestTimeout, &credential.Error{Code: credential.CodeCanceled})
+		return replyError(http.StatusRequestTimeout, &credential.Error{Code: credential.CodeCanceled})
 	case store.StoreErrorTimeout, store.StoreErrorUnavailable, store.StoreErrorDurability,
 		store.StoreErrorUnknownOutcome, store.StoreErrorCorrupt, store.StoreErrorInternal:
-		writeError(w, http.StatusServiceUnavailable, &binding.BindingError{Code: binding.CodeConnectorUnavailable})
+		return replyError(http.StatusServiceUnavailable, &binding.BindingError{Code: binding.CodeConnectorUnavailable})
 	default:
-		writeError(w, connectorStartStatus(errorCode(err)), err)
+		return replyError(connectorStartStatus(errorCode(err)), err)
 	}
+}
+
+// getNotificationBindingLoginURL lets a desktop display the provider's QR page
+// locally. It never copies a browser session or launches the backend browser.
+func (s *Server) getNotificationBindingLoginURL(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if r.URL.RawQuery != "" || r.ContentLength > 0 {
+		writeError(w, http.StatusBadRequest, errors.New("invalid notification binding login request"))
+		return
+	}
+	s.notificationBindingLoginURL(r.Context(), principalForRequest(r), r.PathValue("id")).write(w)
+}
+
+func (s *Server) notificationBindingLoginURL(ctx context.Context, principal requestPrincipal, id string) domainReply {
+	record, found, err := s.store.GetNotificationBinding(ctx, id)
+	if err != nil {
+		return connectorErrorReply(err)
+	}
+	if !found || record.OwnerID != principal.OwnerID || firstEndpointActor(record) != principal.ActorID {
+		return replyError(http.StatusNotFound, errors.New("notification binding not found"))
+	}
+	if record.Channel != "weixin" || !weixinproto.IsQRLoginProvider(record.Provider) ||
+		!isPendingNotificationBinding(record.Status) || record.ExpiresAt == nil || !record.ExpiresAt.After(time.Now().UTC()) {
+		return replyError(http.StatusConflict, errors.New("notification binding has no pending Weixin login"))
+	}
+	if !weixinproto.IsQRLoginURL(record.QRCodeURL) {
+		return replyError(http.StatusBadRequest, errors.New("notification binding has no valid Weixin login URL"))
+	}
+	return reply(http.StatusOK, map[string]any{"url": record.QRCodeURL, "expires_at": record.ExpiresAt})
 }

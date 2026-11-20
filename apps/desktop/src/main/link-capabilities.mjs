@@ -1,0 +1,57 @@
+const SURFACES = Object.freeze({
+  settings_owner: ['settings.owner.get', 'settings.owner.patch'],
+  settings_devices: ['clients.list', 'clients.issue', 'clients.revoke'],
+  settings_devices_delete: ['clients.delete'],
+  settings_connectors: ['settings.connectors.list', 'settings.connectors.patch'],
+  settings_bindings: ['settings.bindings.list', 'settings.bindings.start', 'settings.bindings.get', 'settings.bindings.poll', 'settings.bindings.revoke', 'settings.bindings.login'],
+  settings_browser_control: ['settings.browser.get', 'settings.browser.save', 'settings.browser.check', 'settings.browser.delete'],
+  settings_mcp_access: ['settings.mcp.catalog', 'settings.mcp.transports', 'settings.mcp.tickets.list', 'settings.mcp.tickets.issue', 'settings.mcp.tickets.revoke', 'settings.mcp.tickets.delete', 'settings.mcp.bindings.list', 'settings.mcp.bindings.revoke', 'settings.mcp.bindings.delete', 'settings.mcp.records.delete', 'settings.mcp.pairing.status', 'settings.mcp.pairing.onboardings', 'settings.mcp.pairing.start'],
+  settings_credentials: ['settings.integrations.list', 'settings.credentials.add', 'settings.credentials.activate', 'settings.credentials.check', 'settings.credentials.delete'],
+  mcd_selection: ['mcd.session.provision', 'mcd.session.revoke', 'mcd.session.status'],
+  mcd_cart: ['mcd.session.provision', 'mcd.session.revoke', 'mcd.session.status'],
+  mcd_prepare: ['mcd.checkout.prepare', 'mcd.checkout.abort', 'mcd.operation.status'],
+  notifications: ['notifications.list', 'notifications.read', 'notifications.read_all'],
+  // Files, approvals and invalidation events are core link operations
+  // (object.*, approval.*, pushed events): every link connection has them.
+  files: [],
+  approvals: [],
+  events: [],
+  mail_settings: ['mail.providers.list', 'mail.providers.update', 'mail.providers.check'],
+  mail_popup: ['mail.providers.list', 'mail.message', 'mail.conversations.list', 'mail.conversations.get', 'mail.conversations.messages', 'mail.conversations.rename', 'mail.conversations.delete', 'mail.pending', 'mail.notifications', 'mail.interaction', 'mail.verification', 'mail.render_preview', 'mail.source.cleanup', 'mail.file', 'mail.classification', 'mail.assignment', 'mail.sender_rules.list', 'mail.sender_rules.update', 'mail.presentations.get', 'mail.presentations.ensure', 'mail.compose.capabilities', 'mail.replies.polish', 'mail.sent_sources', 'mail.sync.status', 'mail.sync.warnings', 'mail.sync.acknowledge', 'mail.sync.request', 'mail.viewed', 'mail.reanalyze', 'mail.intake.update'],
+  mail_read: ['mail.mailboxes', 'mail.sync', 'mail.message'],
+  mail_attachments: ['mail.attachment'],
+  mail_send: ['mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile', 'mail.drafts.resolve'],
+  mail_send_attachments: ['mail.drafts.list', 'mail.drafts.save', 'mail.drafts.send', 'mail.drafts.reconcile', 'mail.drafts.resolve'],
+  browser: ['browser.controller.status', 'browser.controller.acquire', 'browser.controller.execute', 'browser.controller.release', 'browser.controller.chunk', 'browser.receipt', 'browser.reconcile'],
+  speech_recording: ['speech.status', 'speech.transcribe', 'speech.cancel'],
+  speech_realtime: ['speech.session.open', 'speech.session.frame', 'speech.session.events', 'speech.session.finish', 'speech.session.cancel'],
+  speech_playback: ['audio.playback'],
+  medicine: ['medicine.recognize'],
+  medicine_text: ['medicine.parse'],
+  medicine_box_read: ['medicine.sync', 'medicine.operations.get'],
+  medicine_box_write: ['medicine.items.create', 'medicine.items.update', 'medicine.items.delete', 'medicine.items.batch', 'medicine.import'],
+});
+const DEPENDENCIES = { medicine_box_write: ['medicine_box_read'], mail_read: ['events'], mail_attachments: ['mail_read', 'files'], mail_send: ['mail_read', 'files', 'approvals'], mail_send_attachments: ['mail_send'], browser: ['files', 'approvals', 'events'], speech_recording: ['files'], speech_realtime: ['speech_recording', 'events'], speech_playback: ['speech_realtime'] };
+
+// Projects the original screens' capability surfaces from the domain
+// methods a link connection reaches. Every feature is open unless the
+// backend lacks the domain or the device lacks the condition (design 3.9);
+// there is no per-feature qualification report.
+export function projectLinkCapabilities(manifest, browserRuntimeAvailable = true) {
+  const operations = Array.isArray(manifest?.operations) ? manifest.operations : [];
+  const granted = new Set(operations);
+  const surfaces = {};
+  for (const [surface, required] of Object.entries(SURFACES)) {
+    let reason = !manifest ? 'connection_required' : !required.every((op) => granted.has(op)) ? 'permission_or_implementation_missing' : !(DEPENDENCIES[surface] || []).every((dependency) => surfaces[dependency]?.enabled) ? 'dependency_unavailable' : '';
+    if (!reason && surface === 'browser' && !browserRuntimeAvailable) reason = 'local_runtime_unavailable';
+    surfaces[surface] = Object.freeze({ enabled: !reason, reason });
+  }
+  const enabled = (surface) => surfaces[surface].enabled;
+  return Object.freeze({ operations: Object.freeze([...operations]), surfaces: Object.freeze(surfaces),
+    files: enabled('files'), mail: enabled('mail_popup'), browser: enabled('browser'), speech: enabled('speech_recording'),
+    approvals: enabled('approvals'), settings: enabled('settings_owner') || enabled('settings_connectors') || enabled('settings_credentials') || enabled('settings_bindings') || enabled('settings_browser_control') || enabled('settings_mcp_access') || enabled('mail_settings'),
+    notifications: enabled('notifications'), events: enabled('events'),
+  });
+}
+
+export const LINK_SURFACES = Object.freeze(Object.keys(SURFACES));

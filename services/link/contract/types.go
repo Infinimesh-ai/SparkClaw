@@ -109,6 +109,11 @@ type MessageSendParams struct {
 	// itself (its local schedules). The backend may answer with a client
 	// action in the final message's extra instead of reading the data.
 	ClientPresentation *ClientPresentation `json:"client_presentation,omitempty"`
+	// ReplayOnly asks for the original admission of ClientMessageID
+	// without ever admitting it: not_found means the backend never
+	// received it. A client retries a send whose reply was lost this way,
+	// so a message that never arrived is not run late.
+	ReplayOnly bool `json:"replay_only,omitempty"`
 }
 
 // ClientPresentation is the desktop's local display capability for one
@@ -158,6 +163,10 @@ type RunStatus struct {
 	// PendingApprovals lists approvals blocking this run.
 	PendingApprovals []Approval `json:"pending_approvals,omitempty"`
 	UpdatedAt        string     `json:"updated_at,omitempty"`
+	// Seq is the sequence of the last run event this snapshot includes.
+	// Events with a higher seq follow it; a gap means events were lost and
+	// the client reads run.status again.
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // RunSubscribeParams subscribes to a conversation's run output.
@@ -180,6 +189,9 @@ type RunEvent struct {
 	Kind   string     `json:"kind"`
 	Text   string     `json:"text,omitempty"`
 	Status *RunStatus `json:"status,omitempty"`
+	// Seq increases by one per event of a conversation, across runs and
+	// connections, so a client orders events and detects gaps.
+	Seq int64 `json:"seq"`
 }
 
 // RunRef names a conversation's run.
@@ -236,6 +248,11 @@ type ObjectUploadBeginParams struct {
 	ContentType string `json:"content_type,omitempty"`
 	SHA256      string `json:"sha256"` // hex digest of the whole content
 	SessionID   string `json:"session_id,omitempty"`
+	// Purpose makes the upload a domain object (for example a mail
+	// attachment or a recording) instead of a conversation attachment. A
+	// domain object gets a UUID object_id, is passed to domain methods by
+	// reference and expires after 24 hours.
+	Purpose string `json:"purpose,omitempty"`
 }
 
 // ObjectUploadState reports how much the backend already holds.
@@ -285,6 +302,12 @@ type DomainCallParams struct {
 	Method         string          `json:"method"`
 	Args           json.RawMessage `json:"args,omitempty"`
 	IdempotencyKey string          `json:"idempotency_key,omitempty"`
+	// ReplayOnly asks for the original outcome of IdempotencyKey without
+	// ever starting it: not_found means it never ran.
+	ReplayOnly bool `json:"replay_only,omitempty"`
+	// ArgsObject names a domain object (uploaded with purpose domain_args)
+	// that holds arguments too large for one frame. It replaces Args.
+	ArgsObject string `json:"args_object,omitempty"`
 }
 
 // DomainCallResult carries the method's result.
@@ -308,11 +331,18 @@ type ProjectionParams struct {
 	Cursor string `json:"cursor,omitempty"`
 }
 
+// DomainEvent invalidates business-domain reads: the client reads the
+// named domains again. Like every event it only accelerates.
+type DomainEvent struct {
+	Domains []string `json:"domains"`
+}
+
 // Event topics.
 const (
 	TopicRun      = "run"
 	TopicSync     = "sync"     // a conversation changed; data {cursor}
 	TopicApproval = "approval" // approvals changed
+	TopicDomain   = "domain"   // business-domain data changed; data DomainEvent
 	TopicDevice   = "device"   // this device was revoked or changed
 )
 

@@ -119,7 +119,7 @@ The Go implementation enforces the same rules as `medicine-store.mjs` and shares
 
 ### 4.4 Interfaces
 
-New ISCP forward operations (added to `operations.json`, then run `node scripts/sync-iscp-operations.mjs`). The HTTP paths are also added to the desktop `workbench-proxy-policy` allowlist (the previous release missed `/api/medicine` and returned 501):
+The table records the retired workbench adapter’s scopes and receipt types alongside the host HTTP endpoints. Desktop callers now use typed medicine methods, domain events and mutation keys. [Link contract](link-contract.md).
 
 | Operation | HTTP | scope | Mutation | Recovery | Purpose |
 |---|---|---|---|---|---|
@@ -130,7 +130,7 @@ New ISCP forward operations (added to `operations.json`, then run `node scripts/
 | `medicine.items.batch` | `POST /api/medicine/items/batch` | `medicine.write` | Yes | `operation_receipt` | Atomic batch create or update using one operation (section 7.6) |
 | `medicine.import` | `POST /api/medicine/import` | `medicine.write` | Yes | `operation_receipt` | One-time upload of old local data (section 4.7) |
 
-A new ISCP event category `medicine` is pushed when the box changes; the desktop runs one `medicine.sync` on receipt.
+After a medicine domain invalidation, the desktop refreshes through `medicine.sync`.
 
 `medicine.items.batch` accepts only complete, validated final changes with one batch operation ID and payload digest; each update includes `base_version`. The conversation tool and this interface share the domain service. Field completion uses a versioned approval input contract; incomplete drafts cannot enter the batch write API, and `medicine.import` is not a shortcut for conversation batch writes.
 

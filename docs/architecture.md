@@ -16,30 +16,11 @@ to its host's resources. Local integrity checks and host adapters enforce that
 data boundary; they do not constitute another business engine or replace backend
 validation. A local timer submits an ordinary backend task, not a local workflow.
 
-The desktop connects through authenticated LAN HTTPS/WSS or ISCP. These are
-connection adapters to the same backend business services, with the same data
-ownership and authorization semantics. Capability availability may differ by
-qualified transport support. Selecting ISCP does not permit silent LAN fallback.
+Devices join through the console. The desktop uses a single link contract over LAN or ISCP Relay for conversations, business calls and reverse browser operations. Gateway derives authorization from the connected device’s principal and conditions. See the [client link layer design](client-link-layer-design.md) and [link contract](link-contract.md).
 
-Desktop workbench data belongs to its installation: conversations, conversation
-drafts, task history, files and saved results. The backend receives only explicitly
-admitted context/resources and retains execution copies within their defined
-lifetime; processing a file does not move its permanent ownership to the backend.
-Mail data, including mail-service drafts and send records, is backend-authoritative
-and can be shared within the authenticated ownership scope. A desktop mail cache
-is a projection; an attachment explicitly saved into the desktop workbench becomes
-a local file. Backend service configuration and required authorization/execution
-control records retain their separate service ownership. Shared data is not
-public or automatically accessible across Owners.
+The backend stores conversations, messages and their attachments. The desktop caches conversation data for offline reading and keeps local drafts, file selections and schedules. The backend mail service owns the mailbox, mail drafts and send records. The desktop mail cache is a projection of that mailbox.
 
-Outgoing desktop mail attachments use only owned ClientStore `local_file_id`
-selections. Main verifies local bytes before upload and again before sending the
-reviewed version. LAN HTTPS admits the fixed-purpose mail object API only for an
-authenticated Client and registered installation; ordinary host HTTP cannot enable
-it. LAN and ISCP reuse the bounded object store and backend mail business service:
-at most five files / 10 MiB total, bound to deployment, Owner, Client and
-installation, with an absolute maximum 24-hour lifetime. Receipt reconciliation
-after an uncertain send never rereads, uploads or sends the attachment again.
+The desktop main process accepts up to five local attachments totaling 10 MiB for outgoing mail. It checks the selected local files and uploads device-scoped link objects that expire after 24 hours. The mail method receives the object references. A retry after an uncertain send reconciles the original operation.
 
 An open desktop mail editor retains unsaved fields and local attachment selections
 in memory during capability refresh or reconnection for the same verified identity.
@@ -48,10 +29,7 @@ unavailable, and never autosaves or resends on recovery. Revocation, locking or 
 identity change clears the editor. These temporary inputs do not replace the
 backend's authoritative draft version or explicit send confirmation.
 
-WebChat persists conversations, drafts, files and schedules in the deployment-host
-Store/files; desktop persists them in its own SQLite/files. Browser tabs retain
-access to the same authorized host workspace. Separate workbenches do not
-replicate non-mail history. Mail remains authoritative in the backend service.
+Host WebChat accesses its host workspace over HTTP. Device clients synchronize backend conversations and messages over the link.
 
 Both use the common context selector, live model/provider runtime, ToolHub
 registry, active policy and execution control. `internal/execution` owns request

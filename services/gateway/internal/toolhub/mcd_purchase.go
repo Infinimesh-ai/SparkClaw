@@ -28,31 +28,31 @@ func mcdPurchaseDefinitions() []app.ToolDefinition {
 	}
 }
 func (h *ToolHub) MCDPurchaseArguments() (map[string]any, error) {
-	if h.resources == nil || h.resources.MCDSelection == nil {
+	if h.mcdSelection() == nil {
 		return nil, errors.New("mcd_purchase_unavailable")
 	}
-	return h.resources.MCDSelection.PurchaseArguments()
+	return h.mcdSelection().PurchaseArguments()
 }
 func (h *ToolHub) MCDPreparedQuote() (map[string]any, error) {
-	if h.resources == nil || h.resources.MCDSelection == nil {
+	if h.mcdSelection() == nil {
 		return nil, errors.New("mcd_purchase_unavailable")
 	}
-	return h.resources.MCDSelection.PreparedQuote()
+	return h.mcdSelection().PreparedQuote()
 }
 func (h *ToolHub) MCDOrderingAvailable() bool {
-	return h.resources != nil && h.requireResource("mcd.purchase.commit") == nil && h.resources.MCDSelection.OrderingAvailable()
+	return h.mcdSelection() != nil && h.requireResource("mcd.purchase.commit") == nil && h.mcdSelection().OrderingAvailable()
 }
 func (h *ToolHub) MCDStatusAvailable() bool {
-	return h.resources != nil && h.requireResource("mcd.purchase.status") == nil && h.resources.MCDSelection.StatusAvailable()
+	return h.mcdSelection() != nil && h.requireResource("mcd.purchase.status") == nil && h.mcdSelection().StatusAvailable()
 }
 
 // MCDRequestsRemaining lets the ordering Workflow keep optional reads within
 // the execution's provider-request aggregate; it never reserves or refunds.
 func (h *ToolHub) MCDRequestsRemaining(ctx context.Context) (int, error) {
-	if h.resources == nil || h.resources.MCDSelection == nil {
+	if h.mcdSelection() == nil {
 		return 0, errors.New("mcd_selection_unavailable")
 	}
-	return h.resources.MCDSelection.RequestsRemaining(ctx)
+	return h.mcdSelection().RequestsRemaining(ctx)
 }
 func (h *ToolHub) MCDRequestCosts() mcddining.OrderRequestCosts { return mcddining.OrderRequestCosts{} }
 func mcdPurchaseRegistration(commit bool) toolRegistration {
@@ -64,16 +64,16 @@ func mcdPurchaseRegistration(commit bool) toolRegistration {
 		if _, err := h.requireMCDWorkflow(ctx, session, run, nodes...); err != nil {
 			return Result{}, err
 		}
-		if h.resources == nil || h.resources.MCDSelection == nil {
+		if h.mcdSelection() == nil {
 			return Result{}, errors.New("mcd_purchase_unavailable")
 		}
 		if !commit {
 			var out map[string]any
 			var err error
 			if args["operation"] == "policy" {
-				out, err = h.resources.MCDSelection.OrderPolicy(ctx)
+				out, err = h.mcdSelection().OrderPolicy(ctx)
 			} else {
-				out, err = h.resources.MCDSelection.PurchaseStatus(ctx)
+				out, err = h.mcdSelection().PurchaseStatus(ctx)
 			}
 			return Result{Output: out}, err
 		}
@@ -109,7 +109,7 @@ func mcdPurchaseRegistration(commit bool) toolRegistration {
 				review[key] = value
 			}
 		}
-		out, err := h.resources.MCDSelection.Commit(ctx, approvalID, review)
+		out, err := h.mcdSelection().Commit(ctx, approvalID, review)
 		return Result{Output: out}, err
 	}
 	name := "mcd.purchase.status"

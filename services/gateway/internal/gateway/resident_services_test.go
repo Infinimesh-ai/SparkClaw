@@ -29,12 +29,13 @@ func TestReadyzProjectsFiveResidentServicesAndLatestCallStatus(t *testing.T) {
 	tools := toolhub.New(cfg, st)
 	runtime := agent.NewRuntime(st, tools, policy.New(cfg), modelrouter.New(cfg), trace.NewWriter(cfg.Storage.TraceDir))
 	now := time.Now().UTC()
+	const errorMarker = "resident-test-model-error-"
 	for _, call := range []app.ModelCall{
-		{ID: "fast-old", Lane: "fast", Status: "failed", Error: "private old failure", StartedAt: now.Add(-2 * time.Minute)},
+		{ID: "fast-old", Lane: "fast", Status: "failed", Error: errorMarker + "old", StartedAt: now.Add(-2 * time.Minute)},
 		{ID: "fast-new", Lane: "fast", Status: "completed", StartedAt: now.Add(-time.Minute)},
-		{ID: "embedding-new", Lane: "embedding", Status: "failed", Error: "private embedding failure", StartedAt: now},
+		{ID: "embedding-new", Lane: "embedding", Status: "failed", Error: errorMarker + "embedding", StartedAt: now},
 		{ID: "asr-new", Lane: "asr", Status: "completed", StartedAt: now},
-		{ID: "ocr-new", Lane: "ocr", Status: "failed", Error: "private ocr failure", StartedAt: now},
+		{ID: "ocr-new", Lane: "ocr", Status: "failed", Error: errorMarker + "ocr", StartedAt: now},
 		{ID: "deep-new", Lane: "deep", Status: "completed", StartedAt: now.Add(time.Minute)},
 	} {
 		storetest.SaveModelCall(st, call)
@@ -61,7 +62,7 @@ func TestReadyzProjectsFiveResidentServicesAndLatestCallStatus(t *testing.T) {
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("readyz returned %d: %s", response.StatusCode, raw)
 	}
-	if strings.Contains(string(raw), "private") {
+	if strings.Contains(string(raw), errorMarker) {
 		t.Fatalf("resident projection exposed model-call errors: %s", raw)
 	}
 	var payload struct {

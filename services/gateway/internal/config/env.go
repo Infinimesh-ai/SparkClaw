@@ -156,22 +156,6 @@ var envBindings = []envBinding{
 	{name: "SPARKCLAW_LINK_LAN_ADDR", doc: "Listen address of the link LAN connector (pinned TLS + WebSocket), for example :18792; requires the link state directory.", apply: envString(func(c *Config) *string { return &c.Gateway.LinkLANAddr })},
 	{name: "SPARKCLAW_LINK_LAN_HOSTS", doc: "Comma-separated LAN names or addresses devices use to reach the link LAN connector.", apply: envString(func(c *Config) *string { return &c.Gateway.LinkLANHosts })},
 	{name: "SPARKCLAW_LINK_OWNER_ID", doc: "Owner served through the link layer; defaults to the default owner.", apply: envString(func(c *Config) *string { return &c.Gateway.LinkOwnerID })},
-	{name: "SPARKCLAW_WORKBENCH_ISCP_CONFIG", doc: "Absolute private responder configuration for the isolated ISCP workbench transport.", apply: envString(func(c *Config) *string { return &c.Gateway.WorkbenchISCPConfig })},
-	{name: "SPARKCLAW_WORKBENCH_ISCP_LOCAL_TEST", doc: "Explicit local test issuer opt-in; only 0 and 1 are accepted.", apply: func(c *Config, value string) error {
-		if value != "0" && value != "1" {
-			return fmt.Errorf("SPARKCLAW_WORKBENCH_ISCP_LOCAL_TEST must be 0 or 1")
-		}
-		c.Gateway.WorkbenchISCPLocalTest = value == "1"
-		return nil
-	}},
-	{name: "SPARKCLAW_WORKBENCH_ISCP_NODE_CONFIG", doc: "Separate private node-managed responder configuration; permits retaining the existing local-test responder during verified migration.", apply: envString(func(c *Config) *string { return &c.Gateway.WorkbenchISCPNodeConfig })},
-	{name: "SPARKCLAW_WORKBENCH_ISCP_NODE_MANAGED", doc: "Explicit self-hosted node issuer and multi-device responder opt-in; only 0 and 1 are accepted.", apply: func(c *Config, value string) error {
-		if value != "0" && value != "1" {
-			return fmt.Errorf("SPARKCLAW_WORKBENCH_ISCP_NODE_MANAGED must be 0 or 1")
-		}
-		c.Gateway.WorkbenchISCPNodeManaged = value == "1"
-		return nil
-	}},
 	{name: "SPARKCLAW_WEBCHAT_PROXY_TOKEN", doc: "Private token that authenticates the WebChat reverse proxy for pairing bootstrap.", apply: envString(func(c *Config) *string { return &c.Gateway.WebChatProxyToken })},
 	{name: "SPARKCLAW_BRIDGE_TOKEN", doc: "Dedicated bearer for the loopback ISCP bridge dispatch routes.", apply: envString(func(c *Config) *string { return &c.Gateway.BridgeToken })},
 	{name: "SPARKCLAW_JINGSI_LAN_ENABLED", doc: "Enable the JingSi LAN listener.", apply: envBool(func(c *Config) *bool { return &c.JingSiLAN.Enabled })},

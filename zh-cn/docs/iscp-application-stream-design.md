@@ -1,6 +1,8 @@
 # ISCP 与 SparkClaw 真正流式输出设计
 
 > 语言：简体中文 | [English](../../docs/iscp-application-stream-design.md)
+>
+> **2026-11-20** — 本文中面向 SparkX 的工作台流式绑定已退役。桌面端现通过连接层订阅和有序运行事件接收更新。底层 Relay 与模型服务商的流式输出各有独立范围。[连接协议](link-contract.md)。
 
 - 状态：设计草案，待讨论；关联 InfiniCenter ProjectGroup-2 决策 **0036 proposed**。本轮只生成文档，不实施、发布或部署。
 - 初稿：2026-10-16；修订：2026-10-18（内部使用方案 v3）。
@@ -300,9 +302,9 @@ SDK 接收认证顺序仍须审查：初稿发现 envelope.Decrypt 在 AEAD 验�
 | --- | --- |
 | 模型 SSE 与 Agent 缓存 | [router.go](../../services/gateway/internal/modelrouter/router.go) 612、642、672；[agent.go](../../services/gateway/internal/agent/agent.go) 960–994 |
 | 执行增量接入和旧快照 | [execution_workflow.go](../../services/gateway/internal/gateway/execution_workflow.go) 120；[progress.go](../../services/gateway/internal/execution/progress.go) 11、86、128、154；[execution_progress.go](../../services/gateway/internal/gateway/execution_progress.go) 43 |
-| 一次响应及 payload 分派 | [endpoint_rpc.go](../../services/gateway/internal/iscpworkbench/endpoint_rpc.go) 27、67、156、273；[endpoint.go](../../services/gateway/internal/iscpworkbench/endpoint.go) 557、635 |
-| 协商与新鲜授权 | [negotiation.go](../../services/gateway/internal/iscpworkbench/negotiation.go) 201、224；[authorization.go](../../services/gateway/internal/iscpnodeclient/authorization.go) |
-| helper、客户端和 UI | [helper](../../services/gateway/cmd/iscp-workbench/main.go) 153、246、291；[execution-progress.mjs](../../apps/desktop/src/main/execution-progress.mjs) 77；[execution-client.mjs](../../apps/desktop/src/main/execution-client.mjs) 243、261；[LocalWorkbench.tsx](../../apps/webchat/src/desktop/LocalWorkbench.tsx) 225、476；[messages.tsx](../../apps/webchat/src/components/messages.tsx) 94 |
+| 一次响应及 payload 分派 | endpoint_rpc.go（`endpoint_rpc.go`，已删除） 27、67、156、273；endpoint.go（`endpoint.go`，已删除） 557、635 |
+| 协商与新鲜授权 | negotiation.go（`negotiation.go`，已删除） 201、224；authorization.go（`authorization.go`，已删除） |
+| helper、客户端和 UI | helper（`main.go`，已删除） 153、246、291；execution-progress.mjs（`execution-progress.mjs`，已删除） 77；execution-client.mjs（`execution-client.mjs`，已删除） 243、261；[LocalWorkbench.tsx](../../apps/webchat/src/desktop/LocalWorkbench.tsx) 225、476；[messages.tsx](../../apps/webchat/src/components/messages.tsx) 94 |
 | SparkClaw Relay 补丁 | `receive.go`；[部署记录](public-iscp-node-deployment.md)；[既有延迟测量](iscp-latency-optimization.md) |
 | ISCP 信封和接收序号 | [envelope.go](https://github.com/Infinimesh-ai/ISCP/blob/47f1f6c231c56c92eff6b6c5d398e037ebcf9602/pkg/iscp/envelope/envelope.go#L34)；[session.go](https://github.com/Infinimesh-ai/ISCP/blob/47f1f6c231c56c92eff6b6c5d398e037ebcf9602/pkg/iscp/session/session.go#L243) |
 | 上游 Relay drain、配额和队列 | [server.go](https://github.com/Infinimesh-ai/ISCP/blob/47f1f6c231c56c92eff6b6c5d398e037ebcf9602/services/relay-reference/internal/relay/server.go#L546)；[PostgreSQL claim](https://github.com/Infinimesh-ai/ISCP/blob/47f1f6c231c56c92eff6b6c5d398e037ebcf9602/pkg/server/repository/relay.go#L254) |

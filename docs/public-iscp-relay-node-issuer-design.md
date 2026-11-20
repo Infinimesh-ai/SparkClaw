@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/public-iscp-relay-node-issuer-design.md)
 >
+> **2026-11-20** — The node issuer and its control forwarder are retired. This is the deployment design for the October issuer. Device enrollment now belongs to the console. ISCP Relay still carries link traffic. [Client link layer design](client-link-layer-design.md).
+>
 > Date: 2026-10-12. Status: requested rollout and acceptance completed. TEST1 public
 > IP HTTPS/WSS, work2 private issuer and responder/control peers are deployed.
 > Native `16b00f17` passes exact-Client migration/default Main cold start, original
@@ -307,7 +309,7 @@ The workbench Grant retains the current direction:
 
 Do not reverse this direction by borrowing an agent-invitation template, widen
 permissions on renewal or treat transport registration as authority over business
-data. The existing [workbench verifier](../services/gateway/internal/iscpworkbench/config.go)
+data. The existing workbench verifier (`config.go`, since removed)
 is the application-role reference.
 
 ### 6.3 Private issuer implementation and authoritative records

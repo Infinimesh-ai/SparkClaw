@@ -7,7 +7,6 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/link"
 	"github.com/Chiiz0/SparkClaw/services/link/contract"
 )
@@ -20,46 +19,54 @@ import (
 
 // linkPeerRoute finds an open link connection of the device that serves
 // reverse operations for this installation.
-func (s *Server) linkPeerRoute(ownerID, clientID, installationID string) (iscpworkbench.PeerSession, error) {
+func (s *Server) linkPeerRoute(ownerID, clientID, installationID string) (linkPeer, error) {
 	rt := s.link
 	if rt == nil {
-		return iscpworkbench.PeerSession{}, iscpworkbench.ErrPeerUnavailable
+		return linkPeer{}, errLinkPeerUnavailable
 	}
+	var c *link.Conn
 	for _, conn := range rt.service.Connections("") {
 		p := conn.Principal
-		if p.OwnerID != ownerID || p.ClientID != clientID || linkInstallationID(p.DeviceID) != installationID || len(conn.Reverse) == 0 {
+		if p.OwnerID != ownerID || p.ClientID != clientID || linkInstallationID(p.DeviceID) != installationID || len(conn.Reverse) == 0 || conn.Context().Err() != nil {
 			continue
 		}
-		c := conn
-		return iscpworkbench.PeerSession{
+		// A device connected over both paths is reached over the LAN, as
+		// its own requests are.
+		if c == nil || (conn.Principal.Transport == "lan" && c.Principal.Transport != "lan") {
+			c = conn
+		}
+	}
+	if c != nil {
+		p := c.Principal
+		return linkPeer{
 			ID:                    "link:" + p.DeviceID,
 			InstallationID:        installationID,
 			AuthorizationRevision: 1,
 			Done:                  c.Context().Done(),
-			Caller: func(ctx context.Context, operation string, body json.RawMessage) (iscpworkbench.Response, error) {
+			Caller: func(ctx context.Context, operation string, body json.RawMessage) (linkPeerResponse, error) {
 				// The device answers with the original reverse response
 				// envelope {status, body, error_code, error}.
 				raw, err := c.Call(ctx, operation, linkReverseRequest{Body: body, InstallationID: installationID})
 				if errors.Is(err, link.ErrReverseUnavailable) {
-					return iscpworkbench.Response{}, iscpworkbench.ErrPeerUnavailable
+					return linkPeerResponse{}, errLinkPeerUnavailable
 				}
 				if err != nil {
 					var cerr *contract.Error
 					if errors.As(err, &cerr) && cerr.Code == contract.CodeBackendUnavailable {
-						return iscpworkbench.Response{}, iscpworkbench.ErrPeerUnavailable
+						return linkPeerResponse{}, errLinkPeerUnavailable
 					}
-					return iscpworkbench.Response{}, err
+					return linkPeerResponse{}, err
 				}
 				var out linkReverseResponse
 				if json.Unmarshal(raw, &out) != nil || out.Status == 0 {
 					// A device that answers with a bare body succeeded.
-					return iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: iscpworkbench.ProfileV2, Status: 200, Body: raw}, nil
+					return linkPeerResponse{Status: 200, Body: raw}, nil
 				}
-				return iscpworkbench.Response{Type: iscpworkbench.ResponseType, Profile: iscpworkbench.ProfileV2, Status: out.Status, Body: out.Body, Code: iscpworkbench.ErrorCode(out.ErrorCode), Error: out.Error, Retryable: out.Retryable}, nil
+				return linkPeerResponse{Status: out.Status, Body: out.Body, Code: out.ErrorCode, Error: out.Error, Retryable: out.Retryable}, nil
 			},
 		}, nil
 	}
-	return iscpworkbench.PeerSession{}, iscpworkbench.ErrPeerUnavailable
+	return linkPeer{}, errLinkPeerUnavailable
 }
 
 // linkReverseRequest and linkReverseResponse are the reverse-call envelope

@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-iscp-connection-design.md)
 >
+> **2026-11-20** — 下述 SparkX 专用 helper、Gateway 工作台 responder 和本地实验环境均已退役。设备经控制台加入，再通过局域网或 ISCP Relay 使用连接层。本文命令及验收结果对应十月版本。[连接协议](link-contract.md)。
+>
 > 日期：2026-10-08。状态：基线实现已推送，本地 Docker reference Relay 与已安装 SparkX 的真实后端文本验收通过。自动 Grant 续签已实现；隔离验证、seed Grant 到期后的真实自动恢复、已安装原生窗口交付／重开及 headless 原 request 重连均通过。
 > 范围：实现 SparkX／Gateway 本地联调，不使用 InfiniCenter。
 
@@ -130,7 +132,7 @@ Relay access 与会话 Grant 独立：reference Relay 签发十五分钟 access 
 
 ### 3.3 自动 Grant 续签
 
-[Grant lifecycle client](../../services/gateway/internal/iscpbridge/grant_lifecycle_client.go)、[本地 issuer lifecycle](../../services/gateway/internal/iscplocalissuer/renewal.go)和 [Endpoint worker](../../services/gateway/internal/iscpworkbench/grant_lifecycle.go)实现设备自行续签。Grant subject SparkX 使用 SDK device PoP 与 `Idempotency-Key`，向钉住的 issuer 调用标准 `POST /v2/relay/devices/auto-renew-grant`。请求携带设备 identity 与 `identity_proof`，不使用 Relay access token 或 issuer 管理 token；只有固定 subject 可续签。Responder 同样用设备 PoP 和幂等键调用 `POST /v1/grants/current` 获取该 pair 的当前签名 Grant。Current 是本地 issuer 补充接口，不是 reference Relay 已有接口，也不签发新 Grant。
+[Grant lifecycle client](../../services/gateway/internal/iscpbridge/grant_lifecycle_client.go)、[本地 issuer lifecycle](../../services/gateway/internal/iscplocalissuer/renewal.go)和 Endpoint worker（`grant_lifecycle.go`，已删除）实现设备自行续签。Grant subject SparkX 使用 SDK device PoP 与 `Idempotency-Key`，向钉住的 issuer 调用标准 `POST /v2/relay/devices/auto-renew-grant`。请求携带设备 identity 与 `identity_proof`，不使用 Relay access token 或 issuer 管理 token；只有固定 subject 可续签。Responder 同样用设备 PoP 和幂等键调用 `POST /v1/grants/current` 获取该 pair 的当前签名 Grant。Current 是本地 issuer 补充接口，不是 reference Relay 已有接口，也不签发新 Grant。
 
 调用前，`GET /v1/renewal-capability` 必须返回真实 SDK `SignedDescriptor`（`iscp.signed_descriptor.v2`），内部是 `TrustRootDescriptor`（`iscp.trust_root.descriptor.v2`）。客户端使用钉住的 issuer 公钥验证签名、最长五分钟的 descriptor 有效期，以及固定 Domain、issuer／key、Relay、subject／audience pair 和 `sparkclaw.workbench.v1` permission。独立的 Grant 连续性检查固定 confirmation key、禁止 revocation epoch 回退，并拒绝扩大 TTL。签名 metadata 明确续签 purpose、`grant_renewal=true` 和绝对 `authorization_expires_at`；自定义 capability 对象或扩大的范围会被拒绝。
 
@@ -158,11 +160,11 @@ Relay access 与会话 Grant 独立：reference Relay 签发十五分钟 access 
 |---|---|
 | 桌面认证与 profile | 显式私有 ISCP 配置、固定 initiator、独立凭据 schema 和公开身份绑定；首次导入仅在 identity／installation 验证通过后公开工作台 scope |
 | 本地测试签发服务 | [SDK 签发器](../../services/gateway/internal/iscplocalissuer/issuer.go)和 [CLI](../../services/gateway/cmd/iscp-local-issuer/main.go)；固定 pair、签名续签 capability、PoP／幂等 lifecycle、绝对授权截止及脱敏签发 journal |
-| 桌面 transport | [私有 helper 管道与固定操作映射](../../apps/desktop/src/main/iscp-transport.mjs)；期限、版本／能力／身份校验、有界调用、generation 隔离、休眠／退出清理 |
-| Go helper | [Initiator 入口](../../services/gateway/cmd/iscp-workbench/main.go)和[加密 endpoint](../../services/gateway/internal/iscpworkbench/endpoint.go)；固定开发／安装包路径、SDK Hello／Ready、manifest、重放校验、存活超时与新会话重连 |
-| Gateway responder | [认证操作适配器](../../services/gateway/internal/gateway/workbench_iscp.go)；固定 peer 映射到有效已签发 Client，校验 deployment／Owner／installation，撤销时取消会话，调用现有进程内业务 handler |
+| 桌面 transport | 私有 helper 管道与固定操作映射（`iscp-transport.mjs`，已删除）；期限、版本／能力／身份校验、有界调用、generation 隔离、休眠／退出清理 |
+| Go helper | Initiator 入口（`main.go`，已删除）和加密 endpoint（`endpoint.go`，已删除）；固定开发／安装包路径、SDK Hello／Ready、manifest、重放校验、存活超时与新会话重连 |
+| Gateway responder | 认证操作适配器（`workbench_iscp.go`，已删除）；固定 peer 映射到有效已签发 Client，校验 deployment／Owner／installation，撤销时取消会话，调用现有进程内业务 handler |
 | 文本运行时与 UI | admission 前拒绝文件／附件，运行时移除外部工具，SparkX 禁用邮件／文件／审批／Browser Host／语音／设置请求 |
-| runner 与安装包 | [私有实验 runner](../../scripts/iscp-local-lab.mjs)、[helper 构建](../../scripts/build-iscp-helper.mjs)、Mac／Linux 包资源及可执行文件／hash 审计；当前源码的隔离 Linux 后端、独立 SparkX SQLite，不发布业务 HTTP 端口 |
+| runner 与安装包 | 私有实验 runner（`iscp-local-lab.mjs`，已删除）、helper 构建（`build-iscp-helper.mjs`，已删除）、Mac／Linux 包资源及可执行文件／hash 审计；当前源码的隔离 Linux 后端、独立 SparkX SQLite，不发布业务 HTTP 端口 |
 
 ISCP 按 transport 校验；HTTPS 仍使用原有 LAN descriptor 和 TLS pinning。Relay token 与私有路径留在主进程／helper 配置中，不写入 Gateway bearer 字段或 renderer 状态。
 
@@ -174,7 +176,7 @@ ISCP 按 transport 校验；HTTPS 仍使用原有 LAN descriptor 和 TLS pinning
 
 ## 5. 业务协议与第一条链路
 
-已实现的应用 profile 为 `sparkclaw.workbench.transport.v1`，授权权限为 `sparkclaw.workbench.v1`。[操作 registry](../../services/gateway/internal/iscpworkbench/protocol.go)属于 SparkClaw，不是上游 ISCP 标准。
+已实现的应用 profile 为 `sparkclaw.workbench.transport.v1`，授权权限为 `sparkclaw.workbench.v1`。操作 registry（`protocol.go`，已删除）属于 SparkClaw，不是上游 ISCP 标准。
 
 握手固定为桌面发起、后端响应，通过官方 managed handshake envelope 交换 Hello／Ready，随后交换加密 capability manifest。通过 `task.invoke`／`task.result` 承载固定 operation ID、request ID、参数／结果和错误；不能将未认证的 owner/client 字段当作权限来源。
 
@@ -323,10 +325,7 @@ headless smoke 与正常窗口共享 `<lab>/userdata/workbench` 中同一个业�
 
 明确选择的私有 profile 也可在正常 Finder 启动后保留。在 SparkX 默认 user-data 目录写入权限为 `0600` 的 `iscp-launch-profile.json`，schema 为 `{ "schema_version": 1, "test_mode": true, "profile_path": "/absolute/private/desktop-profile.json", "user_data_directory": "/absolute/private/userdata" }`。文件父目录与专属 user-data 目录必须由当前用户持有，权限为 `0700`，且不得包含符号链接。选择文件仅含路径；凭据仍保存在私有 helper profile 与 vault 中。显式 launcher 环境变量优先于持久选择。Qualification 忽略该文件；无效选择会阻止启动。删除选择文件即可恢复原默认连接和数据目录。
 
-| Peer | 显式私有测试开关 |
-|---|---|
-| SparkX | `SPARKCLAW_DESKTOP_ISCP_LOCAL_TEST=1`、`SPARKCLAW_DESKTOP_ISCP_CONFIG=<lab>/desktop-profile.json`、`SPARKCLAW_DESKTOP_USER_DATA_DIR=<lab>/userdata` |
-| Gateway | `SPARKCLAW_WORKBENCH_ISCP_LOCAL_TEST=1`、`SPARKCLAW_WORKBENCH_ISCP_CONFIG=/lab/gateway-container-helper.json`，匹配 deployment 与已签发 Client provisioning |
+该历史实验为 SparkX 和 Gateway responder 分别配置了私有测试 profile。
 
 先用 Cmd-Q 退出 SparkX，再执行 `down`；关闭 Mac 窗口只会隐藏。`down` 清理本 lab 的 Gateway／issuer／Relay 容器和两个网络，保留私有状态与证据，结束内存 Relay 生命周期；下一轮在新目录 `prepare`。构建期间 image／module 下载可能需要网络，运行中 peer 与续签 profile 均指向本 lab 服务，不依赖托管 Relay。自动续签仅在原先显式的二十四小时授权内运行；到期或撤销不会使 `up` 延长授权。
 

@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-iscp-capability-expansion-design.md)
 >
+> **2026-11-20** — The v1/v2 workbench operation table and per-domain adapters are retired. The feature requirements and dated UI and provider checks remain historical evidence. Current operations and device conditions are specified in the [Link contract](link-contract.md).
+>
 > Updated: 2026-10-10. Status: P1–P5 adapters and gated desktop surfaces implemented; four real-mail scenarios are recorded in section 9.10, outstanding work in section 9.11, and the restored original mailbox plus current installation in section 9.12. ASR/TTS remains deferred.
 > Scope: SparkX connects to SparkClaw through the local Docker ISCP Relay. Local Relay changes are permitted but must preserve protocol compatibility with the online Relay; this work does not switch the deployment online.
 

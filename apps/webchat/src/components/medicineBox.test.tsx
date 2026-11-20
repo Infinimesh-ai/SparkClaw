@@ -49,7 +49,11 @@ describe("medicine box", () => {
   beforeEach(async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date(2026, 10, 2, 10, 0));
-    localStorage.clear();
+    const preferences = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => preferences.get(key) ?? null,
+      setItem: (key: string, value: string) => preferences.set(key, value),
+    });
     items = [
       item({}),
       item({ id: ID("b"), name: "999感冒灵颗粒", category: "cold", quantity: 5, unit: "sachet", expires_on: "2020-01-31", location: "", usage: "", created_at: "2026-10-05T00:00:00.000Z" }),
@@ -74,6 +78,7 @@ describe("medicine box", () => {
     delete window.sparkclawMedicineBox;
     backend.recognizeMedicine.mockReset();
     backend.parseMedicine.mockReset();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
   });
 

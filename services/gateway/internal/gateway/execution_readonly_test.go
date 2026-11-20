@@ -16,7 +16,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/browserhost"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/execution"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
@@ -130,11 +129,10 @@ func TestExecutionInstalledGETAfterRestartDoesNotStartOrMutateService(t *testing
 		}
 	}
 
-	ctx := context.WithValue(t.Context(), requestPrincipalContextKey{}, requestPrincipal{Authenticated: true, OwnerID: e.OwnerID, ActorID: e.OwnerID, ClientID: e.ClientID})
-	adapter := &iscpDomainAdapter{server: server}
-	receipt := adapter.browser(ctx, iscpworkbench.Request{Operation: iscpworkbench.OperationBrowserReceipt, InstallationID: install})
-	if receipt.status != 200 || !strings.Contains(string(receipt.body), `"state":"unknown"`) {
-		t.Fatalf("ISCP browser fence read: %d %s", receipt.status, receipt.body)
+	// The browser.receipt method's read (link_domain_browser.go).
+	fences, err := server.browserFences(browserhost.Identity{OwnerID: e.OwnerID, ClientID: e.ClientID, InstallationID: install})
+	if raw, _ := json.Marshal(fences); err != nil || !strings.Contains(string(raw), `"state":"unknown"`) {
+		t.Fatalf("browser fence read: %s %v", raw, err)
 	}
 	for _, route := range []string{"/api/v1/mail/mailboxes", "/api/v1/mail/mailbox/messages/mail/attachments/part"} {
 		if w := request(route, token, install); w.Code != 503 {

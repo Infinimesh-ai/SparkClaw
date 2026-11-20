@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-embedded-browser-controller-iscp-design.md)
 >
+> **2026-11-20** — 本文的工作台反向 RPC 传输已退役。内嵌 Controller、浏览器操作语义和原界面继续使用；Gateway 根据设备身份授权，并通过已建立的连接发送 Controller 操作。[连接协议](link-contract.md)。
+>
 > 日期：2026-11-10。状态：工程候选 `1f7f20ee`，所有者已决定接受当前性能并接入新链路。
 > 两类 ARM64 的 TEST1 原生链路通过（§15.5），新链路公网性能已实测（§15.6）。
 > 所有者已按记录范围签收。源码 `50300074` 完成 D2，并通过隔离成对升级和回滚。

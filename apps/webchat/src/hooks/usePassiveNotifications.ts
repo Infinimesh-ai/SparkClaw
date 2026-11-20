@@ -21,7 +21,10 @@ function boundedSeen(freshIds: Iterable<string>, previous: Set<string>) {
   return next;
 }
 
-export function usePassiveNotifications(enabled = true, transport: "stream" | "poll" = "stream") {
+// transport: "stream" follows the host WebChat's server-sent stream;
+// "events" (the desktop) loads once and reloads whenever the backend's
+// domain events report a notification change.
+export function usePassiveNotifications(enabled = true, transport: "stream" | "events" = "stream") {
   const [notifications, setNotifications] = useState<PassiveNotification[]>([]);
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState<PassiveNotification | null>(null);
@@ -58,12 +61,19 @@ export function usePassiveNotifications(enabled = true, transport: "stream" | "p
 
   useEffect(() => {
     if (!enabled) { setNotifications([]); watermark.current = undefined; return; }
-    if (transport === "poll") {
-      let active = true, running = false;
-      const poll = async () => { if (!active || running) return; running = true; try { await load(); } catch (err) { if(active) setError(err instanceof Error ? err.message : String(err)); } finally { running = false; } };
-      void poll(); const timer = window.setInterval(() => void poll(), 30000);
-      const unsubscribe=desktopCapability()?.onBackendEvents?.(event=>{if(event.categories.includes("notifications"))void poll();});
-      return () => { active = false; window.clearInterval(timer); unsubscribe?.(); };
+    if (transport === "events") {
+      let active = true, running = false, again = false;
+      const read = async () => {
+        if (!active) return;
+        if (running) { again = true; return; }
+        running = true;
+        try { do { again = false; await load(); } while (again && active); }
+        catch (err) { if (active) setError(err instanceof Error ? err.message : String(err)); }
+        finally { running = false; }
+      };
+      void read();
+      const unsubscribe = desktopCapability()?.onBackendEvents?.(event => { if (event.categories.includes("notifications")) void read(); });
+      return () => { active = false; unsubscribe?.(); };
     }
     const controller = new AbortController();
     let cursor = "";
@@ -127,7 +137,7 @@ export function usePassiveNotifications(enabled = true, transport: "stream" | "p
   const markAllRead = useCallback(async () => {
     try {
       await api.markAllNotificationsRead(watermark.current);
-      if (transport === "poll") { await load(); setToast(null); return; }
+      if (transport === "events") { await load(); setToast(null); return; }
       const readAt = new Date().toISOString();
       setNotifications((current) => current.map((item) => (item.read_at ? item : { ...item, read_at: readAt, updated_at: readAt })));
       setToast(null);

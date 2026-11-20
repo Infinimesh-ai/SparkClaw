@@ -4,9 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { ClientStore } from "../src/main/client-store.mjs";
-import { ExecutionClient } from "../src/main/execution-client.mjs";
+import { EventEmitter } from "node:events";
+import { LinkConversations } from "../src/main/link-conversations.mjs";
 import { ScheduleClient } from "../src/main/schedule-client.mjs";
-import { ISCPRequestNotSentError } from "../src/main/iscp-transport.mjs";
+import { LinkError } from "../src/main/link-transport.mjs";
+import { fakeBackend } from "./link-fakes.mjs";
 
 const scope = { deployment_id: "deployment", owner_id: "owner", client_id: "client" };
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -15,37 +17,47 @@ function fixture(t) {
   let store = new ClientStore(root);
   let now = Date.now();
   let identity = scope;
-  const calls = []; const states = new Map();
-  const auth = { generation: 1, status: { state: "connected" }, descriptor: { origin: "http://127.0.0.1:18790" },
-    authorizedExecutionFetch: async (url, init = {}) => {
-      calls.push({ url, method: init.method || "GET", body: init.body });
-      assert.equal(new Headers(init.headers).get("x-sparkclaw-installation"), store.installationID);
-      assert.ok(url.includes("/executions"), "scheduling uses only the ordinary execution API");
-      let id = url.split("/executions/")[1]?.split("/")[0];
-      if (url.endsWith("/executions")) {
-        const context = JSON.parse(init.body); id = context.request_id;
-        assert.equal(store.request(scope, id).context_json, init.body, "context precedes network send");
-        assert.equal(store.request(scope, id).explicitly_submitted, 1, "intent precedes network send");
-        assert.equal(store.request(scope, id).submission_claim, null, "one-shot claim consumed before POST");
-        states.set(id, "accepted");
-      } else if (url.endsWith("/cancel")) states.set(id, "canceled");
-      if (!states.has(id)) return new Response(null, { status: 404 });
-      return new Response(JSON.stringify({ schema_version: 1, request_id: id,
-        input_digest: store.request(scope, id).input_digest, state: states.get(id) }));
-    } };
+  const states = new Map();
+  // The backend side of a scheduled occurrence: one admission per
+  // client_message_id; a replay_only retry never admits.
+  const backend = fakeBackend();
+  const calls = backend.calls;
+  backend.handlers["message.send"] = (p) => {
+    const id = p.client_message_id;
+    if (states.has(id)) return { message: { id: `m_${id}`, session_id: p.session_id, seq: 1, role: "user", content: p.content, client_message_id: id }, run_id: `run_${id}`, replayed: true };
+    if (p.replay_only) throw Object.assign(new Error("this message never reached the backend"), { code: "not_found", notSent: true });
+    assert.equal(store.request(scope, id).context_json !== undefined, true, "context precedes network send");
+    assert.equal(store.request(scope, id).explicitly_submitted, 1, "intent precedes network send");
+    assert.equal(store.request(scope, id).submission_claim, null, "one-shot claim consumed before the send");
+    states.set(id, "running");
+    return { message: { id: `m_${id}`, session_id: p.session_id, seq: 1, role: "user", content: p.content, client_message_id: id }, run_id: `run_${id}` };
+  };
+  backend.handlers["run.status"] = (p) => { const id = p.run_id?.slice(4); return states.has(id) ? { session_id: p.session_id, run_id: p.run_id, state: states.get(id) } : { session_id: p.session_id, state: "idle" }; };
+  backend.handlers["run.cancel"] = (p) => { const id = p.run_id?.slice(4); states.set(id, "cancelled"); return { session_id: p.session_id, run_id: p.run_id, state: "cancelled" }; };
+  const link = new EventEmitter();
+  link.online = true;
+  link.request = async (op, params) => {
+    if (!link.online) throw new LinkError("backend_unavailable", "The backend is unreachable", true, true);
+    try { return structuredClone(await backend.request(op, structuredClone(params))); }
+    catch (error) { throw error instanceof LinkError || !error.code ? error : new LinkError(error.code, error.message, error.retryable, error.notSent); }
+  };
+  const auth = { generation: 1, link, status: { state: "connected" } };
   let execution; let client;
   const createClients = () => {
-    execution = new ExecutionClient({ auth, store, getIdentity: () => identity });
+    execution = new LinkConversations({ auth, store, getIdentity: () => identity });
     client = new ScheduleClient({ auth, store, execution, getIdentity: () => identity, now: () => now });
   };
-  createClients(); client.start();
+  // The link store's one-time cutover runs on the first connection.
+  createClients(); execution.start(); client.start();
   const conversation = store.create(scope, "scheduled tasks");
   t.after(() => { client.close(); execution.close(); store.close(); fs.rmSync(root, { recursive: true, force: true }); });
-  return { calls, states, auth, conversation, root,
+  return { calls, states, auth, backend, link, conversation, root,
     get store() { return store; }, get client() { return client; }, get execution() { return execution; },
     now: () => now, advance: (ms) => { now += ms; }, identity: (value) => { identity = value; },
     due: (ms = 60000) => new Date(now + ms).toISOString(),
-    posts: () => calls.filter((call) => call.method === "POST" && call.url.endsWith("/executions")),
+    // Admissions: sends that are not replays.
+    posts: () => calls.filter((call) => call.op === "message.send" && !call.params.replay_only),
+    network: () => calls.filter((call) => !["run.subscribe", "sync.changes"].includes(call.op)),
     rows: () => store.read(scope, conversation.id).schedules,
     restart: () => { client.close(); execution.close(); store.close(); store = new ClientStore(root); createClients(); client.start(); } };
 }
@@ -54,11 +66,11 @@ test("future definitions persist locally without remote registration and ordinar
   const f = fixture(t);
   const schedule = await f.client.create(scope, f.conversation.id, "scheduled input", f.due());
   assert.equal(schedule.state, "saved");
-  assert.deepEqual(f.calls, []);
+  assert.deepEqual(f.network(), []);
   f.restart(); await settle();
   assert.equal(f.rows()[0].request_id, schedule.request_id);
   assert.equal(f.rows()[0].state, "saved");
-  assert.deepEqual(f.calls, []);
+  assert.deepEqual(f.network(), []);
 });
 
 test("a continuously online delayed timer claims once and uses the ordinary execution path", async (t) => {
@@ -67,7 +79,7 @@ test("a continuously online delayed timer claims once and uses the ordinary exec
   f.advance(90000); // Normal dispatch jitter is not a restart/reconnect window.
   await Promise.all([f.client.reconcile(scope, schedule.request_id), f.client.reconcile(scope, schedule.request_id), f.client.reconcilePending()]);
   assert.equal(f.posts().length, 1);
-  assert.equal(f.rows()[0].state, "accepted");
+  assert.equal(f.rows()[0].state, "running");
   assert.equal(f.store.request(scope, schedule.request_id).explicitly_submitted, 1);
 });
 
@@ -77,23 +89,23 @@ test("independent due schedules dispatch together while retaining one durable cl
   for (let i=0;i<12;i++) schedules.push(await f.client.create(scope,f.conversation.id,'due independently',f.due()));
   let release;
   const blocked = new Promise(resolve => { release = resolve; });
-  const fetcher = f.auth.authorizedExecutionFetch;
+  const send = f.backend.handlers["message.send"];
   const sent = [];
-  f.auth.authorizedExecutionFetch = async (url, init) => {
-    sent.push(JSON.parse(init.body).request_id);
+  f.backend.handlers["message.send"] = async (p) => {
+    sent.push(p.client_message_id);
     await blocked;
-    return fetcher(url,init);
+    return send(p);
   };
   f.advance(60000);
   const scan = f.client.reconcilePending();
   try {
-    await settle();
-    assert.equal(sent.length,schedules.length,'four slow calls must not hold later due definitions');
+    for (let i = 0; i < 200 && sent.length < schedules.length; i++) await settle();
+    assert.equal(sent.length,schedules.length,'slow calls must not hold later due definitions');
     assert.equal(new Set(sent).size,schedules.length);
   } finally { release(); await scan; }
   await f.client.reconcilePending();
   assert.equal(f.posts().length,schedules.length);
-  assert.ok(f.rows().every(row => row.state === 'accepted'));
+  assert.ok(f.rows().every(row => row.state === 'running'));
 });
 
 test("offline-at-due stays permanently missed after reconnect; offline creation remains available", async (t) => {
@@ -125,7 +137,7 @@ test("sleep/wake breaks continuity while future occurrences can still execute", 
   assert.equal(f.rows()[0].state, "missed");
   assert.equal(f.rows()[1].state, "saved");
   f.advance(100000); await f.client.reconcilePending();
-  assert.equal(f.rows()[1].state, "accepted");
+  assert.equal(f.rows()[1].state, "running");
   assert.equal(f.posts().length, 1);
 });
 
@@ -157,7 +169,7 @@ test("recurrence skips an offline range without backlog and executes a distinct 
   assert.ok(Date.parse(future.due_at) > f.now()); assert.equal(f.posts().length, 0);
   f.advance(60000); await f.client.reconcilePending();
   assert.equal(f.posts().length, 1);
-  assert.equal(JSON.parse(f.posts()[0].body).request_id, future.request_id);
+  assert.equal(f.posts()[0].params.client_message_id, future.request_id);
   assert.equal(f.rows()[0].state, "missed"); assert.equal(f.rows().at(-1).state, "saved");
 });
 
@@ -167,8 +179,8 @@ test("online recurrence gives each due occurrence a unique durable claim despite
   f.advance(125000);
   await f.client.reconcilePending(); await f.client.reconcilePending();
   assert.equal(f.posts().length, 2);
-  assert.equal(new Set(f.posts().map((call) => JSON.parse(call.body).request_id)).size, 2);
-  assert.deepEqual(f.rows().map((row) => row.state), ["accepted", "accepted", "saved"]);
+  assert.equal(new Set(f.posts().map((call) => call.params.client_message_id)).size, 2);
+  assert.deepEqual(f.rows().map((row) => row.state), ["running", "running", "saved"]);
 });
 
 test("exclusive SQLite claims prevent two schedulers from submitting the same occurrence", async (t) => {
@@ -182,7 +194,7 @@ test("exclusive SQLite claims prevent two schedulers from submitting the same oc
   assert.equal(f.posts().length, 1);
 });
 
-test("a crash between durable claim and POST only looks up the original ID, even after 404", async (t) => {
+test("a crash between durable claim and send only looks up the original ID, even when it never arrived", async (t) => {
   const f = fixture(t);
   const row = await f.client.create(scope, f.conversation.id, "claim then crash", f.due());
   f.advance(60000);
@@ -190,23 +202,24 @@ test("a crash between durable claim and POST only looks up the original ID, even
   f.restart(); await settle();
   await f.execution.submit(scope, row.request_id);
   assert.equal(f.posts().length, 0);
-  assert.ok(f.calls.length > 0);
-  assert.ok(f.calls.every((call) => call.method === "GET" && call.url.endsWith(row.request_id)));
+  assert.ok(f.calls.filter((call) => call.op === "message.send").every((call) => call.params.replay_only === true), "only the original outcome is looked up");
   assert.equal(f.store.request(scope, row.request_id).explicitly_submitted, 1);
+  assert.equal(f.store.request(scope, row.request_id).status, "failed", "it never reached the backend, so it is reported not sent and never run late");
 });
 
-test("lost due-time submit and 404 never resubmit on restart, scheduler scan or explicit submit", async (t) => {
+test("lost due-time send never resubmits on restart, scheduler scan or explicit submit", async (t) => {
   const f = fixture(t);
   const row = await f.client.create(scope, f.conversation.id, "uncertain once", f.due());
-  let posts = 0; let gets = 0;
-  f.auth.authorizedExecutionFetch = async (_url, init) => {
-    if (init.method === "POST") { posts++; throw new Error("response lost"); }
-    gets++; return new Response(null, { status: 404 });
+  let sends = 0, replays = 0;
+  f.backend.handlers["message.send"] = (p) => {
+    if (p.replay_only) { replays++; throw Object.assign(new Error("never arrived"), { code: "not_found", notSent: true }); }
+    sends++; throw new LinkError("timeout", "response lost", true);
   };
-  f.advance(60000); await f.client.reconcilePending();
+  f.advance(60000); await f.client.reconcilePending().catch(() => {});
   f.restart(); await settle();
   await f.client.reconcilePending(); await f.execution.submit(scope, row.request_id);
-  assert.equal(posts, 1); assert.ok(gets >= 2);
+  assert.equal(sends, 1); assert.ok(replays >= 1);
+  assert.equal(f.store.request(scope, row.request_id).status, "failed", "a send that never arrived is not run late");
 });
 
 test("canceling a definition offline prevents all future occurrences and admitted work uses normal cancellation", async (t) => {
@@ -219,7 +232,7 @@ test("canceling a definition offline prevents all future occurrences and admitte
   f.advance(60000); await f.client.reconcilePending();
   assert.equal((await f.client.cancel(scope, active.request_id)).state, "canceled");
   assert.equal(f.rows().at(-1).state, "canceled");
-  assert.ok(f.calls.some((call) => call.url.endsWith(`/executions/${active.request_id}/cancel`)));
+  assert.ok(f.calls.some((call) => call.op === "run.cancel" && call.params.run_id === `run_${active.request_id}`));
   f.advance(60000); await f.client.reconcilePending(); assert.equal(f.posts().length, 1);
 });
 
@@ -230,7 +243,7 @@ test("explicit Run now is a new durable request and does not revive a missed occ
   await f.client.runNow(scope, row.request_id);
   const record = f.store.scheduledRequest(scope, row.request_id);
   assert.equal(record.state, "run_now"); assert.notEqual(record.recovery_request_id, row.request_id);
-  assert.equal(JSON.parse(f.posts()[0].body).request_id, record.recovery_request_id);
+  assert.equal(f.posts()[0].params.client_message_id, record.recovery_request_id);
   await assert.rejects(f.client.runNow(scope, row.request_id), /unexecuted missed/);
 });
 
@@ -238,24 +251,25 @@ test("definition and claim disk failures cannot cause a send or partial future r
   const f = fixture(t);
   f.store.db.exec("CREATE TRIGGER fail_schedule BEFORE INSERT ON schedules BEGIN SELECT RAISE(ABORT,'disk full'); END;");
   await assert.rejects(f.client.create(scope, f.conversation.id, "never send", f.due()), /disk full/);
-  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 0); assert.deepEqual(f.calls, []);
+  assert.equal(f.store.read(scope, f.conversation.id).messages.length, 0); assert.deepEqual(f.network(), []);
   f.store.db.exec("DROP TRIGGER fail_schedule");
   const row = await f.client.create(scope, f.conversation.id, "recurrence transaction", f.due(), 60000);
   f.store.db.exec("CREATE TRIGGER fail_next BEFORE INSERT ON schedules BEGIN SELECT RAISE(ABORT,'disk full'); END;");
   f.advance(60000);
   await assert.rejects(f.client.reconcile(scope, row.request_id), /disk full/);
   assert.equal(f.rows().length, 1); assert.equal(f.rows()[0].state, "saved");
-  assert.equal(f.store.request(scope, row.request_id).explicitly_submitted, 0); assert.deepEqual(f.calls, []);
+  assert.equal(f.store.request(scope, row.request_id).explicitly_submitted, 0); assert.deepEqual(f.network(), []);
 });
 
-test("auth change after POST fences stale response; a future occurrence retains its identity", async (t) => {
+test("an authentication change after the send admits once; a future occurrence retains its identity", async (t) => {
   const f = fixture(t);
   const row = await f.client.create(scope, f.conversation.id, "stale generation", f.due(), 60000);
-  const fetcher = f.auth.authorizedExecutionFetch;
-  f.auth.authorizedExecutionFetch = async (...args) => { const response = await fetcher(...args); f.auth.generation++; return response; };
+  const send = f.backend.handlers["message.send"];
+  f.backend.handlers["message.send"] = (p) => { const reply = send(p); f.auth.generation++; return reply; };
   f.advance(60000);
-  await assert.rejects(f.client.reconcile(scope, row.request_id), /authentication changed/);
-  assert.equal(f.rows()[0].state, "claimed"); assert.equal(f.rows()[1].state, "saved"); assert.equal(f.posts().length, 1);
+  await f.client.reconcile(scope, row.request_id);
+  assert.equal(f.rows()[1].state, "saved"); assert.notEqual(f.rows()[1].request_id, row.request_id); assert.equal(f.posts().length, 1);
+  await f.client.reconcilePending(); assert.equal(f.posts().length, 1, "the admitted occurrence is not sent again");
 });
 
 test("an observed availability gap skips due work even without a lifecycle notification", async (t) => {
@@ -298,14 +312,15 @@ test("a generation change between claim and dispatch permanently misses the unse
 test("a proven local capacity rejection permanently misses the occurrence without replaying it", async (t) => {
   const f = fixture(t);
   const row = await f.client.create(scope, f.conversation.id, "busy transport", f.due());
-  const fetcher = f.auth.authorizedExecutionFetch;
-  f.auth.authorizedExecutionFetch = async () => { throw new ISCPRequestNotSentError("ISCP request concurrency limit reached", "capacity"); };
+  const send = f.backend.handlers["message.send"];
+  f.backend.handlers["message.send"] = () => { throw new LinkError("busy", "too many requests in flight", true, true); };
   f.advance(60000);
-  await assert.rejects(f.client.reconcile(scope, row.request_id), /concurrency/u);
+  await assert.rejects(f.client.reconcile(scope, row.request_id), /still running|too many/u);
   assert.equal(f.rows()[0].state, "missed");
   assert.equal(f.store.request(scope, row.request_id).explicitly_submitted, 0);
   assert.equal(f.store.request(scope, row.request_id).submission_claim, null);
-  f.auth.authorizedExecutionFetch = fetcher;
+  f.backend.handlers["message.send"] = send;
+  const refused = f.posts().length;
   f.restart(); await settle(); await f.client.reconcilePending();
-  assert.equal(f.rows()[0].state, "missed"); assert.equal(f.posts().length, 0);
+  assert.equal(f.rows()[0].state, "missed"); assert.equal(f.posts().length, refused, "the refused occurrence is never sent again");
 });

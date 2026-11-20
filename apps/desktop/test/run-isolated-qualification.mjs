@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
+import { once } from "node:events";
 import fs from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
@@ -18,13 +18,14 @@ import {
 const TEST_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(TEST_DIR, "..", "..", "..");
 const ELECTRON = path.join(ROOT, "node_modules", "electron", "dist", "electron");
-const MAIN = path.join(ROOT, "apps", "desktop", "src", "main", "main.mjs");
 const LAUNCHER = path.join(ROOT, "apps", "desktop", "bin", "sparkclaw-electron-browser.mjs");
 const CLI = path.join(ROOT, "tools", "browser-controller", "node_modules", "@playwright", "cli", "playwright-cli.js");
 const INPUT_HELPER = path.join(TEST_DIR, "x11-send-input.py");
 const TOKEN = "phase-one-qualification-token-private";
 
 const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "sparkclaw-electron-phase1-"));
+const stagedDesktop = path.join(temporary, "desktop");
+const fixtureMain = path.join("test", "fixtures", "isolated-qualification-main.mjs");
 const adapter = {
   socketPath: path.join(temporary, "electron-adapter.sock"),
   secretPath: path.join(temporary, "adapter-secret"),
@@ -35,6 +36,9 @@ let electron;
 let electronStderr = "";
 let fixtureServer;
 let fixtureServerOrigin = "";
+// The fixture backend: a Gateway on the LAN connector with a local device
+// directory (services/gateway/cmd/link-qualification-backend).
+let linkBackend;
 let mcp;
 let cliSession = `sc-electron-${process.pid}`;
 const evidence = {
@@ -64,8 +68,19 @@ try {
   progress("starting_fixture");
   const fixture = await startFixture();
   fixtureServer = fixture.server;
+  progress("starting_link_backend");
+  const backend = await startLinkBackend();
   progress("starting_electron");
   const ready = await startElectron(display);
+  // LinkAuth records this identity only after device.describe returns. On
+  // this fresh profile, a listening Gateway alone cannot satisfy this check.
+  const identityFile = path.join(userDataDir, "link", "link-identity.json");
+  const verifiedIdentity = await waitForValue(async () => {
+    try { return JSON.parse(await fs.readFile(identityFile, "utf8")); }
+    catch (error) { if (error.code === "ENOENT") return null; throw error; }
+  }, 15_000);
+  assert.deepEqual(verifiedIdentity, { device_id: backend.device_id, owner_id: backend.owner_id, deployment_id: backend.deployment_id });
+  evidence.backend = { transport: "link", lan: true, console: false, relay: false, deployment_id: backend.deployment_id, desktop_device_describe_verified: true };
   evidence.versions = {
     electron: ready.electron_version,
     chromium: ready.chromium_version,
@@ -162,10 +177,10 @@ try {
     evidence.app_cli = await qualifyAppCLI({directory: temporary, python: process.env.SPARKCLAW_TEST_APP_CLI_PYTHON,
       adapter, launcher: LAUNCHER, userDataDir, token: TOKEN, origin: fixture.origin, clientFactory: factory});
   }
+  const mcpTask = await prepareControllerTask();
   mcp = await factory.open({
-    token: TOKEN,
+    ...mcpTask,
     sessionID: sessionID(1),
-    taskID: "phase1-mcp",
     controllerGeneration: 101,
     sessionGeneration: 1,
     pageGeneration: 1,
@@ -237,7 +252,7 @@ try {
   progress("mcp_popup_clicked");
   const popupPages = await mcp.execute("tabs.list", {});
   progress("mcp_popup_listed");
-  const popupPage = popupPages.pages.find((page) => page.url === `${fixture.origin}/popup`);
+  const popupPage = popupPages.pages.find((page) => page.url === "https://popup.fixture.test/popup");
   assert.ok(popupPage, "task popup was not adopted by the exact task owner");
   const popupRead = await mcp.execute("page.read", { page_id: popupPage.page_id });
   assert.match(popupRead.page.text, /Task popup/u);
@@ -341,18 +356,20 @@ try {
   mcp = null;
 
   progress("opening_cli");
+  await releaseControllerTask(mcpTask);
+  const cliTask = await prepareControllerTask();
   const cliBinding = {
-    task_id: "phase1-cli",
+    task_id: cliTask.taskID,
     session_id: sessionID(2),
     controller_generation: 102,
     session_generation: 2,
     page_generation: 1,
   };
-  const cliConnection = await registerElectronConnection({ adapter, token: TOKEN, binding: cliBinding });
+  const cliConnection = await registerElectronConnection({ adapter, token: cliTask.token, binding: cliBinding });
   const cliEnv = {
     ...process.env,
     ...electronConnectionEnvironment(cliConnection),
-    PLAYWRIGHT_MCP_EXTENSION_TOKEN: TOKEN,
+    PLAYWRIGHT_MCP_EXTENSION_TOKEN: cliTask.token,
     PLAYWRIGHT_MCP_EXECUTABLE_PATH: LAUNCHER,
     PLAYWRIGHT_MCP_USER_DATA_DIR: userDataDir,
     PLAYWRIGHT_MCP_TIMEOUT_ACTION: "15000",
@@ -392,17 +409,18 @@ try {
   };
 
   progress("injecting_task_renderer_failure");
+  await releaseControllerTask(cliTask);
+  const crashTask = await prepareControllerTask();
   mcp = await factory.open({
-    token: TOKEN,
+    ...crashTask,
     sessionID: sessionID(3),
-    taskID: "phase1-crash",
     controllerGeneration: 103,
     sessionGeneration: 3,
     pageGeneration: 1,
   });
   await mcp.createTaskPage();
   await mcp.execute("page.navigate", { url: `${fixture.origin}/fixture` });
-  const crashPage = (await qualificationSnapshot(secret)).pages.find((page) => page.task_id === "phase1-crash" && page.url === `${fixture.origin}/fixture`);
+  const crashPage = (await qualificationSnapshot(secret)).pages.find((page) => page.task_id === crashTask.taskID && page.url === `${fixture.origin}/fixture`);
   assert.ok(crashPage);
   await adapterRequest({
     schema_version: 1,
@@ -411,12 +429,12 @@ try {
     page_ref: crashPage.page_ref,
   });
   try {
-    await waitFor(async () => !(await qualificationSnapshot(secret)).pages.some((page) => page.task_id === "phase1-crash"), 5000);
+    await waitFor(async () => !(await qualificationSnapshot(secret)).pages.some((page) => page.task_id === crashTask.taskID), 5000);
   } catch (error) {
     const state = await qualificationSnapshot(secret).catch(() => null);
     process.stderr.write(`${JSON.stringify({
       event: "sparkclaw_renderer_crash_timeout",
-      remaining_task_pages: state?.pages.filter((page) => page.task_id === "phase1-crash"),
+      remaining_task_pages: state?.pages.filter((page) => page.task_id === crashTask.taskID),
       owned_processes: await ownedProcessStatus(electron?.pid),
       core_pattern: await fs.readFile("/proc/sys/kernel/core_pattern", "utf8").catch(() => "unavailable"),
       electron_stderr: electronStderr,
@@ -427,6 +445,7 @@ try {
   await mcp.close();
   mcp = null;
   evidence.lifecycle.task_renderer_invalidated = true;
+  await releaseControllerTask(crashTask);
 
   progress("injecting_main_process_failure");
   await qualificationLifecycle(secret, "flush_browser_state");
@@ -436,10 +455,10 @@ try {
   const restartedSecret = (await fs.readFile(adapter.secretPath, "utf8")).trim();
   assert.equal((await qualificationSnapshot(restartedSecret)).pages.some((page) => page.role === "task"), false);
   evidence.lifecycle.main_restart_generation_invalidated = true;
+  const restartTask = await prepareControllerTask();
   mcp = await factory.open({
-    token: TOKEN,
+    ...restartTask,
     sessionID: sessionID(4),
-    taskID: "phase1-restart-cookie",
     controllerGeneration: 104,
     sessionGeneration: 4,
     pageGeneration: 1,
@@ -451,13 +470,18 @@ try {
   await mcp.close();
   mcp = null;
   evidence.lifecycle.browser_session_persisted_across_restart = true;
+  await releaseControllerTask(restartTask);
 
   progress("complete");
   process.stdout.write(`${JSON.stringify({ event: "sparkclaw_electron_phase1_qualified", evidence })}\n`);
+} catch (error) {
+  if (electronStderr) process.stderr.write(electronStderr);
+  throw error;
 } finally {
   await mcp?.close().catch(() => {});
   await run(process.execPath, [CLI, "--json", `-s=${cliSession}`, "close"], { allowFailure: true }).catch(() => {});
   await stopChild(electron);
+  await stopChild(linkBackend);
   await stopServer(fixtureServer);
   await stopChild(xvfb);
   await fs.rm(temporary, { recursive: true, force: true });
@@ -474,19 +498,48 @@ async function startXvfb() {
   return `:${displayNumber}`;
 }
 
+async function startLinkBackend() {
+  // The normal development entry resolves its helper relative to src/. Stage
+  // that layout so parallel runs never overwrite the developer's executable.
+  await fs.cp(path.join(ROOT, "apps", "desktop", "src"), path.join(stagedDesktop, "src"), { recursive: true });
+  await fs.mkdir(path.dirname(path.join(stagedDesktop, fixtureMain)), { recursive: true });
+  await fs.copyFile(path.join(ROOT, "apps", "desktop", fixtureMain), path.join(stagedDesktop, fixtureMain));
+  await fs.symlink(path.join(ROOT, "node_modules"), path.join(stagedDesktop, "node_modules"), "dir");
+  await fs.mkdir(path.join(stagedDesktop, "bin"));
+  await run("go", ["build", "-trimpath", "-o", path.join(stagedDesktop, "bin", "link-helper"), "./cmd/link-helper"],
+    { cwd: path.join(ROOT, "services", "link"), env: { ...process.env, GOWORK: "off", CGO_ENABLED: "0" }, timeoutMS: 600_000 });
+  const binary = path.join(temporary, "link-qualification-backend");
+  await run("go", ["build", "-trimpath", "-o", binary, "./cmd/link-qualification-backend"], { cwd: path.join(ROOT, "services", "gateway"), env: { ...process.env, CGO_ENABLED: "0" }, timeoutMS: 600_000 });
+  const child = spawn(binary, ["-dir", path.join(temporary, "backend"), "-device-state", path.join(userDataDir, "link"), "-device-name", "SparkX Qualification"],
+    { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] });
+  linkBackend = child;
+  child.stderr.on("data", () => {});
+  const ready = await readMatchingJSON(child.stdout, child, "link_qualification_backend_ready", 60_000);
+  assert.match(ready.lan, /^wss:\/\/127\.0\.0\.1:\d+\/link\/v1$/u);
+  return ready;
+}
+
+async function controllerCommand(message) {
+  const reply = once(electron, "message", { signal: AbortSignal.timeout(5000) });
+  electron.send(message);
+  const [result] = await reply;
+  if (result.error) throw new Error(result.error);
+  return result;
+}
+
+async function prepareControllerTask() {
+  const task = await controllerCommand({ action: "prepare" });
+  assert.match(task.taskID, /^task_[a-f0-9]{48}$/u);
+  assert.equal(typeof task.token, "string");
+  return task;
+}
+
+async function releaseControllerTask(task) {
+  assert.deepEqual(await controllerCommand({ action: "release", taskID: task.taskID }), { released: true });
+}
+
 async function startElectron(display) {
-  const runtimeDirectory = path.join(temporary, "runtime");
-  await fs.mkdir(runtimeDirectory, { mode: 0o700, recursive: true });
-  const descriptorPath = path.join(runtimeDirectory, "local-workbench.json");
-  const credentialPath = path.join(runtimeDirectory, "desktop-client.json");
-  await fs.writeFile(descriptorPath, JSON.stringify({
-    schema_version: 1, origin: fixtureServerOrigin, deployment_id: "qualification-deployment",
-  }), { mode: 0o600 });
-  await fs.writeFile(credentialPath, JSON.stringify({
-    schema_version: 1, deployment_id: "qualification-deployment", client_id: "qualification-desktop",
-    owner_id: "owner", client_name: "SparkClaw Desktop Qualification", token: TOKEN,
-  }), { mode: 0o600 });
-  const child = spawn(ELECTRON, [MAIN, "--qualification", "--disable-gpu"], {
+  const child = spawn(ELECTRON, [path.join(stagedDesktop, fixtureMain), "--qualification", "--disable-gpu"], {
     cwd: ROOT,
     env: {
       ...process.env,
@@ -495,10 +548,8 @@ async function startElectron(display) {
       SPARKCLAW_ELECTRON_ADAPTER_SOCKET: adapter.socketPath,
       SPARKCLAW_ELECTRON_ADAPTER_SECRET_FILE: adapter.secretPath,
       SPARKCLAW_DESKTOP_QUALIFICATION_ORIGIN: fixtureServerOrigin,
-      SPARKCLAW_DESKTOP_CONNECTION_FILE: descriptorPath,
-      SPARKCLAW_DESKTOP_CREDENTIAL_FILE: credentialPath,
     },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
   });
   electron = child;
   electronStderr = "";
@@ -515,12 +566,6 @@ async function startElectron(display) {
 
 async function startFixture() {
   const server = http.createServer((request, response) => {
-    if (request.url === "/api/workbench/identity") {
-      if (request.headers.authorization !== `Bearer ${TOKEN}`) return response.writeHead(401).end();
-      response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-      response.end(JSON.stringify({ deployment_id: "qualification-deployment", owner_id: "owner", client_id: "qualification-desktop" }));
-      return;
-    }
     if (request.url === "/set-cookie") {
       response.writeHead(200, {
         "content-type": "text/html",
@@ -537,7 +582,7 @@ async function startFixture() {
         <button id="native-target" onclick="window.pointerCount++;render()">Increment</button>
         <input id="name" aria-label="Name"><a href="/download" download="fixture.txt">Download fixture</a>
         <button id="dialog" onclick="setTimeout(()=>document.querySelector('#dialog-state').textContent='Dialog: '+(confirm('blocked task dialog')?'accepted':'dismissed'),0)">Open dialog</button>
-        <a id="popup" href="/popup" target="_blank">Open popup</a>
+        <a id="popup" href="https://popup.fixture.test/popup" target="_blank">Open popup</a>
         <p id="state"></p><p id="events"></p><p id="worker-state">Worker: pending</p><p id="dialog-state">Dialog: none</p><p id="viewport"></p>
         <iframe src="http://localhost:${server.address().port}/oopif" title="OOPIF"></iframe>
         <script>window.pointerCount=0;window.eventCounts={context:0,shortcut:0,paste:0,drop:0};const input=document.querySelector('#name');
@@ -551,11 +596,6 @@ async function startFixture() {
     if (request.url === "/oopif") {
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       response.end("<!doctype html><title>OOPIF</title><p>OOPIF fixture</p>");
-      return;
-    }
-    if (request.url === "/popup") {
-      response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-      response.end("<!doctype html><title>Popup</title><h1>Task popup</h1>");
       return;
     }
     if (request.url === "/download") {
@@ -719,12 +759,12 @@ async function cli(args, env) {
   return (await run(process.execPath, [CLI, ...args], { env })).stdout.trim();
 }
 
-async function run(executable, args, { env = process.env, allowFailure = false } = {}) {
+async function run(executable, args, { env = process.env, allowFailure = false, cwd = temporary, timeoutMS = 25_000 } = {}) {
   return await new Promise((resolve, reject) => {
-    const child = spawn(executable, args, { cwd: temporary, env, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(executable, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     const chunks = [];
     const errors = [];
-    const timer = setTimeout(() => child.kill("SIGKILL"), 25_000);
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMS);
     child.stdout.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
     child.stderr.on("data", (chunk) => errors.push(Buffer.from(chunk)));
     child.once("error", reject);

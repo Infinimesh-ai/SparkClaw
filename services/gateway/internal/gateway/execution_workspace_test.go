@@ -4,10 +4,19 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
+func requireLinuxExecutionWorkspace(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("installed execution requires Linux /dev/shm tmpfs")
+	}
+}
+
 func TestExecutionStartupRemovesOnlyOwnedDeploymentMemoryWorkspaces(t *testing.T) {
+	requireLinuxExecutionWorkspace(t)
 	root := filepath.Join(t.TempDir(), "execution")
 	scratch, err := executionMemoryWorkspace(root)
 	if err != nil {

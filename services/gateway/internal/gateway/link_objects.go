@@ -44,6 +44,7 @@ type linkUpload struct {
 	Key         string    `json:"key"`
 	DeviceID    string    `json:"device_id"`
 	SessionID   string    `json:"session_id,omitempty"`
+	Purpose     string    `json:"purpose,omitempty"`
 	Name        string    `json:"name"`
 	ContentType string    `json:"content_type,omitempty"`
 	Size        int64     `json:"size"`
@@ -120,6 +121,9 @@ func (s *Server) linkUploadBegin(ctx context.Context, req *link.Request) (any, e
 	if len(p.SHA256) != 64 {
 		return nil, link.Errorf(contract.CodeInvalidRequest, "sha256 must be a hex digest")
 	}
+	if p.Purpose != "" && (!linkDomainPurposePattern.MatchString(p.Purpose) || p.SessionID != "") {
+		return nil, link.Errorf(contract.CodeInvalidRequest, "purpose names a domain object and takes no session_id")
+	}
 	if p.SessionID != "" {
 		if _, ok, err := s.sessionForPrincipal(ctx, linkRequestPrincipal(req), p.SessionID); err != nil || !ok {
 			return nil, link.Errorf(contract.CodeNotFound, "conversation not found")
@@ -130,7 +134,7 @@ func (s *Server) linkUploadBegin(ctx context.Context, req *link.Request) (any, e
 	defer o.mu.Unlock()
 	id := uploadID(req.Principal.DeviceID, p.UploadKey)
 	if u, ok := o.uploads[id]; ok {
-		if u.SHA256 != strings.ToLower(p.SHA256) || u.Size != p.Size {
+		if u.SHA256 != strings.ToLower(p.SHA256) || u.Size != p.Size || u.Purpose != p.Purpose {
 			return nil, link.Errorf(contract.CodeConflict, "upload key reused with different content")
 		}
 		return contract.ObjectUploadState{UploadID: u.ID, Received: u.Received, ChunkSize: contract.MaxChunkBytes, ObjectID: u.ObjectID}, nil
@@ -147,7 +151,7 @@ func (s *Server) linkUploadBegin(ctx context.Context, req *link.Request) (any, e
 	if o.stagedBytes()+p.Size > linkMaxStagingBytes {
 		return nil, link.Errorf(contract.CodeQuotaExceeded, "upload staging is full")
 	}
-	u := &linkUpload{ID: id, Key: p.UploadKey, DeviceID: req.Principal.DeviceID, SessionID: p.SessionID, Name: name, ContentType: strings.TrimSpace(p.ContentType), Size: p.Size, SHA256: strings.ToLower(p.SHA256), CreatedAt: time.Now().UTC()}
+	u := &linkUpload{ID: id, Key: p.UploadKey, DeviceID: req.Principal.DeviceID, SessionID: p.SessionID, Purpose: p.Purpose, Name: name, ContentType: strings.TrimSpace(p.ContentType), Size: p.Size, SHA256: strings.ToLower(p.SHA256), CreatedAt: time.Now().UTC()}
 	f, err := os.OpenFile(o.partPath(u), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err
@@ -230,12 +234,21 @@ func (s *Server) linkUploadCommit(ctx context.Context, req *link.Request) (any, 
 		delete(o.uploads, u.ID)
 		return nil, link.Errorf(contract.CodeConflict, "content digest mismatch; upload again")
 	}
-	object, err := s.storeLinkUpload(ctx, linkRequestPrincipal(req), u, o.partPath(u))
-	if err != nil {
-		return nil, err
+	if u.Purpose != "" {
+		// A domain object: passed to domain methods by reference.
+		meta, err := s.link.domainObj.adopt(linkDomainObject{DeviceID: u.DeviceID, Purpose: u.Purpose, Name: u.Name, MediaType: u.ContentType, Size: u.Size, SHA256: u.SHA256}, o.partPath(u))
+		if err != nil {
+			return nil, err
+		}
+		u.ObjectID = meta.ID
+	} else {
+		object, err := s.storeLinkUpload(ctx, linkRequestPrincipal(req), u, o.partPath(u))
+		if err != nil {
+			return nil, err
+		}
+		u.ObjectID = linkWorkspaceObjectID(u.SessionID, object.Key)
+		_ = os.Remove(o.partPath(u))
 	}
-	u.ObjectID = linkWorkspaceObjectID(u.SessionID, object.Key)
-	_ = os.Remove(o.partPath(u))
 	if err := o.save(u); err != nil {
 		return nil, err
 	}
@@ -384,8 +397,21 @@ func (s *Server) linkObjectDescribe(ctx context.Context, req *link.Request) (any
 	if err != nil {
 		return nil, err
 	}
-	ref, _, err := s.linkResolveObject(ctx, linkRequestPrincipal(req), p.ObjectID)
+	ref, _, err := s.linkOpenObject(ctx, req, p.ObjectID)
 	return ref, err
+}
+
+// linkOpenObject resolves a conversation attachment or one of the
+// device's domain objects.
+func (s *Server) linkOpenObject(ctx context.Context, req *link.Request, objectID string) (contract.AttachmentRef, string, error) {
+	if linkDomainObjectIDPattern.MatchString(objectID) {
+		meta, path, err := s.link.domainObj.open(req.Principal.DeviceID, objectID)
+		if err != nil {
+			return contract.AttachmentRef{}, "", err
+		}
+		return meta.attachmentRef(), path, nil
+	}
+	return s.linkResolveObject(ctx, linkRequestPrincipal(req), objectID)
 }
 
 func (s *Server) linkObjectRead(ctx context.Context, req *link.Request) (any, error) {
@@ -393,7 +419,7 @@ func (s *Server) linkObjectRead(ctx context.Context, req *link.Request) (any, er
 	if err != nil {
 		return nil, err
 	}
-	ref, path, err := s.linkResolveObject(ctx, linkRequestPrincipal(req), p.ObjectID)
+	ref, path, err := s.linkOpenObject(ctx, req, p.ObjectID)
 	if err != nil {
 		return nil, err
 	}

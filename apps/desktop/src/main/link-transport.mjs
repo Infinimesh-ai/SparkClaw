@@ -13,16 +13,27 @@ export const LINK_REVERSE_OPERATIONS = Object.freeze([
   "mcd.account.ensure", "mcd.checkout.prepare", "mcd.checkout.commit", "mcd.checkout.abort", "mcd.operation.status", "mcd.orders.query",
 ]);
 
-// A failed link operation. Codes are the link contract's error codes;
-// backend_unavailable means the request was refused at once because no path
-// to the backend is up (design 3.12: nothing is queued).
+// A failed link operation. Codes are the link contract's error codes.
+// notSent is the contract's not_sent: the request never reached a handler
+// (no path was up, it could not be written, or the backend refused it
+// before running it), so it had no effect. Any other failure of a mutation
+// leaves its outcome to be learned by retrying with the same key (design
+// 3.12: nothing is queued).
+// reason is a business domain's own reason for the failure.
 export class LinkError extends Error {
-  constructor(code, message, retryable = false) {
+  constructor(code, message, retryable = false, notSent = false, reason = "") {
     super(message || code);
     this.name = "LinkError";
     this.code = code;
     this.retryable = retryable === true;
+    this.notSent = notSent === true;
+    if (typeof reason === "string" && reason) this.reason = reason;
   }
+}
+
+// True when a failed request certainly had no effect on the backend.
+export function linkNotSent(error) {
+  return error instanceof LinkError && error.notSent;
 }
 
 export function linkHelperExecutable({ packaged = false, resourcesPath } = {}) {
@@ -53,7 +64,7 @@ export class LinkTransport extends EventEmitter {
 
   // Starts the helper once; resolves after its hello line.
   start() {
-    if (this.closed) return Promise.reject(new LinkError("backend_unavailable", "Link transport is closed"));
+    if (this.closed) return Promise.reject(new LinkError("backend_unavailable", "Link transport is closed", false, true));
     if (this.ready) return this.ready;
     fs.mkdirSync(this.stateDirectory, { recursive: true, mode: 0o700 });
     const generation = ++this.generation;
@@ -98,7 +109,7 @@ export class LinkTransport extends EventEmitter {
       this.pending.delete(message.id);
       clearTimeout(call.timer);
       call.signal?.removeEventListener("abort", call.abort);
-      if (message.error) call.reject(new LinkError(message.error.code || "internal", message.error.message, message.error.retryable));
+      if (message.error) call.reject(new LinkError(message.error.code || "internal", message.error.message, message.error.retryable, message.error.not_sent, message.error.reason));
       else call.resolve(message.result);
       return;
     }
@@ -139,7 +150,7 @@ export class LinkTransport extends EventEmitter {
     const child = this.child;
     this.child = undefined;
     this.ready = undefined;
-    this.helloWaiter?.reject(new LinkError("backend_unavailable", error?.message || "Link helper is unavailable", true));
+    this.helloWaiter?.reject(new LinkError("backend_unavailable", error?.message || "Link helper is unavailable", true, true));
     this.helloWaiter = undefined;
     for (const call of this.pending.values()) {
       clearTimeout(call.timer);
@@ -170,7 +181,7 @@ export class LinkTransport extends EventEmitter {
       call.abort = () => { this.pending.delete(id); clearTimeout(call.timer); reject(new LinkError("cancelled", "Request was canceled")); };
       signal?.addEventListener("abort", call.abort, { once: true });
       this.pending.set(id, call);
-      if (!this.#write({ id, method, ...fields })) { this.pending.delete(id); clearTimeout(call.timer); reject(new LinkError("backend_unavailable", "Link helper is unavailable", true)); }
+      if (!this.#write({ id, method, ...fields })) { this.pending.delete(id); clearTimeout(call.timer); reject(new LinkError("backend_unavailable", "Link helper is unavailable", true, true)); }
     });
   }
 
@@ -186,7 +197,7 @@ export class LinkTransport extends EventEmitter {
 
   // request sends one link operation. When no path is up it fails at once.
   async request(op, params = {}, { timeoutMS = this.requestTimeoutMS, signal } = {}) {
-    if (!this.online) throw new LinkError("backend_unavailable", "The backend is unreachable", true);
+    if (!this.online) throw new LinkError("backend_unavailable", "The backend is unreachable", true, true);
     return this.call("request", { op, params, timeout_ms: timeoutMS }, { timeoutMS: timeoutMS + 5000, signal });
   }
 

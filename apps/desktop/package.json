@@ -10,12 +10,11 @@
   "desktopName": "sparkx",
   "main": "src/main/main.mjs",
   "scripts": {
-    "predev": "node ../../scripts/build-iscp-helper.mjs",
+    "predev": "node ../../scripts/build-link-helper.mjs",
     "dev": "electron src/main/main.mjs",
     "test": "node --test test/*.test.mjs",
     "test:browser-layout": "node test/run-browser-panel-layout.mjs",
     "qualify": "node test/run-isolated-qualification.mjs",
-    "qualify:mac-client": "node test/run-mac-client-native-qualification.mjs",
     "dist:linux-arm64": "electron-builder --linux AppImage deb --arm64 --publish never",
     "dist:linux-x64": "electron-builder --linux AppImage deb --x64 --publish never",
     "dist:mac-arm64": "node scripts/package-macos.mjs --arch arm64",
@@ -48,17 +47,12 @@
     "files": [
       "src/**/*",
       "bin/**/*",
-      "!bin/iscp-workbench*",
       "!bin/link-helper*",
       "!bin/browser-controller{,/**/*}",
       "package.json",
       "!bin/ezmcd*{,/**/*}"
     ],
     "extraResources": [
-      {
-        "from": "bin/iscp-workbench",
-        "to": "iscp-workbench"
-      },
       {
         "from": "bin/link-helper",
         "to": "link-helper"
@@ -150,8 +144,7 @@
       "files": [
         "src/**/*",
         "bin/**/*",
-        "!bin/iscp-workbench*",
-        "!bin/link-helper*",
+          "!bin/link-helper*",
         "!bin/browser-controller{,/**/*}",
         "package.json",
         "!node_modules/@deepseek-ai/libreoffice-kit-wasm/**/*",

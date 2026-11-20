@@ -12,7 +12,6 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailautomation"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/emailmanagement"
-	wb "github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 )
 
@@ -29,8 +28,8 @@ func (s syncHealthEndpointRepository) ListEmailMailboxes(ctx context.Context, ow
 	return boxes, err
 }
 
-func TestEmailCheckHealthAcrossHTTPAndEncryptedISCP(t *testing.T) {
-	server, repo, cfg, _ := workbenchISCPFixture(t, nil)
+func TestEmailCheckHealthAcrossHTTPAndTheLink(t *testing.T) {
+	server, repo := linkGatewayFixture(t)
 	controller := &fakeEmailController{result: emailautomation.ProviderStatus{Provider: app.EmailProviderGmail, Enabled: true, State: app.EmailStateReady, Version: 3}}
 	server.email = controller
 	browser := &noEmailBrowser{}
@@ -39,26 +38,27 @@ func TestEmailCheckHealthAcrossHTTPAndEncryptedISCP(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.emailManagement = service
-	box, err := repo.BindEmailMailbox(t.Context(), store.EmailBindCommand{EmailCommand: store.EmailCommand{OwnerID: "iscp-owner", CommandKey: "health-bind"}, Provider: app.EmailProviderGmail, Address: "owner@example.com", Enabled: true})
+	box, err := repo.BindEmailMailbox(t.Context(), store.EmailBindCommand{EmailCommand: store.EmailCommand{OwnerID: linkTestOwner, CommandKey: "health-bind"}, Provider: app.EmailProviderGmail, Address: "owner@example.com", Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := startV2EncryptedFixture(t, server, cfg, []string{"mail.read"}, mailProviderOperations)
-	f.bind(t)
 	check := func(transport string) (int, []byte) {
-		if transport == "iscp" {
-			request := v2Request(wb.OperationMailProvidersCheck, []byte(`{}`))
-			request.Params = map[string]string{"provider": app.EmailProviderGmail}
-			result := f.call(t, request)
+		if transport == "link" {
+			// Each check is its own change.
+			result, err := linkDirect(t.Context(), server, "mail.providers.check", map[string]any{"provider": app.EmailProviderGmail}, newLinkUUID())
+			if err != nil {
+				t.Fatal(err)
+			}
 			return result.Status, result.Body
 		}
-		request := httptest.NewRequest(http.MethodPost, "/api/email/providers/gmail/check", bytes.NewBufferString(`{}`)).WithContext(domainTestContext(t))
+		ctx := context.WithValue(t.Context(), requestPrincipalContextKey{}, requestPrincipal{Authenticated: true, OwnerID: linkTestOwner, ActorID: linkTestOwner, ClientID: "link-desktop-client"})
+		request := httptest.NewRequest(http.MethodPost, "/api/email/providers/gmail/check", bytes.NewBufferString(`{}`)).WithContext(ctx)
 		request.SetPathValue("provider", app.EmailProviderGmail)
 		response := httptest.NewRecorder()
 		server.checkEmailProvider(response, request)
 		return response.Code, response.Body.Bytes()
 	}
-	for _, transport := range []string{"http", "iscp"} {
+	for _, transport := range []string{"http", "link"} {
 		t.Run(transport, func(t *testing.T) {
 			code, raw := check(transport)
 			var response struct {
@@ -81,7 +81,7 @@ func TestEmailCheckHealthAcrossHTTPAndEncryptedISCP(t *testing.T) {
 	if browser.calls != 0 {
 		t.Fatal("health projection invoked browser", browser.calls)
 	}
-	unchanged, _, err := repo.GetEmailMailbox(t.Context(), "iscp-owner", box.ID)
+	unchanged, _, err := repo.GetEmailMailbox(t.Context(), linkTestOwner, box.ID)
 	if err != nil || unchanged.Version != box.Version || !unchanged.PollThrough.Equal(box.PollThrough) {
 		t.Fatal("check changed business checkpoint", err)
 	}

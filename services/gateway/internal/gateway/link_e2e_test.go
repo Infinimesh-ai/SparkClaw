@@ -19,7 +19,6 @@ import (
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/identity"
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
-	"github.com/Chiiz0/SparkClaw/services/gateway/internal/iscpworkbench"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/link"
 	"github.com/Chiiz0/SparkClaw/services/link/consoleapi"
 	"github.com/Chiiz0/SparkClaw/services/link/contract"
@@ -241,6 +240,18 @@ func TestLinkEndToEndOverLAN(t *testing.T) {
 	if err := phone.Request(ctx, contract.OpMessageSend, contract.MessageSendParams{SessionID: header.ID, ClientMessageID: "msg-1", Content: "你好，链接层", Attachments: []contract.AttachmentRef{{ObjectID: up.ObjectID}}}, &replay); err != nil || !replay.Replayed || replay.RunID != sent.RunID {
 		t.Fatalf("replay %+v %v", replay, err)
 	}
+	// A retry that only learns the outcome: the original admission, and
+	// not_found for a message that never arrived.
+	var looked contract.MessageSendResult
+	if err := phone.Request(ctx, contract.OpMessageSend, contract.MessageSendParams{SessionID: header.ID, ClientMessageID: "msg-1", Content: "你好，链接层", Attachments: []contract.AttachmentRef{{ObjectID: up.ObjectID}}, ReplayOnly: true}, &looked); err != nil || !looked.Replayed || looked.RunID != sent.RunID {
+		t.Fatalf("replay_only %+v %v", looked, err)
+	}
+	if err := phone.Request(ctx, contract.OpMessageSend, contract.MessageSendParams{SessionID: header.ID, ClientMessageID: "msg-never", Content: "never sent", ReplayOnly: true}, nil); contract.AsError(err).Code != contract.CodeNotFound || !contract.AsError(err).NotSent {
+		t.Fatalf("replay_only of an unknown message: %v", err)
+	}
+	if err := phone.Request(ctx, contract.OpMessageSend, contract.MessageSendParams{SessionID: header.ID, ClientMessageID: "msg-1", Content: "other content", ReplayOnly: true}, nil); contract.AsError(err).Code != contract.CodeConflict {
+		t.Fatalf("replay_only with other content: %v", err)
+	}
 	// Unknown operations keep the connection.
 	if err := phone.Request(ctx, "nope.op", nil, nil); err == nil {
 		t.Fatal("unknown op accepted")
@@ -378,7 +389,7 @@ func TestLinkDomainCallBridge(t *testing.T) {
 	if err := desk.Request(ctx, contract.OpDomainCall, contract.DomainCallParams{Domain: "settings", Method: "settings.owner.get"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	var res linkBridgeResult
+	var res linkDomainResult
 	if err := json.Unmarshal(out.Result, &res); err != nil || res.Status != 200 || len(res.Body) == 0 {
 		t.Fatalf("settings.owner.get %+v %v %s", res, err, out.Result)
 	}
@@ -441,7 +452,7 @@ func TestLinkReverseCallsReachTheDesktopBrowser(t *testing.T) {
 	if got := desk.Hello().Reverse; len(got) != 2 {
 		t.Fatalf("accepted reverse %v", got)
 	}
-	var peer iscpworkbench.PeerSession
+	var peer linkPeer
 	waitUntil(t, 5*time.Second, func() bool {
 		var e error
 		peer, e = b.server.browserRoutes.peerFor(app.DefaultOwnerID, linkClientID(dev.Identity.DeviceID), linkInstallationID(dev.Identity.DeviceID))
@@ -455,7 +466,7 @@ func TestLinkReverseCallsReachTheDesktopBrowser(t *testing.T) {
 		t.Fatal(got)
 	}
 	// An operation the device did not declare is never sent.
-	if _, err := peer.Command(ctx, "mcd.checkout.commit", json.RawMessage(`{}`)); !errors.Is(err, iscpworkbench.ErrPeerUnavailable) {
+	if _, err := peer.Command(ctx, "mcd.checkout.commit", json.RawMessage(`{}`)); !errors.Is(err, errLinkPeerUnavailable) {
 		t.Fatalf("undeclared reverse op: %v", err)
 	}
 }

@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/medicine-box-open-medkit-adaptation-design.md)
 >
+> **2026-11-20** — The workbench operation registry, sync script and desktop transport modules listed in the implementation scope are retired. The medicine parser and recognition design still apply. The device calls medicine.parse and medicine.recognize through the link. [Link contract](link-contract.md).
+>
 > Date: 2026-11-02. Status: design settled; the owner confirmed the items in section 9 on 2026-11-02. Both phases were implemented on 2026-11-02 (section 10); the real-model spot check passed the same day, and the paired release went live that day (section 10.1). Reference: [MonoYan/open-medkit](https://github.com/MonoYan/open-medkit) commit `8c2217ba707cf239ec3c8285c3ff3aa3b357a1c4` (MIT licence). Scope: the desktop medicine box workspace, the detail dialog, the add/edit dialog, the medicine fields and their local data migration, and text entry. The module rail, the medicine sidebar and the photo recognition path stay.
 
 ## 1. Background and goals

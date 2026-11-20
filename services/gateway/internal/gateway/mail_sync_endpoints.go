@@ -92,6 +92,10 @@ func (s *Server) syncMail(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 func writeMailSyncError(w http.ResponseWriter, err error) {
+	mailSyncErrorReply(err).write(w)
+}
+
+func mailSyncErrorReply(err error) domainReply {
 	status, code := http.StatusServiceUnavailable, "mail_sync_unavailable"
 	switch {
 	case errors.Is(err, mailsync.ErrReset):
@@ -103,5 +107,5 @@ func writeMailSyncError(w http.ResponseWriter, err error) {
 	case errors.Is(err, mailsync.ErrLimit):
 		status, code = http.StatusInsufficientStorage, "mail_sync_capacity"
 	}
-	writeJSON(w, status, map[string]any{"code": code})
+	return reply(status, map[string]any{"code": code})
 }

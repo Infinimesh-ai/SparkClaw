@@ -32,7 +32,6 @@ const pptxSealedSweepLimit = 200
 // first sweep runs immediately so short-lived processes still age data out;
 // the goroutine ends with ctx and is awaited by WaitForBackgroundWork.
 func (s *Server) StartRetentionSweeps(ctx context.Context) {
-	s.startDomainReceiptRetention(ctx)
 	s.streamWG.Add(1)
 	go func() {
 		defer s.streamWG.Done()

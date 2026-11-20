@@ -22,6 +22,7 @@ import (
 )
 
 func TestExecutionRealWorkflowUsesOnlyClientContextAndNoLegacyPersistence(t *testing.T) {
+	requireLinuxExecutionWorkspace(t)
 	root := t.TempDir()
 	cfg := testConfig(root)
 	cfg.Gateway.PairingRequired = true

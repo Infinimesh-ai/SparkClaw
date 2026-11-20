@@ -116,8 +116,8 @@ try {
     const manifest = { schema_version: 2, profile: "sparkclaw.workbench.transport.v2", session_id: "semantic_session", authorization_revision: 1,
       expires_at: new Date(Date.now() + 300000).toISOString(), operations: [...CONTROLLER_OPERATIONS, "browser.receipt", "browser.reconcile"],
       limits: { body_bytes: 63488, response_bytes: 63488, concurrent: 8 } };
-    const auth = { descriptor: { transport: "iscp" }, connection: { ownerID: "semantic-owner", clientID: "semantic-client" },
-      status: { state: "connected", capabilities: { browser: true } }, transport: { capabilities: manifest }, invokeISCP: async () => ({ fences: [] }) };
+    const auth = { descriptor: { transport: "link" }, connection: { ownerID: "semantic-owner", clientID: "semantic-client" },
+      status: { state: "connected", capabilities: { browser: true } }, transport: { capabilities: manifest }, invokeDomain: async () => ({ fences: [] }) };
     const forwarder = new BrowserControllerForwarder({ auth, registry, runtime, userDataDir: path.join(app.getPath("userData"), "semantic-fixture") });
     await forwarder.start({ owner_id: "semantic-owner", client_id: "semantic-client", installation_id: "semantic-installation" });
     registry.selectConversation("semantic-selected-other");

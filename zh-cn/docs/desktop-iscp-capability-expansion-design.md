@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-iscp-capability-expansion-design.md)
 >
+> **2026-11-20** — 工作台 v1/v2 操作表和各业务域的适配器已退役。本文保留功能需求以及当时的界面和服务商验收记录。现行业务操作与设备条件见[连接协议](link-contract.md)。
+>
 > 更新：2026-10-10。状态：P1–P5 适配及按能力开放的桌面界面已实现；四组邮箱验收见 9.10 节，待办见 9.11 节，原邮箱界面恢复与当前安装见 9.12 节。ASR/TTS 继续暂缓。
 > 范围：SparkX 经本地 Docker ISCP Relay 连接 SparkClaw，按依赖顺序补齐业务。允许调整本地 Relay，但必须保持与在线 Relay 的协议兼容；本轮不切换在线部署。
 

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/medicine"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
+	"github.com/Chiiz0/SparkClaw/services/link/contract"
 )
 
 const maxMedicineInventoryBody = 63488
@@ -44,15 +46,12 @@ func decodeMedicineFields(raw json.RawMessage) (medicine.Fields, error) {
 	return fields, nil
 }
 func (s *Server) syncMedicine(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Cursor *string `json:"cursor"`
-		Limit  *int    `json:"limit"`
-	}
-	if readMedicineJSON(w, r, &input) != nil || input.Cursor == nil || input.Limit == nil {
+	var input medicineSyncInput
+	if readMedicineJSON(w, r, &input) != nil {
 		writeMedicineInventoryError(w, medicine.ErrInvalid)
 		return
 	}
-	out, err := medicine.New(s.store).Sync(r.Context(), principalForRequest(r).OwnerID, *input.Cursor, *input.Limit)
+	out, err := s.medicineSync(r.Context(), principalForRequest(r).OwnerID, input)
 	if err != nil {
 		writeMedicineInventoryError(w, err)
 		return
@@ -65,10 +64,7 @@ func (s *Server) getMedicineOperation(w http.ResponseWriter, r *http.Request) {
 		writeMedicineInventoryError(w, medicine.ErrInvalid)
 		return
 	}
-	out, ok, err := s.store.GetMedicineOperation(r.Context(), principalForRequest(r).OwnerID, r.PathValue("operation"))
-	if err == nil && !ok {
-		err = medicine.ErrNotFound
-	}
+	out, err := s.medicineOperation(r.Context(), principalForRequest(r).OwnerID, r.PathValue("operation"))
 	if err != nil {
 		writeMedicineInventoryError(w, err)
 		return
@@ -86,81 +82,26 @@ func (s *Server) deleteMedicine(w http.ResponseWriter, r *http.Request) {
 	s.writeMedicineItem(w, r, medicine.OperationDelete)
 }
 func (s *Server) writeMedicineItem(w http.ResponseWriter, r *http.Request, operation string) {
-	var input struct {
-		OperationID string          `json:"operation_id"`
-		BaseVersion *int64          `json:"base_version,omitempty"`
-		Item        json.RawMessage `json:"item,omitempty"`
-	}
+	var input medicineItemInput
 	if readMedicineJSON(w, r, &input) != nil {
 		writeMedicineInventoryError(w, medicine.ErrInvalid)
 		return
 	}
-	entry := medicine.Entry{EntryID: "item", ID: r.PathValue("item")}
-	if operation == medicine.OperationCreate {
-		if input.BaseVersion != nil || entry.ID != "" {
-			writeMedicineInventoryError(w, medicine.ErrInvalid)
-			return
-		}
-	} else {
-		if input.BaseVersion == nil {
-			writeMedicineInventoryError(w, medicine.ErrInvalid)
-			return
-		}
-		entry.BaseVersion = *input.BaseVersion
-	}
-	if operation == medicine.OperationDelete {
-		if len(input.Item) > 0 {
-			writeMedicineInventoryError(w, medicine.ErrInvalid)
-			return
-		}
-	} else {
-		var err error
-		entry.Fields, err = decodeMedicineFields(input.Item)
-		if err != nil {
-			writeMedicineInventoryError(w, err)
-			return
-		}
-	}
-	receipt, err := s.store.ApplyMedicineBatch(r.Context(), principalForRequest(r).OwnerID, medicine.Batch{OperationID: input.OperationID, Operation: operation, Items: []medicine.Entry{entry}})
+	input.ItemID = r.PathValue("item")
+	out, err := s.medicineWriteItem(r.Context(), principalForRequest(r).OwnerID, operation, input)
 	if err != nil {
 		writeMedicineInventoryError(w, err)
 		return
 	}
-	if operation == medicine.OperationDelete {
-		writeJSON(w, 200, map[string]any{"deleted": true})
-		return
-	}
-	writeJSON(w, 200, receipt.Items[0].After)
+	writeJSON(w, 200, out)
 }
 func (s *Server) batchMedicine(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		OperationID string `json:"operation_id"`
-		Operation   string `json:"operation"`
-		Items       []struct {
-			EntryID     string          `json:"entry_id"`
-			ID          string          `json:"id,omitempty"`
-			BaseVersion int64           `json:"base_version,omitempty"`
-			Fields      json.RawMessage `json:"fields"`
-		} `json:"items"`
-	}
-	if readMedicineJSON(w, r, &input) != nil || len(input.Items) > medicine.MaxBatch {
+	var input medicineBatchInput
+	if readMedicineJSON(w, r, &input) != nil {
 		writeMedicineInventoryError(w, medicine.ErrInvalid)
 		return
 	}
-	if input.Operation != medicine.OperationCreate && input.Operation != medicine.OperationUpdate {
-		writeMedicineInventoryError(w, medicine.ErrInvalid)
-		return
-	}
-	batch := medicine.Batch{OperationID: input.OperationID, Operation: input.Operation}
-	for _, entry := range input.Items {
-		fields, err := decodeMedicineFields(entry.Fields)
-		if err != nil {
-			writeMedicineInventoryError(w, err)
-			return
-		}
-		batch.Items = append(batch.Items, medicine.Entry{EntryID: entry.EntryID, ID: entry.ID, BaseVersion: entry.BaseVersion, Fields: fields})
-	}
-	out, err := s.store.ApplyMedicineBatch(r.Context(), principalForRequest(r).OwnerID, batch)
+	out, err := s.medicineBatch(r.Context(), principalForRequest(r).OwnerID, input)
 	if err != nil {
 		writeMedicineInventoryError(w, err)
 		return
@@ -168,14 +109,117 @@ func (s *Server) batchMedicine(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, out)
 }
 func (s *Server) importMedicine(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		OperationID    string            `json:"operation_id"`
-		InstallationID string            `json:"installation_id"`
-		Items          []json.RawMessage `json:"items"`
-	}
-	if readMedicineJSON(w, r, &input) != nil || len(input.Items) > medicine.MaxImport {
+	var input medicineImportInput
+	if readMedicineJSON(w, r, &input) != nil {
 		writeMedicineInventoryError(w, medicine.ErrInvalid)
 		return
+	}
+	out, err := s.medicineImport(r.Context(), principalForRequest(r).OwnerID, input)
+	if err != nil {
+		writeMedicineInventoryError(w, err)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+// The medicine box's business functions, shared by the HTTP handlers and
+// the link domain methods.
+
+type medicineSyncInput struct {
+	Cursor *string `json:"cursor"`
+	Limit  *int    `json:"limit"`
+}
+
+func (s *Server) medicineSync(ctx context.Context, owner string, input medicineSyncInput) (any, error) {
+	if input.Cursor == nil || input.Limit == nil {
+		return nil, medicine.ErrInvalid
+	}
+	return medicine.New(s.store).Sync(ctx, owner, *input.Cursor, *input.Limit)
+}
+
+func (s *Server) medicineOperation(ctx context.Context, owner, operationID string) (any, error) {
+	out, ok, err := s.store.GetMedicineOperation(ctx, owner, operationID)
+	if err == nil && !ok {
+		err = medicine.ErrNotFound
+	}
+	return out, err
+}
+
+type medicineItemInput struct {
+	OperationID string          `json:"operation_id"`
+	BaseVersion *int64          `json:"base_version,omitempty"`
+	Item        json.RawMessage `json:"item,omitempty"`
+	// ItemID comes from the route (HTTP) or the method arguments (link).
+	ItemID string `json:"-"`
+}
+
+func (s *Server) medicineWriteItem(ctx context.Context, owner, operation string, input medicineItemInput) (any, error) {
+	entry := medicine.Entry{EntryID: "item", ID: input.ItemID}
+	if operation == medicine.OperationCreate {
+		if input.BaseVersion != nil || entry.ID != "" {
+			return nil, medicine.ErrInvalid
+		}
+	} else {
+		if input.BaseVersion == nil || entry.ID == "" {
+			return nil, medicine.ErrInvalid
+		}
+		entry.BaseVersion = *input.BaseVersion
+	}
+	if operation == medicine.OperationDelete {
+		if len(input.Item) > 0 {
+			return nil, medicine.ErrInvalid
+		}
+	} else {
+		var err error
+		if entry.Fields, err = decodeMedicineFields(input.Item); err != nil {
+			return nil, err
+		}
+	}
+	receipt, err := s.store.ApplyMedicineBatch(ctx, owner, medicine.Batch{OperationID: input.OperationID, Operation: operation, Items: []medicine.Entry{entry}})
+	if err != nil {
+		return nil, err
+	}
+	if operation == medicine.OperationDelete {
+		return map[string]any{"deleted": true}, nil
+	}
+	return receipt.Items[0].After, nil
+}
+
+type medicineBatchInput struct {
+	OperationID string `json:"operation_id"`
+	Operation   string `json:"operation"`
+	Items       []struct {
+		EntryID     string          `json:"entry_id"`
+		ID          string          `json:"id,omitempty"`
+		BaseVersion int64           `json:"base_version,omitempty"`
+		Fields      json.RawMessage `json:"fields"`
+	} `json:"items"`
+}
+
+func (s *Server) medicineBatch(ctx context.Context, owner string, input medicineBatchInput) (any, error) {
+	if len(input.Items) > medicine.MaxBatch || input.Operation != medicine.OperationCreate && input.Operation != medicine.OperationUpdate {
+		return nil, medicine.ErrInvalid
+	}
+	batch := medicine.Batch{OperationID: input.OperationID, Operation: input.Operation}
+	for _, entry := range input.Items {
+		fields, err := decodeMedicineFields(entry.Fields)
+		if err != nil {
+			return nil, err
+		}
+		batch.Items = append(batch.Items, medicine.Entry{EntryID: entry.EntryID, ID: entry.ID, BaseVersion: entry.BaseVersion, Fields: fields})
+	}
+	return s.store.ApplyMedicineBatch(ctx, owner, batch)
+}
+
+type medicineImportInput struct {
+	OperationID    string            `json:"operation_id"`
+	InstallationID string            `json:"installation_id"`
+	Items          []json.RawMessage `json:"items"`
+}
+
+func (s *Server) medicineImport(ctx context.Context, owner string, input medicineImportInput) (any, error) {
+	if len(input.Items) > medicine.MaxImport {
+		return nil, medicine.ErrInvalid
 	}
 	request := medicine.ImportRequest{OperationID: input.OperationID, InstallationID: input.InstallationID}
 	for _, raw := range input.Items {
@@ -183,44 +227,42 @@ func (s *Server) importMedicine(w http.ResponseWriter, r *http.Request) {
 		d := json.NewDecoder(bytes.NewReader(raw))
 		d.DisallowUnknownFields()
 		if d.Decode(&item) != nil {
-			writeMedicineInventoryError(w, medicine.ErrInvalid)
-			return
+			return nil, medicine.ErrInvalid
 		}
 		var keys map[string]json.RawMessage
 		if json.Unmarshal(raw, &keys) != nil {
-			writeMedicineInventoryError(w, medicine.ErrInvalid)
-			return
+			return nil, medicine.ErrInvalid
 		}
 		for _, name := range []string{"name", "category", "quantity", "unit", "expires_on", "no_expiry"} {
 			if value, ok := keys[name]; !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-				writeMedicineInventoryError(w, medicine.ErrInvalid)
-				return
+				return nil, medicine.ErrInvalid
 			}
 		}
 		request.Items = append(request.Items, item)
 	}
-	out, err := s.store.ImportMedicines(r.Context(), principalForRequest(r).OwnerID, request)
-	if err != nil {
-		writeMedicineInventoryError(w, err)
-		return
-	}
-	writeJSON(w, 200, out)
+	return s.store.ImportMedicines(ctx, owner, request)
 }
-func writeMedicineInventoryError(w http.ResponseWriter, err error) {
-	status, code := http.StatusServiceUnavailable, "medicine_unavailable"
+
+// medicineInventoryFailure classifies a medicine box failure: HTTP status,
+// the domain's reason code, and the link error code.
+func medicineInventoryFailure(err error) (int, string, string) {
 	switch {
 	case errors.Is(err, medicine.ErrInvalid):
-		status, code = 400, "medicine_invalid"
+		return 400, "medicine_invalid", contract.CodeInvalidRequest
 	case errors.Is(err, medicine.ErrConflict):
-		status, code = 409, "medicine_conflict"
+		return 409, "medicine_conflict", contract.CodeConflict
 	case errors.Is(err, medicine.ErrNotFound):
-		status, code = 404, "medicine_not_found"
+		return 404, "medicine_not_found", contract.CodeNotFound
 	case errors.Is(err, medicine.ErrCapacity):
-		status, code = 507, "medicine_capacity"
+		return 507, "medicine_capacity", contract.CodeQuotaExceeded
 	case errors.Is(err, medicine.ErrReset):
-		status, code = 409, "medicine_sync_reset_required"
+		return 409, "medicine_sync_reset_required", contract.CodeConflict
 	case store.StoreErrorCodeOf(err) == store.StoreErrorUnknownOutcome:
-		code = "medicine_unknown_outcome"
+		return http.StatusServiceUnavailable, "medicine_unknown_outcome", contract.CodeOutcomeUnknown
 	}
+	return http.StatusServiceUnavailable, "medicine_unavailable", contract.CodeBackendUnavailable
+}
+func writeMedicineInventoryError(w http.ResponseWriter, err error) {
+	status, code, _ := medicineInventoryFailure(err)
 	writeJSON(w, status, map[string]any{"code": code, "error": code, "retryable": false})
 }

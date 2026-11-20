@@ -2,6 +2,8 @@
 
 [English](../../docs/iscp-latency-optimization.md)
 
+> **2026-11-20** — 这些耗时是在指定部署上通过现已退役的 SparkX helper 和 Gateway 工作台端点测得的。当前订阅、同步与恢复均通过连接层完成。[连接协议](link-contract.md)。
+
 2026-10-14 使用已安装 Mac SparkX 的原界面、原 Main 身份，经 TEST1 公网
 Relay 连接 work2 Gateway 实测。最终 Mac/work2 运行 `3ddde02b`；TEST1 Relay
 运行 `f19847c3`，持续接收窗口为 55 秒。首次部署时，另四台 Gateway 保持原版本，

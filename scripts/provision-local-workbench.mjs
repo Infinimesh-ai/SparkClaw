@@ -4,7 +4,6 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { assertNoSymlinkPath, assertPrivateDirectory, readPrivateJSON, writePrivateJSON } from "./lib/private-workbench.mjs";
-import { parseBackendDescriptor } from "../apps/desktop/src/main/local-backend.mjs";
 
 const options = parseArguments(process.argv.slice(2));
 const runtimeDirectory = path.resolve(options.runtimeDirectory);
@@ -120,8 +119,20 @@ async function createClientBackend(options, deploymentID, ownerID) {
     tls_certificate_sha256: crypto.createHash("sha256").update(certificate.raw).digest("hex"),
     tls_ca_pem: caPEM.trim(),
   };
-  parseBackendDescriptor(descriptor);
+  validateClientBackend(descriptor);
   return descriptor;
+}
+
+// The LAN client-backend description the deploy scripts publish.
+function validateClientBackend(descriptor) {
+  const origin = new URL(descriptor.origin);
+  if (origin.protocol !== "https:" || origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) throw new Error("LAN client origin must be an HTTPS origin");
+  for (const field of ["deployment_id", "owner_id"]) {
+    if (typeof descriptor[field] !== "string" || !descriptor[field].trim() || descriptor[field].length > 160) throw new Error(`LAN workbench ${field} is invalid`);
+  }
+  if (!/^[a-f0-9]{64}$/u.test(descriptor.tls_certificate_sha256)) throw new Error("LAN certificate fingerprint must be a lowercase SHA-256 digest");
+  const ca = descriptor.tls_ca_pem;
+  if (typeof ca !== "string" || ca.length > 32768 || !ca.startsWith("-----BEGIN CERTIFICATE-----") || !ca.endsWith("-----END CERTIFICATE-----")) throw new Error("LAN CA certificate is invalid");
 }
 
 async function readPublicCertificate(filename, label) {

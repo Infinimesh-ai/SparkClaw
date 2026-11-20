@@ -2,7 +2,7 @@
 
 > 语言：简体中文 | [English](../../docs/public-iscp-node-deployment.md)
 >
-> **已于 2026-11-19 退役。** work2 上的 node issuer 和 TEST1 上的控制转发器已停止并禁用，代码已删除。设备现在经自建官网和连接层加入，见[三端连接层设计](client-link-layer-design.md)。本记录作为历史保留。
+> **节点签发服务和控制转发器已于 2026-11-19 退役。** work2 节点签发服务与 TEST1 控制转发器当日已停止并禁用。以下部署操作、六个 Gateway 挂载和设备登记步骤仅描述旧工作台 responder。当前设备经控制台加入，ISCP Relay 继续承载连接层流量。[三端连接层设计](client-link-layer-design.md)。
 >
 > 初次发布：2026-10-12。该次部署及要求的验收已完成。服务端与原生
 > `16b00f17` 已部署，精确 Client 迁移、原数据/UI、默认 Main 冷启动、E 注册/
@@ -292,8 +292,7 @@ Relay schema-2 配置按完整 domain/Relay/signer/responder 绑定、带命名�
 调用者选择的上游 URL。每条路由独享 32 个请求槽和每分钟 600 次预算。五节点
 原生测试发现共享来源的 Relay 请求预算返回 HTTP 429，故在原有有界配置范围内
 将部署的每 IP 上限从每分钟 1200 提升到 3600；每路由预算和认证要求保持不变。
-可选 `SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT` 设置让普通 remote
-重启保留六个受限 Gateway 挂载。Gateway 获得 responder 密钥、公钥 pin、registry、
+当时的节点签发 Compose 配置在远程重启时保留六个受限 Gateway 挂载。Gateway 获得 responder 密钥、公钥 pin、registry、
 私有 issuer socket 及其签发管理 token；邀请/Grant 签名私钥、issuer 存储/数据库
 秘密及 Relay operator token 保留在 Gateway 外。
 

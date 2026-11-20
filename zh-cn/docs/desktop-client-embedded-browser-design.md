@@ -1,6 +1,8 @@
 # 桌面客户端与内置浏览器设计
 
 > 语言：简体中文 | [English](../../docs/desktop-client-embedded-browser-design.md)
+>
+> **2026-11-20** — 独立工作台的 LAN、ISCP 浏览器控制路径均已退役。内嵌浏览器与后端独立采集路径继续使用，当前桌面浏览器指令由连接层反向调用传递。[连接协议](link-contract.md)。
 
 > 最新客户端控制设计（2026-11-09）：[随包 Controller 经 ISCP](desktop-embedded-browser-controller-iscp-design.md)
 > 明确下一版 Mac／Linux 通用自动化链路、恢复和保留原界面的切换方式。设计已补齐，实现／验收仍待完成。

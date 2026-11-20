@@ -1,6 +1,8 @@
 # SparkClaw Mac source synchronization and connection guide
 
 > Language: English | [简体中文](../zh-cn/docs/macos-connection-guide.md)
+>
+> **2026-11-20** — The desktop provisioning and LAN procedure below belongs to the former workbench. For a current Mac client join with a console-issued access credential, then use the LAN or ISCP Relay link connector. [Client link layer design](client-link-layer-design.md).
 
 Current source release: follow the [matched workbench release guide](workbench-release.md) for fresh storage, enrollment, API paths and restart behavior; see the [implementation ledger](workbench-convergence-implementation.md) for exact validation boundaries.
 

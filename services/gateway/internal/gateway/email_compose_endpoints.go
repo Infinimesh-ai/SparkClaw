@@ -12,9 +12,6 @@ import (
 )
 
 func (s *Server) registerEmailComposeRoutes() {
-	s.mux.HandleFunc("POST /api/v1/mail/attachments", s.uploadLANMailAttachment)
-	s.mux.HandleFunc("GET /api/v1/mail/attachments/{object}", s.describeLANMailAttachment)
-	s.mux.HandleFunc("DELETE /api/v1/mail/attachments/{object}", s.releaseLANMailAttachment)
 	s.mux.HandleFunc("GET /api/email/compose-capabilities", s.emailComposeCapabilities)
 	s.mux.HandleFunc("GET /api/email/sent-sources", s.emailSentSources)
 	s.mux.HandleFunc("GET /api/email/drafts", s.listEmailDrafts)
@@ -55,10 +52,9 @@ func (s *Server) emailComposeCapabilities(w http.ResponseWriter, r *http.Request
 		return
 	}
 	capabilities := s.emailManagement.ComposeCapabilities()
-	_, err := s.lanMailObjectAccess(r)
-	// Ordinary WebChat/HTTP has no verified desktop installation. Only the
-	// authenticated TLS workbench can publish local attachment objects.
-	capabilities.WorkspaceAttachments = capabilities.WorkspaceAttachments && err == nil
+	// The host WebChat has no device files: only a desktop attaches its own
+	// files, as link domain objects (mail.compose.capabilities).
+	capabilities.WorkspaceAttachments = false
 	writeJSON(w, http.StatusOK, capabilities)
 }
 func (s *Server) listEmailDrafts(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +145,7 @@ func (s *Server) saveEmailDraft(w http.ResponseWriter, r *http.Request) {
 	for i, attachment := range input.Attachments {
 		attachments[i] = app.EmailSendAttachment{LocalFileID: attachment.LocalFileID, Object: attachment.Object}
 	}
-	draft, err := s.emailManagement.SaveDraft(s.withLANMailObjects(r), principalForRequest(r).OwnerID, store.EmailDraft{Attachments: attachments, ID: input.ID, MailboxID: input.MailboxID, Mode: input.Mode, ReplyMailID: input.ReplyMailID, To: input.To, CC: input.CC, Subject: input.Subject, Body: input.Body}, input.ExpectedVersion)
+	draft, err := s.emailManagement.SaveDraft(r.Context(), principalForRequest(r).OwnerID, store.EmailDraft{Attachments: attachments, ID: input.ID, MailboxID: input.MailboxID, Mode: input.Mode, ReplyMailID: input.ReplyMailID, To: input.To, CC: input.CC, Subject: input.Subject, Body: input.Body}, input.ExpectedVersion)
 	if err != nil {
 		writeEmailComposeError(w, err)
 		return
@@ -168,7 +164,7 @@ func (s *Server) sendEmailDraft(w http.ResponseWriter, r *http.Request) {
 		writeEmailManagementError(w, emailmanagement.ErrInvalidInput)
 		return
 	}
-	draft, err := s.emailManagement.SendDraft(s.withLANMailObjects(r), principalForRequest(r).OwnerID, r.PathValue("draft"), input.ExpectedVersion, input.IdempotencyKey)
+	draft, err := s.emailManagement.SendDraft(r.Context(), principalForRequest(r).OwnerID, r.PathValue("draft"), input.ExpectedVersion, input.IdempotencyKey)
 	if err != nil {
 		writeEmailComposeError(w, err)
 		return
@@ -176,9 +172,12 @@ func (s *Server) sendEmailDraft(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, draft)
 }
 func writeEmailComposeError(w http.ResponseWriter, err error) {
+	emailComposeErrorReply(err).write(w)
+}
+
+func emailComposeErrorReply(err error) domainReply {
 	if errors.Is(err, emailmanagement.ErrAttachmentPermission) {
-		writeJSON(w, http.StatusForbidden, map[string]any{"code": "permission_denied", "error": "SparkX local file read permission is required for attachments.", "retryable": false})
-		return
+		return reply(http.StatusForbidden, map[string]any{"code": "permission_denied", "error": "SparkX local file read permission is required for attachments.", "retryable": false})
 	}
 
 	if errors.Is(err, emailmanagement.ErrAttachmentInvalid) || errors.Is(err, emailmanagement.ErrAttachmentChanged) {
@@ -186,17 +185,15 @@ func writeEmailComposeError(w http.ResponseWriter, err error) {
 		if errors.Is(err, emailmanagement.ErrAttachmentChanged) {
 			status, code = http.StatusConflict, emailmanagement.ErrAttachmentChanged.Error()
 		}
-		writeJSON(w, status, map[string]any{"code": code, "error": "SparkX local attachments must be selected, saved and reviewed again before sending.", "retryable": false})
-		return
+		return reply(status, map[string]any{"code": code, "error": "SparkX local attachments must be selected, saved and reviewed again before sending.", "retryable": false})
 	}
 
 	for _, known := range []error{emailmanagement.ErrComposeUnavailable, emailmanagement.ErrNativeReplyUnavailable, emailmanagement.ErrMultipleRecipientsUnavailable, emailmanagement.ErrReplyPolishUnavailable} {
 		if errors.Is(err, known) {
-			writeJSON(w, http.StatusConflict, map[string]any{"code": known.Error(), "error": "Email action is unavailable; the draft is retained.", "retryable": false})
-			return
+			return reply(http.StatusConflict, map[string]any{"code": known.Error(), "error": "Email action is unavailable; the draft is retained.", "retryable": false})
 		}
 	}
-	writeEmailManagementError(w, err)
+	return emailManagementErrorReply(err)
 }
 
 func (s *Server) reconcileEmailDraft(w http.ResponseWriter, r *http.Request) {

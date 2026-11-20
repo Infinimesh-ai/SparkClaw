@@ -2,6 +2,8 @@
 
 > Language: English | [简体中文](../zh-cn/docs/desktop-browser-controller-candidate-acceptance.md)
 >
+> **2026-11-20** — These results qualify the named candidate builds on the retired workbench transport. The embedded Controller remains in use. Qualification of the replacement link path is recorded separately. [Migration verification](workbench-retirement-migration.md).
+>
 > Updated: 2026-11-10. Product source: `1f7f20ee27f45efe5dbf15e43c612a4d0cff88d6`.
 > Status: the owner accepted the `1f7f20ee` candidate within §8's scope. D2 source `50300074`
 > passed a paired Mac/Linux ARM64 upgrade and rollback rehearsal. See §9 for the artifacts.

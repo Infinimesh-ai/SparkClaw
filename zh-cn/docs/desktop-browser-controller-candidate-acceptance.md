@@ -2,6 +2,8 @@
 
 > 语言：简体中文 | [English](../../docs/desktop-browser-controller-candidate-acceptance.md)
 >
+> **2026-11-20** — 以下结果仅覆盖指定候选版本及其已退役的工作台传输。内嵌 Controller 继续使用，连接层新路径的验证情况另行记录。[迁移验证](workbench-retirement-migration.md)。
+>
 > 更新日期：2026-11-10。产品源码：`1f7f20ee27f45efe5dbf15e43c612a4d0cff88d6`。
 > 状态：所有者已按 §8 所列范围签收 `1f7f20ee` 候选。D2 源码 `50300074` 已通过
 > Mac/Linux ARM64 成对升级与回滚演练，交付制品见 §9。生产发布待单独授权。

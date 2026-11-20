@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import test from "node:test";
+import { LINK_REVERSE_OPERATIONS } from "../src/main/link-transport.mjs";
 import { controllerDigest, validateControllerRequest, validateControllerBinding, iscpHostID, iscpAuthorizationDigest, CONTROLLER_OPERATIONS } from "../src/browser/controller-wire.mjs";
 import { ControllerResults, RESULT_LIMIT, CHUNK_LIMIT } from "../src/browser/controller-results.mjs";
 import { ControllerAdmission } from "../src/browser/controller-admission.mjs";
@@ -28,12 +29,8 @@ test("Controller wire schema admits only scoped generic operations with digest-b
   }
   const stale = execute("page.fill", { ref: "f1e2", text: "value" }); stale.timeout_ms--;
   assert.throws(() => validateControllerRequest("browser.controller.execute", stale), /digest/);
-  const registry = JSON.parse(await fs.readFile(new URL("../src/shared/iscp-operations.json", import.meta.url)));
-  for (const operation of CONTROLLER_OPERATIONS) {
-    const spec = registry.find(row => row.name === operation);
-    assert.equal(spec.direction, "reverse"); assert.equal(spec.scope, "browser.control"); assert.equal(spec.http, undefined);
-    assert.equal(spec.mutation, ["acquire", "execute", "release"].some(name => operation.endsWith("." + name)));
-  }
+  // The Controller is reached only by the backend's reverse calls.
+  for (const operation of CONTROLLER_OPERATIONS) assert.ok(LINK_REVERSE_OPERATIONS.includes(operation), operation);
 });
 
 test("large results reserve before dispatch and keep final-chunk retries immutable until the fixed TTL", () => {

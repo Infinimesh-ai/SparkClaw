@@ -85,7 +85,7 @@
 - `input_files` 语义不变：本轮明确选择的文件，仍在受理前上传。
 - 同一信封内句柄 ID 唯一；单条消息最多 `resultFiles` 个；所有句柄总数不超过 32。某个句柄 ID 同时出现在本轮 `input_files` 时，以本轮输入为准，该句柄不再单独物化。
 - 句柄的工作区定位路径为 `conversation-files/<file-id>/<name>`；本轮输入保持文件名。
-- **只文本执行和未授权文件的会话不携带句柄。** 桌面端在 `capabilities.files` 不可用时不附加句柄；网关在只文本执行（[`workbench_iscp.go`](../../services/gateway/internal/gateway/workbench_iscp.go) 中 `!expanded || !AllowFiles`）中收到句柄时拒绝该信封，物化器也不启用。
+- **只文本执行和未授权文件的会话不携带句柄。** 桌面端在 `capabilities.files` 不可用时不附加句柄。旧工作台适配器会在物化前拒绝此类句柄，该路径现已退役。当前设备会话附件使用连接层的附件能力条件与对象操作。[连接协议](link-contract.md)。
 
 按[工作台收敛设计](workbench-runtime-convergence-design.md)的直接切换规则，schema 1 停用，不做双版本解析；网关与桌面端必须匹配发布。网关解码继续使用 `DisallowUnknownFields`。
 

@@ -6,7 +6,6 @@ import path from 'node:path';
 import test from 'node:test';
 import { ClientStore, parseResultPayload } from '../src/main/client-store.mjs';
 import { ClientStoreCapability } from '../src/main/client-store-capability.mjs';
-import { ExecutionClient } from '../src/main/execution-client.mjs';
 import { filterLocalSchedules } from '../src/main/schedule-presentation.mjs';
 
 const scope = { deployment_id: 'schedule-test', owner_id: 'owner', client_id: 'client' };
@@ -97,27 +96,6 @@ test('native claim reads local schedules, enforces scope and records read failur
   await assert.rejects(capability.dispatch(event, request), /local disk read failed/);
   assert.equal(f.store.clientActions.pending(scope)[0].status, 'failed');
   assert.equal(await capability.dispatch(event, request), null);
-});
-
-test('presentation receipt survives a lost ACK and restart, retries only the original ACK and never resubmits input', async t => {
-  const f = fixture(t); f.deliver(); f.store.clientActions.claim(scope, f.task.request_id, f.conversation.id);
-  f.store.clientActions.finish(scope, f.task.request_id, 'shown');
-  const calls = []; let fail = true;
-  const auth = { generation: 1, status: { state: 'connected' }, descriptor: { origin: 'https://backend.invalid' },
-    authorizedExecutionFetch: async (url, init) => { calls.push({ url, body: JSON.parse(init.body) });
-      if (fail) throw new Error('lost response'); return new Response(JSON.stringify({ state: 'delivered' })); } };
-  let client = new ExecutionClient({ auth, store: f.store, getIdentity: () => scope });
-  await client.flushPresentationReceipts(scope); client.close(); f.restart();
-  assert.equal(f.store.clientActions.pending(scope).length, 1);
-  fail = false; client = new ExecutionClient({ auth, store: f.store, getIdentity: () => scope });
-  await client.flushPresentationReceipts(scope); client.close();
-  assert.equal(f.store.clientActions.pending(scope).length, 0);
-  assert.equal(calls.length, 2);
-  for (const call of calls) {
-    assert.equal(call.url, `https://backend.invalid/api/v1/executions/${f.task.request_id}/ack`);
-    assert.deepEqual(call.body.client_action_receipt, { action_id: f.task.request_id, status: 'shown' });
-  }
-  assert.equal(f.store.read(scope, f.conversation.id).tasks.length, 1);
 });
 
 test('v12 migration preserves installation, original contexts, history and drafts', t => {

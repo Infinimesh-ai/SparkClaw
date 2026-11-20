@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/client-backend-architecture-design.md)
 
-> Superseded in part (2026-11-19): the rule in sections 1 and 2 that conversations, messages and task history belong to each client locally is replaced by [Client link layer design](client-link-layer-design.md), under which the backend stores all conversations and attachments. That design is not implemented yet; until it is, the code still follows the boundary below.
+> Superseded in part (2026-11-19): the boundary in sections 1 and 2 that conversations belong to each client locally, and the per-device credential issuance in Settings, are replaced by the [Client link layer design](client-link-layer-design.md) and the [Self-hosted console design](self-hosted-console-design.md). The backend now stores all conversations and attachments, and devices are joined and revoked on the console.
 
 > Historical design: current workbench behavior and clean-start paths are defined by the [architecture](architecture.md), [implementation ledger](workbench-convergence-implementation.md) and [release guide](workbench-release.md). The dated rationale and qualification evidence below remain historical.
 
@@ -17,8 +17,6 @@
 > rules. WebChat is a normal workbench. Resource and external-contract boundaries still apply.
 
 Date: 2026-10-03. Status: the user confirmed product ownership, no legacy test-data migration, offline task behavior, and section 2's backend temporary-processing/control-record boundary including the 24-hour maximum for undelivered results; P0–P5 Linux/shared source and applicable isolated checks are complete; Mac qualification and production cutover remain pending. See the [implementation and acceptance ledger](client-r3-implementation.md). This is the target architecture for SparkClaw's own clients. [Architecture](architecture.md), [Store](store.md), and [WebChat](webchat.md) describe the current implementation where explicitly marked. This document does not claim deployment, data deletion or changes to accepted cross-project contracts.
-
-> Superseded in part (2026-11-19): the boundary in sections 1 and 2 that conversations belong to each client locally, and the per-device credential issuance in Settings, are replaced by the [Client link layer design](client-link-layer-design.md) and the [Self-hosted console design](self-hosted-console-design.md). The backend now stores all conversations and attachments, and devices are joined and revoked on the console.
 
 ## 1. Confirmed boundary
 

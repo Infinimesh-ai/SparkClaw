@@ -299,6 +299,7 @@ Gateway 升级时连接器不重启，远程连接只表现为短暂的请求重
 | P2b | 完成。JingSi-Watch 用官网配对码配对，使用拉取档，在真实 32 位手表上验证。该仓库对当前账号只读，提交留在本地 |
 | P3 | 完成。SparkX 主进程改用 `LinkClient`，ClientStore 作为缓存（schema 17）；窗口和交互不变 |
 | P4 | 完成。业务域经 `domain.call` 调用；删除 Gateway 内 ISCP 应答器及其生命周期、v2 传输、`clients.*`、`authorizations.*` 和明文的 JingSi 局域网入口；node issuer 和控制转发器已停用，代码已删除 |
+| Workbench 退役（2026-11-20） | 已实现，未部署。所有业务域都是直接调用业务函数的类型化方法（见[迁移文档](workbench-retirement-migration.md)）；`link_domain_bridge.go`、各业务域适配器及其回执日志、操作表以及 `iscpworkbench` 和 `iscpobjects` 包已删除 |
 
 **部署**
 
@@ -313,7 +314,7 @@ Gateway 升级时连接器不重启，远程连接只表现为短暂的请求重
 - Relay 通过运营方绑定登记官网设备（ISCP `59057fe`）。node-authority 文件不变。
 - 设备在会话 hello 之前用明文信封 `sparkclaw.link.grant.v1` 出示 Grant，连接器不需要从官网同步 Grant。
 - 拉取档没有订阅和推送。手表只在应用处于前台时保持连接。
-- `domain.call` 以连接层主体运行现有的业务域适配器：方法名是操作名，参数是原来的 v2 信封。操作表保留为这些方法的登记表。92 个 HTTP 形态的方法没有改写成直接函数。
+- `domain.call` 只调用类型化的业务域方法（2026-11-20 起）。设置和邮件方法返回电脑端原有界面读取的业务结果 `{status, body}`；其他业务域返回类型化的值，失败时返回带业务域原因的链路错误（连接层契约第 4 节）。
 - 设备密钥保存在私有状态文件（`link-device.json`）里，没有放进系统钥匙串。
 - 设备管理（`clients.*`）返回 410 `devices_are_managed_on_the_console`；设备的加入和撤销只在官网进行。
-- 电脑端隔离的资格测试启动器仍使用原 ISCP 辅助进程 `iscp-workbench` 和本地夹具。普通配置只走连接层。
+- 电脑端隔离的资格测试启动器启动 `link-qualification-backend`：一个使用内存存储和模拟模型、只开局域网连接器的 Gateway（2026-11-20 起）。原 ISCP 辅助进程 `iscp-workbench` 已删除。

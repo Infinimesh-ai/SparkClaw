@@ -2,6 +2,8 @@
 
 > Language: 简体中文 | [English](../../docs/ezmcd-split-integration-design.md)
 
+> **2026-11-20** — 下文的工作台操作表、PeerSession 检查和七天业务回执日志均属于已退役传输。Gateway 现根据连接层设备身份授权，并通过桌面反向调用执行宿主操作。Vault、下单 Workflow 及付款审批保留各自的规则。[连接协议](link-contract.md)。
+
 日期：2026-11-16。修订：R3，第 8 节同步已确认的点餐 R4。状态：分端接入与单一点餐 Workflow 已在本工作树源码实现；G1 当前构建 v4／v5 只读与历史指定取餐 G2 已有证据。[实现与发布门槛](ezmcd-adapter-implementation.md)区分夹具、上游付款和真实产品验收。所有启用开关默认关闭；11 月 16 日源码尚未重新打包或部署，不代表功能已上线。
 
 **Mac SparkX 获取和更新麦当劳会话凭据，执行下单、付款与支付对账；work2 SparkClaw 执行门店查询、选餐、购物车和报价。** 工作流编排、模型调用和 Policy／审批决策继续属于 SparkClaw；Mac 运行确定性的本机适配器，校验授权并执行被批准的动作。本文定义目标设计，实际代码与验收进展单独记入上述实现检查点；上游交接已完成一笔单独授权的订单，本轮实现没有新增订单或付款，也未部署产品能力。
@@ -311,7 +313,7 @@ G2 的 Mac Store 不预置该报价记录，测试必须包含缺字段、错误
 | P3 Mac 钱包购买 | Mac 交易账本、commit、既有 Policy／审批适配；固定 `ARCHCARD` | G1 兼容性加上真实收银渠道检查；授权消费、去重、恢复通过；以用户选定且批准的真实订单验证钱包消费和官方对账 |
 | P4 界面与配对发布 | 原连接页、会话结果与审批组件接入适配器；打包、manifest 与运维指引 | Mac／work2 配对版本资格、旧 UI 回归、真实故障矩阵；按能力开放，保留未知交易账本后回滚 |
 
-关键代码依据：Gateway [`workflow_registry.go`](../../services/gateway/internal/agent/workflow_registry.go)、[`mcpintegration/manager.go`](../../services/gateway/internal/mcpintegration/manager.go)、[`mcptools/tools.go`](../../services/gateway/internal/mcptools/tools.go)、[`reverse_session.go`](../../services/gateway/internal/iscpworkbench/reverse_session.go)；desktop [`iscp-transport.mjs`](../../apps/desktop/src/main/iscp-transport.mjs)、[`iscp-capabilities.mjs`](../../apps/desktop/src/main/iscp-capabilities.mjs)；[设置与连接配置](settings-integration-configuration-design.md)。实现检查点记录了这些扩展点现已接入的代码及独立发布门槛。
+关键代码依据：Gateway [`workflow_registry.go`](../../services/gateway/internal/agent/workflow_registry.go)、[`mcpintegration/manager.go`](../../services/gateway/internal/mcpintegration/manager.go)、[`mcptools/tools.go`](../../services/gateway/internal/mcptools/tools.go)、`reverse_session.go`（`reverse_session.go`，已删除）；desktop `iscp-transport.mjs`（`iscp-transport.mjs`，已删除）、`iscp-capabilities.mjs`（`iscp-capabilities.mjs`，已删除）；[设置与连接配置](settings-integration-configuration-design.md)。实现检查点记录了这些扩展点现已接入的代码及独立发布门槛。
 
 必须覆盖以下行为：
 

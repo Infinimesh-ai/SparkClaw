@@ -119,7 +119,7 @@ Go 端实现与 `medicine-store.mjs` 相同的规则，并共用一组测试用�
 
 ### 4.4 接口
 
-新增 ISCP 转发操作（同步写入 `operations.json` 并运行 `node scripts/sync-iscp-operations.mjs`），HTTP 路径同时加入桌面 `workbench-proxy-policy` 白名单（上次发布漏加 `/api/medicine` 导致 501）：
+下表保留旧工作台适配器的作用域、回执类型和宿主 HTTP 接口。当前桌面端使用连接层类型化药箱方法、业务域事件与修改操作幂等键。[连接协议](link-contract.md)。
 
 | 操作 | HTTP | scope | 修改 | 恢复 | 用途 |
 |---|---|---|---|---|---|
@@ -130,7 +130,7 @@ Go 端实现与 `medicine-store.mjs` 相同的规则，并共用一组测试用�
 | `medicine.items.batch` | `POST /api/medicine/items/batch` | `medicine.write` | 是 | `operation_receipt` | 同一操作的批量新增或修改，整批原子提交（第 7.6 节） |
 | `medicine.import` | `POST /api/medicine/import` | `medicine.write` | 是 | `operation_receipt` | 本机旧数据一次性上传（第 4.7 节） |
 
-ISCP 事件新增类别 `medicine`：药箱有变化时推送，桌面端收到后触发一次 `medicine.sync`。
+药箱业务域发出数据变更通知后，桌面端调用 `medicine.sync` 刷新。
 
 `medicine.items.batch` 只接收已补全、校验通过的最终变更，使用一个批次操作 ID 与载荷摘要；修改项各带 `base_version`。聊天工具与此接口共用领域服务。字段补全通过版本化的审批输入合约提交，不能把未完成的草稿交给批量写接口，也不能借 `medicine.import` 完成聊天批量写入。
 

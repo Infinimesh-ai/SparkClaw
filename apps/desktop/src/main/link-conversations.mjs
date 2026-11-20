@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { localContentType } from "./client-store.mjs";
-import { LinkError } from "./link-transport.mjs";
+import { LinkError, linkNotSent } from "./link-transport.mjs";
 
 const PAGE = 30;
 const CHUNK = 256 * 1024;
@@ -74,7 +74,15 @@ export class LinkConversations {
     this.epoch = 0;
     this.closed = true;
     this.onEvent = (frame) => this.#event(frame);
-    this.onState = ({ path }) => { if (!path) { this.subscribed.clear(); this.epoch++; } };
+    // Subscriptions belong to one backend connection. When the path goes
+    // down or switches (LAN <-> ISCP), the runs in progress are subscribed
+    // again on the new path and their status is read back (design 3.6).
+    this.onState = ({ path, previous }) => {
+      if (path === previous) return;
+      this.subscribed.clear();
+      this.epoch++;
+      if (path && previous && !this.closed) void this.reconcilePending().catch(() => {});
+    };
     auth.link.on("event", this.onEvent);
     auth.link.on("state", this.onState);
   }
@@ -281,13 +289,18 @@ export class LinkConversations {
     });
   }
 
-  async #remoteSession(scope, task, content) {
-    let row = this.store.linkConversation(scope, task.conversation_id);
-    if (row) return row;
-    // A schedule's local conversation joins the backend on its first run.
-    const header = await this.#request("session.create", { title: content.slice(0, 80) || "Scheduled task", client_request_id: task.conversation_id });
-    this.store.applyLinkHeader(scope, header, { localID: task.conversation_id });
-    return this.store.linkConversation(scope, task.conversation_id);
+  #remoteSession(scope, task, content) {
+    const row = this.store.linkConversation(scope, task.conversation_id);
+    if (row) return Promise.resolve(row);
+    // A schedule's local conversation joins the backend on its first run,
+    // once even when several of its occurrences are due together.
+    return this.#serialized(`remote:${task.conversation_id}`, async () => {
+      const joined = this.store.linkConversation(scope, task.conversation_id);
+      if (joined) return joined;
+      const header = await this.#request("session.create", { title: content.slice(0, 80) || "Scheduled task", client_request_id: task.conversation_id });
+      this.store.applyLinkHeader(scope, header, { localID: task.conversation_id });
+      return this.store.linkConversation(scope, task.conversation_id);
+    });
   }
 
   async #upload(scope, task, remoteID, files) {
@@ -333,15 +346,17 @@ export class LinkConversations {
       if (!first) { await this.#reconcile(scope, task); return this.#view(scope, requestID); }
       // Subscribe first, so the preview starts with the first delta.
       await this.#subscribe(scope, row.remote_id).catch(() => {});
-      this.live.set(row.remote_id, { runID: "", preview: "", progress: "", requestID });
+      const seq = this.live.get(row.remote_id)?.seq;
+      this.live.set(row.remote_id, { runID: "", preview: "", progress: "", requestID, ...(Number.isSafeInteger(seq) ? { seq } : {}) });
       let result;
       try {
         result = await this.#request("message.send", { session_id: row.remote_id, client_message_id: requestID, content,
           ...(attachments.length ? { attachments } : {}), client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           ...presentationFor(context, original.conversation_id) });
       } catch (error) {
-        const unsent = error instanceof LinkError && (["busy", "conflict", "invalid_request", "not_found", "too_large", "quota_exceeded", "unsupported_capability"].includes(error.code) ||
-          error.code === "backend_unavailable" && !/connection lost/iu.test(error.message));
+        // Refused by the backend's handler, or never delivered: either way
+        // the message was not admitted.
+        const unsent = linkNotSent(error) || (error instanceof LinkError && ["busy", "conflict", "invalid_request", "not_found", "too_large", "quota_exceeded", "unsupported_capability"].includes(error.code));
         this.live.delete(row.remote_id);
         // Nothing is queued (design 3.12): an unsent message fails at once
         // and stays readable in this conversation. A schedule's claim is
@@ -378,19 +393,46 @@ export class LinkConversations {
     const scope = this.getIdentity();
     if (!scope || !this.#link().online) return;
     const rows = this.store.linkPending(scope);
-    await Promise.allSettled(rows.map(row => this.#serialized(row.request_id, () => this.#reconcile(scope, this.store.linkTask(scope, row.request_id)))));
+    // A claimed occurrence belongs to its scheduler until it is sent; the
+    // scheduler reconciles it itself.
+    await Promise.allSettled(rows.map(row => this.#serialized(row.request_id, async () => {
+      const task = this.store.linkTask(scope, row.request_id);
+      if (!task.submission_claim) await this.#reconcile(scope, task);
+    })));
   }
 
   async #reconcile(scope, task) {
     const row = this.store.linkConversation(scope, task.conversation_id);
-    if (!row) return;
+    if (!row) {
+      // Its conversation never reached the backend, so neither did the
+      // message (a crash before the first send).
+      if (task.status === "submission_pending" && !task.run_id) {
+        this.store.setLinkRunState(scope, task.request_id, "failed", { error: "Not sent: the message never reached the backend. Send it again if it is still needed." });
+        this.#terminal(scope, task.request_id);
+        this.onChange();
+      }
+      return;
+    }
     if (!task.run_id) {
       if (task.status !== "submission_pending") return;
-      // The original send got no reply. The same client_message_id returns
-      // the original admission instead of running the message twice.
+      // The original send got no reply. A retry only learns its outcome
+      // (design 3.12: nothing is queued): the same client_message_id returns
+      // the original admission, and a message that never arrived is not run
+      // late. The attachments are resolved again from their upload keys, so
+      // the retry carries exactly the original input.
       const context = JSON.parse(task.context_json);
-      const result = await this.#request("message.send", { session_id: row.remote_id, client_message_id: task.request_id, content: context.messages.at(-1)?.content ?? "",
-        client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...presentationFor(context, task.conversation_id) });
+      let result;
+      try {
+        const attachments = await this.#upload(scope, task, row.remote_id, context.input_files || []);
+        result = await this.#request("message.send", { session_id: row.remote_id, client_message_id: task.request_id, content: context.messages.at(-1)?.content ?? "",
+          ...(attachments.length ? { attachments } : {}), client_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, ...presentationFor(context, task.conversation_id), replay_only: true });
+      } catch (error) {
+        if (!(error instanceof LinkError && error.code === "not_found" && error.notSent)) throw error;
+        this.store.setLinkRunState(scope, task.request_id, "failed", { error: "Not sent: the message never reached the backend. Send it again if it is still needed." });
+        this.#terminal(scope, task.request_id);
+        this.onChange();
+        return;
+      }
       this.store.acceptLinkSend(scope, task.request_id, { runID: result.run_id, message: result.message });
       task = this.store.linkTask(scope, task.request_id);
     }
@@ -410,12 +452,38 @@ export class LinkConversations {
     const result = await this.#request("run.subscribe", { session_id: remoteID });
     this.subscribed.add(remoteID);
     const status = result?.status;
+    const live = this.live.get(remoteID) || { runID: "", preview: "", progress: "" };
+    // Events after this snapshot continue from its seq. Events that
+    // overtook the reply are newer than the snapshot: read the run back.
+    if (Number.isSafeInteger(status?.seq) && (live.seq || 0) > status.seq) { this.live.set(remoteID, live); void this.#resync(this.getIdentity(), remoteID).catch(() => {}); return; }
+    if (Number.isSafeInteger(status?.seq)) live.seq = status.seq;
     if (status?.run_id && ["running", "approval_pending"].includes(status.state)) {
-      const live = this.live.get(remoteID) || { runID: "", preview: "", progress: "" };
       if (live.runID !== status.run_id) Object.assign(live, { runID: status.run_id, preview: status.preview || "", progress: status.progress || "" });
       else if ((status.preview || "").length > live.preview.length) live.preview = status.preview;
-      this.live.set(remoteID, live);
     }
+    this.live.set(remoteID, live);
+  }
+
+  // Events were lost (a seq gap): the snapshot replaces the preview.
+  async #resync(scope, remoteID) {
+    const key = `resync:${remoteID}`;
+    if (this.flights.has(key)) return this.flights.get(key);
+    const flight = (async () => {
+      const status = await this.#request("run.status", { session_id: remoteID });
+      const live = this.live.get(remoteID) || { runID: "", preview: "", progress: "" };
+      if (Number.isSafeInteger(status?.seq)) live.seq = status.seq;
+      if (status?.run_id) {
+        if (live.runID !== status.run_id) Object.assign(live, { runID: status.run_id, progress: "" });
+        live.preview = status.preview || "";
+        live.progress = status.progress || live.progress;
+      }
+      this.live.set(remoteID, live);
+      const task = status?.run_id ? this.store.linkTaskByRun(scope, status.run_id) : undefined;
+      if (task) this.#applyStatus(scope, task.request_id, status);
+      else this.#changed();
+    })().finally(() => this.flights.delete(key));
+    this.flights.set(key, flight);
+    return flight;
   }
 
   #event(frame) {
@@ -428,6 +496,15 @@ export class LinkConversations {
     if (typeof event.session_id !== "string") return;
     const live = this.live.get(event.session_id) || { runID: "", preview: "", progress: "" };
     this.live.set(event.session_id, live);
+    // Events are numbered per conversation. A repeat (the same event over a
+    // second path) is ignored; a gap means some were lost, so the run is
+    // read back instead of showing a preview with a hole in it.
+    if (Number.isSafeInteger(event.seq) && event.seq > 0) {
+      if (Number.isSafeInteger(live.seq) && event.seq <= live.seq) return;
+      const gap = Number.isSafeInteger(live.seq) && event.seq > live.seq + 1;
+      live.seq = event.seq;
+      if (gap) { void this.#resync(scope, event.session_id).catch(() => {}); return; }
+    }
     if (event.run_id && live.runID && live.runID !== event.run_id) { live.runID = event.run_id; live.preview = ""; live.progress = ""; }
     if (event.run_id && !live.runID) live.runID = event.run_id;
     if (event.kind === "delta" && typeof event.text === "string") { live.preview += event.text; this.#changed(); return; }
@@ -501,7 +578,7 @@ export class LinkConversations {
         await this.#request("approval.resolve", { approval_id: approvalID, decision, ...(inputs ? { inputs } : {}),
           idempotency_key: stableUUID(`sparkx-approval\u0000${requestID}\u0000${approvalID}\u0000${decision}`) }, { timeoutMS: 120000 });
       } catch (error) {
-        if (error instanceof LinkError && error.code === "backend_unavailable" && !/connection lost/iu.test(error.message)) this.decisions.delete(key);
+        if (linkNotSent(error)) this.decisions.delete(key);
         else this.decisions.set(key, { state: "decision_unknown", decision });
         this.onChange();
         throw userError(error, "The approval decision could not be recorded.");

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -19,10 +20,10 @@ const (
 )
 
 func (s *Server) getBrowserExtension(w http.ResponseWriter, r *http.Request) {
-	if !browserControlRequestAllowed(w, r) || !s.requireBrowserControl(w) {
+	if !browserControlRequestAllowed(w, r) {
 		return
 	}
-	writeBrowserControlStatus(w, http.StatusOK, s.browserControl.Status(r.Context()))
+	s.browserExtension(r.Context()).write(w)
 }
 
 func (s *Server) putBrowserExtensionToken(w http.ResponseWriter, r *http.Request) {
@@ -39,12 +40,7 @@ func (s *Server) putBrowserExtensionToken(w http.ResponseWriter, r *http.Request
 	token := []byte(input.Token)
 	input.Token = ""
 	defer zeroBrowserControlBytes(token)
-	status, err := s.browserControl.SaveToken(r.Context(), token)
-	if err != nil {
-		writeBrowserControlError(w, err)
-		return
-	}
-	writeBrowserControlStatus(w, http.StatusOK, status)
+	s.browserExtensionSave(r.Context(), token).write(w)
 }
 
 func (s *Server) checkBrowserExtension(w http.ResponseWriter, r *http.Request) {
@@ -56,12 +52,7 @@ func (s *Server) checkBrowserExtension(w http.ResponseWriter, r *http.Request) {
 		writeBrowserControlError(w, browsercontrolInvalidRequest())
 		return
 	}
-	status, err := s.browserControl.Check(r.Context())
-	if err != nil {
-		writeBrowserControlError(w, err)
-		return
-	}
-	writeBrowserControlStatus(w, http.StatusOK, status)
+	s.browserExtensionCheck(r.Context()).write(w)
 }
 
 func (s *Server) deleteBrowserExtensionToken(w http.ResponseWriter, r *http.Request) {
@@ -73,21 +64,63 @@ func (s *Server) deleteBrowserExtensionToken(w http.ResponseWriter, r *http.Requ
 		writeBrowserControlError(w, browsercontrolInvalidRequest())
 		return
 	}
-	status, err := s.browserControl.Remove(r.Context())
-	if err != nil {
-		writeBrowserControlError(w, err)
-		return
+	s.browserExtensionRemove(r.Context()).write(w)
+}
+
+// The browser extension settings: its status, saving and removing the
+// pairing token, and checking the connection.
+
+func (s *Server) browserExtension(ctx context.Context) domainReply {
+	if s.browserControl == nil {
+		return browserControlUnavailableReply()
 	}
-	writeBrowserControlStatus(w, http.StatusOK, status)
+	return browserControlStatusReply(http.StatusOK, s.browserControl.Status(ctx))
+}
+
+func (s *Server) browserExtensionSave(ctx context.Context, token []byte) domainReply {
+	if s.browserControl == nil {
+		return browserControlUnavailableReply()
+	}
+	status, err := s.browserControl.SaveToken(ctx, token)
+	if err != nil {
+		return browserControlErrorReply(err)
+	}
+	return browserControlStatusReply(http.StatusOK, status)
+}
+
+func (s *Server) browserExtensionCheck(ctx context.Context) domainReply {
+	if s.browserControl == nil {
+		return browserControlUnavailableReply()
+	}
+	status, err := s.browserControl.Check(ctx)
+	if err != nil {
+		return browserControlErrorReply(err)
+	}
+	return browserControlStatusReply(http.StatusOK, status)
+}
+
+func (s *Server) browserExtensionRemove(ctx context.Context) domainReply {
+	if s.browserControl == nil {
+		return browserControlUnavailableReply()
+	}
+	status, err := s.browserControl.Remove(ctx)
+	if err != nil {
+		return browserControlErrorReply(err)
+	}
+	return browserControlStatusReply(http.StatusOK, status)
+}
+
+func browserControlUnavailableReply() domainReply {
+	return reply(http.StatusServiceUnavailable, map[string]any{
+		"error": browserControlUnavailableMessage, "code": browsercontrol.CodeControllerUnavailable, "retryable": true,
+	})
 }
 
 func (s *Server) requireBrowserControl(w http.ResponseWriter) bool {
 	if s.browserControl != nil {
 		return true
 	}
-	writeJSON(w, http.StatusServiceUnavailable, map[string]any{
-		"error": browserControlUnavailableMessage, "code": browsercontrol.CodeControllerUnavailable, "retryable": true,
-	})
+	browserControlUnavailableReply().write(w)
 	return false
 }
 
@@ -138,6 +171,10 @@ func readBrowserControlJSON(w http.ResponseWriter, r *http.Request, output any, 
 
 func writeBrowserControlStatus(w http.ResponseWriter, statusCode int, status browsercontrol.Status) {
 	w.Header().Set("Cache-Control", "no-store")
+	browserControlStatusReply(statusCode, status).write(w)
+}
+
+func browserControlStatusReply(statusCode int, status browsercontrol.Status) domainReply {
 	versions := map[string]string{}
 	if status.Versions.Client != "" {
 		versions["client"] = status.Versions.Client
@@ -179,11 +216,15 @@ func writeBrowserControlStatus(w http.ResponseWriter, statusCode int, status bro
 	if status.ErrorCode != "" {
 		output["error_code"] = status.ErrorCode
 	}
-	writeJSON(w, statusCode, output)
+	return reply(statusCode, output)
 }
 
 func writeBrowserControlError(w http.ResponseWriter, err error) {
 	w.Header().Set("Cache-Control", "no-store")
+	browserControlErrorReply(err).write(w)
+}
+
+func browserControlErrorReply(err error) domainReply {
 	code := browsercontrol.ErrorCode(err)
 	retryable := browsercontrol.ErrorRetryable(err)
 	message := "browser control operation failed"
@@ -201,7 +242,7 @@ func writeBrowserControlError(w http.ResponseWriter, err error) {
 	case browsercontrol.CodeControllerUnavailable, browsercontrol.CodeExtensionUnavailable, browsercontrol.CodeVaultUnavailable:
 		status = http.StatusServiceUnavailable
 	}
-	writeJSON(w, status, map[string]any{"error": message, "code": code, "retryable": retryable})
+	return reply(status, map[string]any{"error": message, "code": code, "retryable": retryable})
 }
 
 func browsercontrolInvalidRequest() error {

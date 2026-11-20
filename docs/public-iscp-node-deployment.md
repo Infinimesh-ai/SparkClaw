@@ -2,7 +2,7 @@
 
 > Language: English | [简体中文](../zh-cn/docs/public-iscp-node-deployment.md)
 >
-> **Retired 2026-11-19.** The node issuer on work2 and the control forwarder on TEST1 are stopped and disabled, and their code is deleted. Devices now join through the self-hosted console and the link layer; see [Client link layer design](client-link-layer-design.md). This record is kept for history.
+> **Issuer and control forwarder retired on 2026-11-19.** The work2 node issuer and the TEST1 control forwarder were stopped and disabled. Their deployment steps, six Gateway mounts and device enrollment instructions below describe the former workbench responder. Current devices join through the console. ISCP Relay continues to carry link traffic. [Client link layer design](client-link-layer-design.md).
 >
 > Original rollout: 2026-10-12. Its requested acceptance completed. Services
 > and native `16b00f17` are deployed. Exact-Client migration, original data/UI,
@@ -350,9 +350,8 @@ accept caller-selected URLs. A route's 32 request slots and 600/minute budget ar
 independent. Five-node native testing exposed HTTP 429 from the shared-source
 Relay budget; the deployment raises its per-IP limit from 1,200 to 3,600 requests
 per minute within the existing bounded configuration range. The per-route budget
-and authentication requirements remain unchanged. The optional
-`SPARKCLAW_WORKBENCH_ISCP_NODE_ROOT` setting retains the six confined Gateway
-mounts on ordinary remote restarts. Gateway receives its responder key, public
+and authentication requirements remain unchanged. At the time, the node issuer overlay restored the six confined Gateway
+mounts on remote restarts. Gateway receives its responder key, public
 pins, registry, private issuer socket and its issuer-management token; invitation/
 Grant signing keys, issuer storage/database secrets and the Relay operator token
 stay outside Gateway.

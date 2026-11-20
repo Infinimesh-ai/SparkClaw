@@ -2,6 +2,8 @@
 
 语言：简体中文 | [English](../../docs/iscp-duplex-websocket-design.md)
 
+> **2026-11-20** — 文中作为端点的工作台 responder 已退役。本文记录 Relay 的双工传输绑定；ISCP Relay 仍服务于连接层，独立的 ISCP Bridge 继续使用其协议。[连接协议](link-contract.md)。
+
 日期：2026-10-19。状态：设计提案。源码基线：SparkClaw `cf9b81de`、ISCP fork `10fe37b3`（在上游 `47f1f6c` 上导入）；SparkClaw 依赖仍为 `v0.2.0-rc.1`。本方案新增 Relay 传输绑定，不修改核心加密信封，不代表已实现或发布。InfiniCenter 提案 0038 记录跨项目评审边界。
 
 ## 1 结论与范围

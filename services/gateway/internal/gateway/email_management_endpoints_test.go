@@ -26,7 +26,11 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/toolhub"
 )
 
-type noEmailBrowser struct{ calls int }
+type noEmailBrowser struct {
+	calls    int
+	admitErr error
+	sendErr  error
+}
 
 func (b *noEmailBrowser) AdmitIntake(context.Context, string, string) (app.EmailAdmissionBinding, error) {
 	b.calls++

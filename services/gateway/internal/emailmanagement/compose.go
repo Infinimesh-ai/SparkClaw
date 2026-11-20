@@ -14,6 +14,7 @@ import (
 )
 
 var ErrComposeUnavailable = errors.New("email_compose_unavailable")
+var ErrSendAdmissionNotStarted = errors.New("mailbox check stopped send before dispatch")
 var ErrNativeReplyUnavailable = errors.New("email_native_reply_unavailable")
 var ErrMultipleRecipientsUnavailable = errors.New("email_multiple_recipients_unavailable")
 
@@ -241,6 +242,11 @@ func (s *Service) SendDraft(ctx context.Context, owner, id string, expected int6
 	}
 	binding, err := browser.Admit(ctx, owner, mailbox.Provider)
 	if err != nil {
+		switch emailautomation.ErrorCode(err) {
+		case app.ToolErrorEmailLoginRequired, app.ToolErrorEmailPageContractChanged:
+			// This attempt has neither claimed a send snapshot nor called the provider.
+			return d, errors.Join(ErrSendAdmissionNotStarted, err)
+		}
 		return d, err
 	}
 	// Probe hints are masked; the send script proves this exact account address before effects.

@@ -168,6 +168,8 @@ export const zh = {
       draftState: "草稿状态",
       recipientLimit: "收件人数超出限制",
       replyTargetUnavailable: "无法验证原邮件的回复目标，草稿已保留。",
+      sendPageBeforeDispatch: "邮箱页面未通过检查，本次邮件未发出。请在邮箱设置中检查连接，再重新核对已保存的草稿。",
+      sendLoginBeforeDispatch: "邮箱需要重新登录，本次邮件未发出。请登录该邮箱后重新核对并发送已保存的草稿。",
       sendAccountUnavailable: "请选择已验证且开启发送的邮箱。",
       title: "邮件",
       allAddresses: "全部接收地址",

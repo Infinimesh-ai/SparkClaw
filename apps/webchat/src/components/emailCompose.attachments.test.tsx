@@ -100,6 +100,31 @@ it("preserves local edits on save conflict until an explicit reload replaces the
   } finally { await act(async () => f.root.unmount()); }
 });
 
+it.each([
+  [409, "email_login_required", text.email.sendLoginBeforeDispatch, true],
+  [409, "email_login_required", text.email.sendUnknown, false],
+  [422, "email_page_contract_changed", text.email.sendPageBeforeDispatch, true],
+  [422, "email_page_contract_changed", text.email.sendUnknown, false],
+] as const)("handles send admission response %i %s with the matching evidence", async (status, code, message, confirmed) => {
+  const details = confirmed ? { send_disposition: "not_started" } : {};
+  const send = vi.spyOn(api, "sendEmailDraft").mockRejectedValue(new APIError(status, "Mailbox check", code, false, details));
+  const f = await fixture({ ...draft, attachments: [attachment] });
+  try {
+    await f.click(text.email.send);
+    await f.click("Confirm sending this version");
+    expect(send).toHaveBeenCalledOnce();
+    expect(f.host.textContent).toContain(message);
+    expect(f.button(text.email.send).disabled).toBe(!confirmed);
+    expect(f.host.textContent!.includes(text.email.reconcileSend)).toBe(!confirmed);
+    expect(f.host.querySelector("textarea")!.value).toBe(draft.body);
+    if (confirmed) {
+      await f.click(text.email.send);
+      expect(f.host.querySelector('[aria-label="Send confirmation"]')!.textContent).toContain(attachment.name);
+      expect(send).toHaveBeenCalledOnce();
+    }
+  } finally { await act(async () => f.root.unmount()); }
+});
+
 it("never unlocks an uncertain send from a stale draft read, and reconciles without resending", async () => {
   const send = vi.spyOn(api, "sendEmailDraft").mockRejectedValue(new Error("Reply lost"));
   const reconcile = vi.spyOn(api, "reconcileEmailDraft").mockResolvedValue({ ...draft, state: "unknown", attachments: [attachment] });

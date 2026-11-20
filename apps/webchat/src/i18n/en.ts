@@ -166,6 +166,8 @@ export const en = {
       draftState: "Draft status",
       recipientLimit: "Recipient limit exceeded",
       replyTargetUnavailable: "The original reply target cannot be verified. Your draft is preserved.",
+      sendPageBeforeDispatch: "The mailbox page could not be verified. Sending did not start. Check the connection in Email settings before reviewing the saved draft again.",
+      sendLoginBeforeDispatch: "Sending stopped before dispatch. Sign in to this mailbox again, then review and send the saved draft.",
       sendAccountUnavailable: "Select a verified account with sending enabled.",
       title: "Email",
       allAddresses: "All receiving addresses",

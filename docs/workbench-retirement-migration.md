@@ -259,5 +259,7 @@ All six phases are implemented.
 | Gateway | Build, vet and the full Go suite pass with pypdfium2 5.15.2. The three installed-executor success cases also passed on Linux arm64 with real tmpfs. macOS verifies rejection of a disk-backed workspace. |
 | Link module | `go test ./...` in `services/link` passes |
 | Desktop | The desktop suite and opt-in `link-backend-integration.test.mjs` pass. The integration run verified settings revisions, domain events, an ordered run and `replay_only` through a real Gateway and LAN connector. |
-| WebChat | 622 pass |
-| Release acceptance | The work2 mailbox, live transcription, Linux qualification, paired rollout and original screens are checked against the installed versions. |
+| Installed Mac client | On `8340a316`, settings, email, medicine, notifications, microphone selection and test, browser tabs and the McDonald's account chooser were exercised in the original screens. The installed client reopened its existing profile and mail drafts after the paired deployment. |
+| Linux qualification | An isolated Debian arm64 run passed with the real Link qualification backend, LAN connector, App CLI, browser and eight sandboxed renderers. |
+| Work2 email | Draft revisions and the 72-byte attachment survived a restart. QQ rejected the send during its login check (409). Outlook rejected the send during its provider page check (422). Neither attempt reached provider dispatch. A separate real Gmail message and its attachment arrived in the QQ web inbox. Work2 did not ingest that message after a manual sync. |
+| Speech | An isolated LAN Gateway with a real Whisper model acknowledged 46 audio frames and returned four partials and a final transcript. The installed Mac client enumerated and tested its microphone. Work2's configured ASR provider reported no streaming support and rejected a WAV upload. |

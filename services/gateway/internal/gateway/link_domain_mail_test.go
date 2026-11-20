@@ -335,6 +335,59 @@ func TestLinkMailProvidersReplayOnceAndAnUnknownLoginNeverReopens(t *testing.T) 
 	}
 }
 
+func TestLinkMailAdmissionFailureBeforeAndAfterDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		code                  app.ToolErrorCode
+		http                  int
+		afterState, afterCode string
+	}{
+		{app.ToolErrorEmailLoginRequired, http.StatusConflict, "unknown", "email_send_outcome_unknown"},
+		{app.ToolErrorEmailPageContractChanged, http.StatusUnprocessableEntity, "failed", string(app.ToolErrorEmailPageContractChanged)},
+	} {
+		t.Run(string(tc.code), func(t *testing.T) {
+			server, f := newLinkMailFixture(t, "file")
+			ctx := t.Context()
+			saved, err := linkDirect(ctx, server, "mail.drafts.save", map[string]any{
+				"id": "draft", "mailbox_id": f.box.ID, "to": []string{"recipient@example.test"},
+				"subject": "fixture", "body": "fixture",
+			}, newLinkUUID())
+			if err != nil || saved.Status != http.StatusOK {
+				t.Fatalf("save: %+v %v", saved, err)
+			}
+			failureCause := &emailautomation.Error{Code: tc.code}
+			f.browser.admitErr = failureCause
+			args := map[string]any{"draft": "draft", "expected_version": 1, "idempotency_key": "before"}
+			key := newLinkUUID()
+			blocked, err := linkDirect(ctx, server, "mail.drafts.send", args, key)
+			var failure struct {
+				Code        string `json:"code"`
+				Disposition string `json:"send_disposition"`
+			}
+			if err != nil || blocked.Status != tc.http || json.Unmarshal(blocked.Body, &failure) != nil ||
+				failure.Code != string(tc.code) || failure.Disposition != "not_started" {
+				t.Fatalf("admission reply: %+v %v", blocked, err)
+			}
+			rows, err := server.emailManagement.Drafts(ctx, f.owner, "draft")
+			if err != nil || len(rows) != 1 || rows[0].State != "draft" || rows[0].Snapshot != nil || rows[0].Version != 1 || f.browser.calls != 1 {
+				t.Fatalf("admission failure crossed the send boundary: calls=%d err=%v", f.browser.calls, err)
+			}
+			f.browser.admitErr, f.browser.sendErr = nil, failureCause
+			again, err := linkDirect(ctx, server, "mail.drafts.send", args, key)
+			if err != nil || !bytes.Equal(again.Body, blocked.Body) || f.browser.calls != 1 {
+				t.Fatalf("original refusal was not replayed: %+v %v", again, err)
+			}
+			args["idempotency_key"] = "after"
+			sent, err := linkDirect(ctx, server, "mail.drafts.send", args, newLinkUUID())
+			var draft store.EmailDraft
+			if err != nil || sent.Status != http.StatusOK || json.Unmarshal(sent.Body, &draft) != nil ||
+				draft.State != tc.afterState || draft.Snapshot == nil || draft.ErrorCode != tc.afterCode || f.browser.calls != 3 {
+				t.Fatalf("after dispatch: %+v %v", sent, err)
+			}
+
+		})
+	}
+}
+
 func TestLinkMailSendUsesThePersistedDraftOnce(t *testing.T) {
 	server, f := newLinkMailFixture(t, "file")
 	saved, err := linkDirect(t.Context(), server, "mail.drafts.save", map[string]any{"draft": "link-draft", "mailbox_id": f.box.ID, "to": []string{"never-send@example.test"}, "subject": "controlled provider", "body": "private draft", "expected_version": 0}, newLinkUUID())

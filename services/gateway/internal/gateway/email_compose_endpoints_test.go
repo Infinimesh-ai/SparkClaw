@@ -28,10 +28,16 @@ func (a *replyPolishAnalyzer) Analyze(_ context.Context, input emailmanagement.A
 
 func (b *noEmailBrowser) Admit(context.Context, string, string) (emailautomation.AdmissionResult, error) {
 	b.calls++
+	if b.admitErr != nil {
+		return emailautomation.AdmissionResult{}, b.admitErr
+	}
 	return emailautomation.AdmissionResult{Provider: "gmail", Account: "default", AccountHint: "owner@example.com"}, nil
 }
 func (b *noEmailBrowser) SendForOwner(context.Context, string, app.EmailSendRequest) (app.EmailSendResult, error) {
 	b.calls++
+	if b.sendErr != nil {
+		return app.EmailSendResult{}, b.sendErr
+	}
 	return app.EmailSendResult{Provider: "gmail", Status: "sent"}, nil
 }
 func TestEmailComposeHTTPAuthenticationAndSendReplay(t *testing.T) {

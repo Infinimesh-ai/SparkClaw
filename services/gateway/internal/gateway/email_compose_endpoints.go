@@ -176,6 +176,11 @@ func writeEmailComposeError(w http.ResponseWriter, err error) {
 }
 
 func emailComposeErrorReply(err error) domainReply {
+	if errors.Is(err, emailmanagement.ErrSendAdmissionNotStarted) {
+		body := errorPayload(err)
+		body["send_disposition"] = "not_started"
+		return reply(emailErrorReply(err).Status, body)
+	}
 	if errors.Is(err, emailmanagement.ErrAttachmentPermission) {
 		return reply(http.StatusForbidden, map[string]any{"code": "permission_denied", "error": "SparkX local file read permission is required for attachments.", "retryable": false})
 	}

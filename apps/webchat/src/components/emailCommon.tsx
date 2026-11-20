@@ -1,3 +1,4 @@
+import { APIError } from "../api/client";
 import type { EmailConversation, EmailMailbox } from "../api/email";
 import type { Copy } from "../i18n";
 
@@ -23,7 +24,16 @@ export function EmailProgress({ state, text }: { state?: string; text: Copy }) {
   return state ? <span className={`emailProgress emailProgress-${state.replace(/[^a-z_]/g, "")}`}>{emailProgressLabel(state, text)}</span> : null;
 }
 
+export function sendAdmissionStopped(reason: unknown): reason is APIError {
+  if (!(reason instanceof APIError)) return false;
+  const details = reason.details;
+  if (typeof details !== "object" || details === null || !("send_disposition" in details) || details.send_disposition !== "not_started") return false;
+  return (reason.status === 409 && reason.code === "email_login_required") ||
+    (reason.status === 422 && reason.code === "email_page_contract_changed");
+}
+
 export function emailErrorLabel(reason: unknown, text: Copy): string {
+  if (sendAdmissionStopped(reason)) return reason.code === "email_login_required" ? text.email.sendLoginBeforeDispatch : text.email.sendPageBeforeDispatch;
   const error = reason && typeof reason === "object" ? reason as { status?: number; code?: string } : {};
   if (["email_native_reply_unavailable", "email_reply_target_unverified", "email_reply_target_unavailable"].includes(error.code ?? "")) return text.email.replyTargetUnavailable;
   if (["email_compose_unavailable", "email_not_configured", "email_login_required"].includes(error.code ?? "")) return text.email.sendAccountUnavailable;

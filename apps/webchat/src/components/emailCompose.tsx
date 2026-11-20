@@ -4,7 +4,7 @@ import { api, APIError } from "../api/client";
 import type { EmailComposeCapabilities, EmailDraft, EmailMailbox, EmailMessage } from "../api/email";
 import type { Copy, Language } from "../i18n";
 import { formatDateTime } from "../lib/format";
-import { emailErrorLabel, emailMailboxLabel, emailSendFailureLabel } from "./emailCommon";
+import { emailErrorLabel, emailMailboxLabel, emailSendFailureLabel, sendAdmissionStopped } from "./emailCommon";
 import { MailAttachmentManifest, WorkspaceMailAttachments } from "../desktop/MailDraftAttachments";
 import { useMailWorkspace } from "../desktop/MailWorkspaceContext";
 import type { LocalFile } from "../desktop/clientStore";
@@ -175,7 +175,9 @@ export function EmailCompose({ target, mailboxes, text, language, onClose, onBef
       if (active.current) { populate(sent); if (sent.state === "sent") onSent?.(sent); }
     } catch (reason) {
       if (active.current) {
-        if (reason instanceof APIError && ["email_conflict", "email_attachment_changed", "email_attachment_invalid"].includes(reason.code)) {
+        if (sendAdmissionStopped(reason)) {
+          setDraft(value);
+        } else if (reason instanceof APIError && ["email_conflict", "email_attachment_changed", "email_attachment_invalid"].includes(reason.code)) {
           // These errors precede send intent. Keep local content and require an
           // explicit reload before reviewing another authoritative version.
           setDraft(value); setReloadRequired(true);

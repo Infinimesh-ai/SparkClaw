@@ -212,5 +212,18 @@ func Options(ctx context.Context, dir string, describe contract.Device) (linkcli
 	if creds, err := store.LoadRelayCredentials(); err == nil {
 		opts.RelayCreds = creds
 	}
+	// The backend names its current LAN connector in every hello; keeping
+	// it lets the next start find the LAN without the console.
+	opts.OnHostLAN = func(lan consoleapi.LAN) {
+		mu.Lock()
+		defer mu.Unlock()
+		if st.Membership.Host == nil {
+			return
+		}
+		host := *st.Membership.Host // the keeper shares the old value
+		host.LAN = lan
+		st.Membership.Host = &host
+		_ = WritePrivate(filepath.Join(dir, StateFile), st)
+	}
 	return opts, nil
 }

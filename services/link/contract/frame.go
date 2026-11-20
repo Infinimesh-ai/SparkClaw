@@ -70,6 +70,16 @@ type Hello struct {
 	// Reverse lists the reverse operations the client serves (device
 	// capabilities such as the SparkX built-in browser).
 	Reverse []string `json:"reverse,omitempty"`
+	// LAN is the backend's current LAN connector, in the backend's reply.
+	// A device keeps it as its LAN candidates, so a backend whose address
+	// changed is found again over whichever path is up.
+	LAN *LAN `json:"lan,omitempty"`
+}
+
+// LAN is how the backend is reached on the local network.
+type LAN struct {
+	Endpoints []string `json:"endpoints,omitempty"` // wss://host:port/link/v1
+	TLSPin    string   `json:"tls_pin,omitempty"`   // base64url SHA-256 of the leaf DER
 }
 
 // Access profiles (design 3.7).

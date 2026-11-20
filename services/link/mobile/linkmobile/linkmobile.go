@@ -228,7 +228,10 @@ func Open(dir, describeJSON string, listener Listener) (*Client, error) {
 		describe.Class = st.Class
 	}
 	keeper := linkclient.NewGrantKeeper(st.Membership, dev)
+	var stMu sync.Mutex
 	keeper.OnUpdate = func(r consoleapi.GrantResponse) {
+		stMu.Lock()
+		defer stMu.Unlock()
 		st.Membership.Grant = r.Grant
 		if r.Host != nil {
 			st.Membership.Host = r.Host
@@ -252,6 +255,19 @@ func Open(dir, describeJSON string, listener Listener) (*Client, error) {
 		opts.RelayCreds = creds
 	}
 	opts.Profile = describe.Profile
+	// The backend names its current LAN connector in every hello; keeping
+	// it lets the next start find the LAN without the console.
+	opts.OnHostLAN = func(lan consoleapi.LAN) {
+		stMu.Lock()
+		defer stMu.Unlock()
+		if st.Membership.Host == nil {
+			return
+		}
+		host := *st.Membership.Host // the keeper shares the old value
+		host.LAN = lan
+		st.Membership.Host = &host
+		_ = writePrivate(filepath.Join(dir, stateFile), st)
+	}
 	if listener != nil {
 		opts.OnState = func(path string, hello *contract.Hello) {
 			raw, _ := json.Marshal(hello)
@@ -299,6 +315,11 @@ func (c *Client) Request(op, paramsJSON string, timeoutMillis int64) (string, er
 
 // Path returns the active path.
 func (c *Client) Path() string { return c.c.Path() }
+
+// NetworkChanged reports that the device's network changed (the app calls
+// it from the platform's connectivity callback). The link checks the LAN
+// first and uses the ISCP Relay otherwise; nothing has to be chosen.
+func (c *Client) NetworkChanged() { c.c.NetworkChanged() }
 
 // HelloJSON returns the backend's hello on the active path.
 func (c *Client) HelloJSON() string {

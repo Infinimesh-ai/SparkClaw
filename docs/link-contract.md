@@ -39,7 +39,10 @@ The backend answers with a `hello` frame that carries:
 - `features`: the operations available to this device, computed by rule 3.9 from the conditions and profile;
 - `principal`: `owner_id`, `device_id`, `class`, `name`;
 - `server_time`;
-- `reverse`: the accepted reverse operations.
+- `reverse`: the accepted reverse operations;
+- `lan`: the backend's LAN connector now, as `{"endpoints":[...],"tls_pin"}`; absent when the backend has none. It is the same on both transports. A device keeps it as its LAN candidates, so it finds the LAN from a Relay connection.
+
+The reply does not depend on the transport: the same device gets the same `features`, `principal` and `reverse` over the LAN and over the ISCP Relay.
 
 Device class comes from the console record. A hello whose class differs from that record is refused. Class also bounds what a device may claim:
 
@@ -196,6 +199,8 @@ Before any link frame, the two sides exchange:
 3. The server checks the proof against its local copy of the device directory. It answers `{"type":"authenticated","principal"}` or `{"type":"error","code","message"}`.
 
 After that, each WebSocket text message is one link frame.
+
+The server pings every 10 seconds and closes a connection that sent nothing, not even a pong, for 35 seconds. The client closes a connection it heard nothing on for 40 seconds.
 
 ### 8.2 ISCP Relay
 

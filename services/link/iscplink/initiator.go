@@ -49,6 +49,10 @@ type Initiator struct {
 	readyCh chan struct{}
 	kick    chan struct{}
 	state   string
+	// connCancel ends the current Relay connection; wake skips the
+	// reconnect backoff (Reconnect).
+	connCancel context.CancelFunc
+	wake       chan struct{}
 }
 
 type pendingHandshake struct {
@@ -62,7 +66,7 @@ func NewInitiator(cfg InitiatorConfig) (*Initiator, error) {
 	if cfg.Relay == nil || cfg.Grant == nil || cfg.Host.DeviceID == "" {
 		return nil, errors.New("initiator configuration incomplete")
 	}
-	return &Initiator{cfg: cfg, provider: crypto.NewProvider(), readyCh: make(chan struct{}), kick: make(chan struct{}, 1)}, nil
+	return &Initiator{cfg: cfg, provider: crypto.NewProvider(), readyCh: make(chan struct{}), kick: make(chan struct{}, 1), wake: make(chan struct{}, 1)}, nil
 }
 
 func (i *Initiator) setState(s string) {
@@ -92,8 +96,14 @@ func (i *Initiator) Run(ctx context.Context) error {
 		i.setState(StateConnecting)
 		started := time.Now()
 		connCtx, cancel := context.WithCancel(ctx)
+		i.mu.Lock()
+		i.connCancel = cancel
+		i.mu.Unlock()
 		err := i.cfg.Relay.Run(connCtx, i.receive, func() { go i.maintain(connCtx) })
 		Debugf("initiator %s: relay connection ended: %v", i.cfg.Device.Identity.DeviceID, err)
+		i.mu.Lock()
+		i.connCancel = nil
+		i.mu.Unlock()
 		cancel()
 		i.dropSession()
 		i.setState(StateDisconnected)
@@ -107,6 +117,9 @@ func (i *Initiator) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-i.wake:
+			backoff = time.Second
+			continue
 		case <-time.After(backoff):
 		}
 		if backoff < 30*time.Second {
@@ -114,6 +127,23 @@ func (i *Initiator) Run(ctx context.Context) error {
 		}
 	}
 	return ctx.Err()
+}
+
+// Reconnect drops the Relay connection, if any, and connects again at once
+// without waiting out the backoff. The device calls it when its network
+// changed: a connection made on the previous network may be dead without
+// the socket knowing yet.
+func (i *Initiator) Reconnect() {
+	select {
+	case i.wake <- struct{}{}:
+	default:
+	}
+	i.mu.Lock()
+	cancel := i.connCancel
+	i.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // maintain performs the handshake and repeats it when the session is reset

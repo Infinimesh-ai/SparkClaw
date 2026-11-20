@@ -75,6 +75,22 @@ test("pushed frames become events and reverse calls are answered by the handler"
   link.close();
 });
 
+test("a network change is passed to the helper only while the link is open", async () => {
+  const seen = [];
+  const { link, helper } = await transport({ network_changed: async (m) => { seen.push(m.method); return { ok: true }; } });
+  link.networkChanged();
+  await tick();
+  assert.equal(helper.sent.length, 0, "a link that was never opened starts no helper");
+  await link.open({ class: "desktop" });
+  link.networkChanged();
+  await until(() => seen.length === 1);
+  await link.closeLink();
+  link.networkChanged();
+  await tick();
+  assert.equal(seen.length, 1);
+  link.close();
+});
+
 test("a crashed helper fails pending calls, goes offline and reopens the link", async () => {
   let opens = 0;
   const { link, helper } = await transport({ open: async () => { opens++; return { ok: true }; }, request: () => new Promise(() => {}) });

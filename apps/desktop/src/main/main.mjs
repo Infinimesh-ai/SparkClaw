@@ -422,6 +422,9 @@ async function start() {
   });
   powerMonitor.on("resume", () => {
     suspended = false;
+    // Connections made before the sleep may be dead, and the computer may
+    // have woken on another network.
+    desktopAuth.networkChanged?.();
     void desktopAuth.retry();
   });
 

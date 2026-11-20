@@ -201,6 +201,15 @@ export class LinkTransport extends EventEmitter {
     return this.call("request", { op, params, timeout_ms: timeoutMS }, { timeoutMS: timeoutMS + 5000, signal });
   }
 
+  // Tells the helper that this computer's network changed or that it woke
+  // up. The helper checks its paths again, the LAN first, and uses the ISCP
+  // Relay otherwise; nothing here chooses a path. The helper also watches
+  // the addresses itself, so a missed call only delays the check.
+  networkChanged() {
+    if (!this.child || !this.opened || this.closed) return;
+    void this.call("network_changed").catch(() => {});
+  }
+
   async closeLink() {
     this.opened = false;
     if (this.child) await this.call("close").catch(() => {});

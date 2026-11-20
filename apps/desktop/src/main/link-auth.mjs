@@ -326,6 +326,10 @@ export class LinkAuth {
 
   async #lock() { await Promise.resolve(this.onLock()).catch(() => {}); }
 
+  // The computer's network changed or it woke up: the link picks its path
+  // again (LAN first, otherwise the ISCP Relay).
+  networkChanged() { this.link.networkChanged?.(); }
+
   suspend() {
     this.suspended = true;
     ++this.generation;

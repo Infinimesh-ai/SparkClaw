@@ -57,6 +57,9 @@ type Service struct {
 	MaxConcurrent int
 	// Backend names this backend in device.describe.
 	Backend string
+	// LAN returns the LAN connector devices should dial, or nil when there
+	// is none. Every hello reply carries it, on both transports.
+	LAN func() *contract.LAN
 }
 
 // NewService builds an empty service.
@@ -321,6 +324,9 @@ func (s *Service) Serve(ctx context.Context, p Principal, stream FrameStream) er
 	}
 	pr := p.Principal
 	hello := contract.Frame{Type: contract.FrameHello, ID: first.ID, Hello: &contract.Hello{Version: contract.Version, Profile: p.Profile, Features: s.Features(p.Conditions, p.Profile), Principal: &pr, ServerTime: time.Now().UTC().Format(time.RFC3339), Reverse: conn.Reverse}}
+	if s.LAN != nil {
+		hello.Hello.LAN = s.LAN()
+	}
 	if err := conn.write(hello); err != nil {
 		return err
 	}

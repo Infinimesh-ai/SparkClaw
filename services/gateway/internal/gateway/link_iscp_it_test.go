@@ -11,6 +11,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -213,6 +215,62 @@ func TestLinkOverRealRelayWithConsoleAndConnector(t *testing.T) {
 		case <-syncDeadline:
 			t.Fatal("no sync event over ISCP")
 		}
+	}
+
+	// The same device with no LAN connector on record comes up over the
+	// Relay, learns the connector from the backend's hello and moves to
+	// the LAN by itself. A network change that leaves the LAN reachable
+	// keeps it there, and nothing is chosen by hand.
+	phone.Close()
+	roam := opts
+	roam.DisableLAN, roam.DisableNetworkWatch = false, true
+	roam.Host.LAN = consoleapi.LAN{}
+	roam.OnEvent = nil
+	var pathMu sync.Mutex
+	var paths []string
+	roam.OnState = func(path string, _ *contract.Hello) {
+		pathMu.Lock()
+		paths = append(paths, path)
+		pathMu.Unlock()
+	}
+	learned := make(chan consoleapi.LAN, 4)
+	roam.OnHostLAN = func(l consoleapi.LAN) { learned <- l }
+	roaming, err := linkclient.New(roam)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roaming.Start(ctx)
+	waitUntil(t, 60*time.Second, func() bool { return roaming.Path() == linkclient.PathLAN })
+	select {
+	case l := <-learned:
+		if l.TLSPin != b.lan.TLSPin || len(l.Endpoints) == 0 {
+			t.Fatalf("learned LAN connector %+v", l)
+		}
+	default:
+		t.Fatal("the LAN connector was not learned from the hello")
+	}
+	roaming.NetworkChanged()
+	if err := roaming.Ping(ctx); err != nil {
+		t.Fatalf("ping after a network change: %v", err)
+	}
+	if roaming.Path() != linkclient.PathLAN {
+		t.Fatalf("path after a network change: %q", roaming.Path())
+	}
+	pathMu.Lock()
+	order := strings.Join(paths, ">")
+	pathMu.Unlock()
+	if order != "iscp>lan" {
+		t.Fatalf("reported paths %q", order)
+	}
+	roaming.Close()
+	phone, err = linkclient.New(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	phone.Start(ctx)
+	defer phone.Close()
+	if err := phone.WaitReady(rctx); err != nil {
+		t.Fatalf("phone not ready over ISCP again: %v", err)
 	}
 
 	// Revoke on the console: the connector syncs, closes the session and the

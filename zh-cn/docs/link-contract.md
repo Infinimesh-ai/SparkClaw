@@ -42,7 +42,10 @@
 - `features`：本设备可用的操作，按设计文档 3.9 的规则由设备条件和访问方式算出；
 - `principal`：`owner_id`、`device_id`、`class`、`name`；
 - `server_time`；
-- `reverse`：后端接受的反向操作。
+- `reverse`：后端接受的反向操作；
+- `lan`：后端当前的局域网连接器，格式为 `{"endpoints":[...],"tls_pin"}`；后端没有局域网连接器时不带。两种传输下内容相同。设备把它作为局域网候选保存，因此经 Relay 连上后也能找到局域网。
+
+应答与传输无关：同一台设备经局域网和经 ISCP Relay 得到相同的 `features`、`principal` 和 `reverse`。
 
 设备类别以官网的设备记录为准：
 
@@ -201,6 +204,8 @@
 3. 服务端按本地保存的设备目录校验证明，回复 `{"type":"authenticated","principal"}` 或 `{"type":"error","code","message"}`。
 
 认证通过后，每条 WebSocket 文本消息承载一帧。
+
+服务端每 10 秒 ping 一次；连接 35 秒内没有收到任何数据（包括 pong）就关闭。客户端 40 秒内没有收到任何数据也会关闭连接。
 
 ### 8.2 ISCP Relay
 

@@ -6,6 +6,7 @@
 //	→ {"id":"3","method":"open","describe":{"class":"desktop","conditions":{…}},"reverse":["browser.controller.status",…]}
 //	→ {"id":"4","method":"request","op":"sync.changes","params":{…},"timeout_ms":30000}
 //	→ {"method":"reverse_response","reverse_id":"s1","result":{…}} | {"…","error":{…}}
+//	→ {"id":"6","method":"network_changed"}     (the system's network changed or it woke up)
 //	→ {"id":"5","method":"close"} / "leave" / "forget"
 //	← {"id":"4","result":…} | {"id":"4","error":{"code","message","retryable"}}
 //	← {"event":"state","path":"lan|iscp|","hello":{…}}
@@ -174,6 +175,14 @@ func (h *helper) handle(msg inbound) {
 			out = json.RawMessage("null")
 		}
 		h.reply(msg.ID, out, err)
+	case "network_changed":
+		h.cmu.Lock()
+		c := h.client
+		h.cmu.Unlock()
+		if c != nil {
+			c.NetworkChanged()
+		}
+		h.reply(msg.ID, map[string]bool{"ok": true}, nil)
 	case "reverse_response":
 		h.cmu.Lock()
 		ch := h.reverse[msg.ReverseID]

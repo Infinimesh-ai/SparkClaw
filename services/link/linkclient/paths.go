@@ -11,6 +11,7 @@ import (
 	"github.com/Infinimesh-ai/ISCP/pkg/iscp/crypto"
 	"github.com/gorilla/websocket"
 
+	"github.com/Chiiz0/SparkClaw/services/link/consoleapi"
 	"github.com/Chiiz0/SparkClaw/services/link/contract"
 	"github.com/Chiiz0/SparkClaw/services/link/iscplink"
 	"github.com/Chiiz0/SparkClaw/services/link/relay"
@@ -18,75 +19,121 @@ import (
 
 // --- LAN ---
 
+// lanReadTimeout ends a LAN connection that went silent. The connector
+// pings every 10 seconds, so a network that is gone is noticed even when
+// nothing reported the change.
+const lanReadTimeout = 40 * time.Second
+
 func (c *Client) runLAN(ctx context.Context) {
 	attempt := 0
 	for ctx.Err() == nil {
 		started := time.Now()
-		err := c.lanOnce(ctx)
+		actx, cancel := context.WithCancel(ctx)
+		c.mu.Lock()
+		c.lanAttempt = cancel
+		lan := c.lan
+		c.mu.Unlock()
+		connected, _ := c.lanOnce(actx, lan)
+		cancel()
 		c.setPath(PathLAN, nil)
 		if ctx.Err() != nil {
 			return
 		}
-		_ = err
-		if time.Since(started) > time.Minute {
+		if connected || time.Since(started) > time.Minute {
 			attempt = 0
 		}
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(backoff(attempt)):
+		case <-c.lanKick:
+			// The network changed or the backend named a new LAN
+			// connector: look again now.
+			attempt = 0
+			continue
+		case <-time.After(lanBackoff(attempt)):
 		}
 		attempt++
 	}
 }
 
-func (c *Client) lanOnce(ctx context.Context) error {
-	var lastErr error
-	for _, endpoint := range c.opts.Host.LAN.Endpoints {
-		err := c.lanEndpoint(ctx, endpoint)
-		if err == nil || ctx.Err() != nil {
-			return err
-		}
-		lastErr = err
+// lanOnce dials the LAN connector and serves the connection until it
+// ends. connected reports whether the path came up.
+func (c *Client) lanOnce(ctx context.Context, lan consoleapi.LAN) (connected bool, err error) {
+	if lan.TLSPin == "" || len(lan.Endpoints) == 0 {
+		return false, errors.New("no LAN endpoint")
 	}
-	if lastErr == nil {
-		lastErr = errors.New("no LAN endpoint")
+	ws, err := dialLAN(ctx, lan)
+	if err != nil {
+		return false, err
 	}
-	return lastErr
+	return c.lanSession(ctx, ws)
 }
 
-func (c *Client) lanEndpoint(ctx context.Context, endpoint string) error {
-	d := websocket.Dialer{HandshakeTimeout: 5 * time.Second, Subprotocols: []string{contract.LANProtocol}, TLSClientConfig: relay.PinnedSHA256Config(c.opts.Host.LAN.TLSPin)}
-	dctx, cancel := context.WithTimeout(ctx, 6*time.Second)
-	ws, _, err := d.DialContext(dctx, endpoint, http.Header{})
-	cancel()
-	if err != nil {
-		return err
+// dialLAN tries every endpoint at once and keeps the first that answers.
+// Not being on the backend's network is the common case and must be
+// noticed quickly, so the dial is short.
+func dialLAN(ctx context.Context, lan consoleapi.LAN) (*websocket.Conn, error) {
+	dctx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	defer cancel()
+	type dialed struct {
+		ws  *websocket.Conn
+		err error
 	}
+	results := make(chan dialed, len(lan.Endpoints))
+	for _, endpoint := range lan.Endpoints {
+		go func(endpoint string) {
+			d := websocket.Dialer{HandshakeTimeout: 4 * time.Second, Subprotocols: []string{contract.LANProtocol}, TLSClientConfig: relay.PinnedSHA256Config(lan.TLSPin)}
+			ws, _, err := d.DialContext(dctx, endpoint, http.Header{})
+			results <- dialed{ws, err}
+		}(endpoint)
+	}
+	var won *websocket.Conn
+	var lastErr error
+	for range lan.Endpoints {
+		r := <-results
+		switch {
+		case r.err != nil:
+			lastErr = r.err
+		case won == nil:
+			won = r.ws
+			cancel() // the other dials are not needed
+		default:
+			_ = r.ws.Close()
+		}
+	}
+	if won == nil {
+		return nil, lastErr
+	}
+	return won, nil
+}
+
+func (c *Client) lanSession(ctx context.Context, ws *websocket.Conn) (connected bool, err error) {
 	defer ws.Close()
+	stopDial := context.AfterFunc(ctx, func() { _ = ws.Close() })
+	defer stopDial()
 	ws.SetReadLimit(contract.MaxFrameBytes + 4096)
 	_ = ws.SetReadDeadline(time.Now().Add(15 * time.Second))
 	var challenge contract.LANControl
 	if err := ws.ReadJSON(&challenge); err != nil {
-		return err
+		return false, err
 	}
 	if challenge.Type != "challenge" || challenge.Host != c.opts.Host.DeviceID || challenge.Nonce == "" {
-		return errors.New("LAN peer is not the bound backend")
+		return false, errors.New("LAN peer is not the bound backend")
 	}
 	proof, err := c.opts.Device.CreateProof(crypto.NewProvider(), c.opts.Host.DeviceID, contract.LANChallengePrefix+challenge.Nonce, crypto.Base64URL(crypto.RandomBytes(16)), time.Now().UTC())
 	if err != nil {
-		return err
+		return false, err
 	}
 	rawProof, _ := json.Marshal(proof)
 	if err := ws.WriteJSON(contract.LANControl{Type: "auth", DeviceID: c.opts.Device.Identity.DeviceID, Proof: rawProof}); err != nil {
-		return err
+		return false, err
 	}
 	var reply contract.LANControl
 	if err := ws.ReadJSON(&reply); err != nil {
-		return err
+		return false, err
 	}
 	if reply.Type != "authenticated" {
-		return &contract.Error{Code: reply.Code, Message: reply.Message}
+		return false, &contract.Error{Code: reply.Code, Message: reply.Message}
 	}
 	var wmu sync.Mutex
 	write := func(wctx context.Context, b []byte) error {
@@ -101,44 +148,42 @@ func (c *Client) lanEndpoint(ctx context.Context, endpoint string) error {
 	}
 	hello, err := c.helloFrame()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if err := write(ctx, hello); err != nil {
-		return err
+		return false, err
 	}
 	_, raw, err := ws.ReadMessage()
 	if err != nil {
-		return err
+		return false, err
 	}
 	hf, err := contract.Decode(raw)
 	if err != nil {
-		return err
+		return false, err
 	}
 	ch := make(chan contract.Frame, 1)
 	ch <- hf
 	h, err := awaitHello(ctx, ch)
 	if err != nil {
-		return err
+		return false, err
 	}
-	life, stop := context.WithCancel(ctx)
-	defer stop()
-	go func() { <-life.Done(); _ = ws.Close() }()
 	p := &pathConn{name: PathLAN, send: write, close: func() { _ = ws.Close() }, hello: h, pending: map[string]chan contract.Frame{}, done: make(chan struct{})}
 	defer p.finish()
 	ws.SetPingHandler(func(data string) error {
-		_ = ws.SetReadDeadline(time.Now().Add(90 * time.Second))
+		_ = ws.SetReadDeadline(time.Now().Add(lanReadTimeout))
 		wmu.Lock()
 		defer wmu.Unlock()
 		return ws.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(5*time.Second))
 	})
-	_ = ws.SetReadDeadline(time.Now().Add(90 * time.Second))
+	_ = ws.SetReadDeadline(time.Now().Add(lanReadTimeout))
+	c.learnLAN(h.LAN)
 	c.setPath(PathLAN, p)
 	for {
 		kind, b, err := ws.ReadMessage()
 		if err != nil {
-			return err
+			return true, err
 		}
-		_ = ws.SetReadDeadline(time.Now().Add(90 * time.Second))
+		_ = ws.SetReadDeadline(time.Now().Add(lanReadTimeout))
 		if kind != websocket.TextMessage {
 			continue
 		}
@@ -192,6 +237,9 @@ func (c *Client) runISCP(ctx context.Context) {
 	if err != nil {
 		return
 	}
+	c.mu.Lock()
+	c.reconnect = ini.Reconnect
+	c.mu.Unlock()
 	go func() { _ = ini.Run(ctx) }()
 	for ctx.Err() == nil {
 		wctx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -225,6 +273,7 @@ func (c *Client) runISCP(ctx context.Context) {
 		cur.Lock()
 		cur.p, cur.hello = p, nil
 		cur.Unlock()
+		c.learnLAN(reply.LAN)
 		// States reported before this path existed are stale.
 		for drained := false; !drained; {
 			select {
@@ -251,6 +300,9 @@ func (c *Client) watchISCP(ctx context.Context, ini *iscplink.Initiator, p *path
 	for {
 		select {
 		case <-ctx.Done():
+			return
+		case <-p.done:
+			// A verification after a network change closed the path.
 			return
 		case s := <-states:
 			if s != iscplink.StateReady {

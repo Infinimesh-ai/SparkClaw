@@ -136,6 +136,17 @@ Each client has a `LinkClient` with the same interface: connect, request, subscr
 
 The Go implementation of `LinkClient` is a standalone module that depends only on the ISCP packages and the link contract. It does not import Gateway internal packages.
 
+**Path selection needs no user action.** No client has a setting or a switch for LAN versus remote. The two paths carry the same operations with the same rights: the backend derives the principal and the features from the device record and the declared conditions, never from the transport.
+
+- Both paths are kept up while the app runs. Requests go over the LAN whenever it is up; the ISCP Relay is the standby.
+- **When the device's network changes** (another Wi-Fi, cellular, a cable, wake from sleep), `LinkClient.NetworkChanged` runs. Every open path is doubted until a ping proves it. The LAN is checked first, within 2 seconds; the Relay path is taken only after the LAN check ends. A dead path is closed and dialed again at once: the LAN dial restarts on the new network, and the Relay connection is renewed without waiting out its backoff.
+- Requests made during that check wait for its outcome, at most 8 seconds, instead of going to a connection that may be dead. Outside that window a request with no path still fails at once (3.12).
+- A request that could not be written to one path is sent on the other when it is up. A request that was written but got no reply keeps the existing rule: the caller retries with the same idempotency key.
+- Who reports the change: the Go client compares the device's addresses every 3 seconds and notices a sleep by the gap in wall-clock time. The desktop also reports wake-up; the phone and the watch report the system's default-network callback, because recent Android versions do not let a library read the addresses.
+- Without any report, a silent LAN connection ends after 40 seconds (the connector pings every 10), and the LAN is dialed at least every 15 seconds, so a device that comes home returns to the LAN on its own.
+- **The backend names its LAN connector in every hello**, on both paths. A device keeps it as its LAN candidates and stores it. A backend whose address changed is found again over the Relay, with no visit to the console. When no LAN name is configured, the Gateway publishes its own private IPv4 addresses and follows them.
+- A path switch is reported once. A network change that leaves the LAN reachable reports nothing, so the interface does not flicker.
+
 ### 3.7 Two access profiles
 
 The clients run under very different conditions, so the contract defines two access profiles. Core operations must work in both.
@@ -300,6 +311,8 @@ The old Bridge `agent.*.v1` entry is still used by JingSi and by LocalMind's MCP
 | P3 | Done. SparkX main process on `LinkClient` with a ClientStore cache (schema 17); the windows and interactions are unchanged |
 | P4 | Done. Business domains go through `domain.call`; the in-Gateway ISCP responder, its lifecycle, the v2 transport, `clients.*`, `authorizations.*` and the plaintext JingSi LAN entry are deleted; the node issuer and the control forwarder are stopped and their code deleted |
 | Workbench retirement (2026-11-20) | Implemented, not deployed. Every business domain is a typed domain method calling the business functions directly ([migration](workbench-retirement-migration.md)); `link_domain_bridge.go`, the domain adapters, their receipt journal, the operation table and the `iscpworkbench` and `iscpobjects` packages are deleted |
+
+| Automatic path switching (2026-11-20) | Implemented, not deployed. `LinkClient.NetworkChanged`, path verification, the LAN connector in hello and the tighter LAN keepalive (3.6); wired into the desktop helper, the phone and the watch. The interface of the three clients is unchanged |
 
 **Deployment**
 

@@ -115,6 +115,7 @@ func (s *Server) StartLink(opts LinkOptions) error {
 			return err
 		}
 		rt.lan = lan
+		rt.service.LAN = lan.Info
 	}
 	s.streamWG.Add(1)
 	go func() {

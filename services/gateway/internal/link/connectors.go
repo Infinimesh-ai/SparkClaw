@@ -48,8 +48,11 @@ const (
 
 // LANConfig configures the LAN connector.
 type LANConfig struct {
-	Addr      string   // listen address, for example :18792
-	Hosts     []string // names and addresses put into the certificate and endpoints
+	Addr string // listen address, for example :18792
+	// Hosts are the names and addresses put into the certificate and the
+	// endpoints. Empty means the host's own private addresses, read again
+	// whenever they change.
+	Hosts     []string
 	StateDir  string
 	Directory *Directory
 	Service   *Service
@@ -66,7 +69,20 @@ type LANServer struct {
 	wg   sync.WaitGroup
 	ln   net.Listener
 	lock sync.Mutex
+	// info is what devices are told to dial (lan.json and every hello).
+	info consoleapi.LAN
+	stop chan struct{}
+	once sync.Once
 }
+
+// LAN keepalive. A device that left the network cannot say so: the
+// connector pings often and ends a connection that stays silent, so
+// reverse calls stop choosing it within lanSilence.
+const (
+	lanPingInterval = 10 * time.Second
+	lanSilence      = 35 * time.Second
+	lanHostsRefresh = 30 * time.Second
+)
 
 // NewLANServer prepares the certificate and publishes lan.json.
 func NewLANServer(cfg LANConfig) (*LANServer, error) {
@@ -77,7 +93,7 @@ func NewLANServer(cfg LANConfig) (*LANServer, error) {
 	if err != nil {
 		return nil, err
 	}
-	l := &LANServer{cfg: cfg, pin: relay.CertificatePin(der)}
+	l := &LANServer{cfg: cfg, pin: relay.CertificatePin(der), stop: make(chan struct{})}
 	l.up = websocket.Upgrader{Subprotocols: []string{LANProtocol}, CheckOrigin: func(*http.Request) bool { return true }, ReadBufferSize: 64 << 10, WriteBufferSize: 64 << 10}
 	mux := http.NewServeMux()
 	mux.HandleFunc(LANPath, l.serveWS)
@@ -92,20 +108,62 @@ func NewLANServer(cfg LANConfig) (*LANServer, error) {
 // Pin returns the LAN certificate pin.
 func (l *LANServer) Pin() string { return l.pin }
 
+// Info returns the LAN connector as devices should dial it now.
+func (l *LANServer) Info() *contract.LAN {
+	l.lock.Lock()
+	defer l.lock.Unlock()
+	if len(l.info.Endpoints) == 0 {
+		return nil
+	}
+	return &contract.LAN{Endpoints: append([]string(nil), l.info.Endpoints...), TLSPin: l.info.TLSPin}
+}
+
+// publish writes lan.json when the endpoints changed.
 func (l *LANServer) publish() error {
 	_, port, err := net.SplitHostPort(l.cfg.Addr)
 	if err != nil {
 		return err
 	}
+	hosts := l.cfg.Hosts
+	if len(hosts) == 0 {
+		hosts = privateAddresses()
+	}
 	lan := consoleapi.LAN{TLSPin: l.pin}
-	for _, h := range l.cfg.Hosts {
+	for _, h := range hosts {
 		h = strings.TrimSpace(h)
 		if h == "" {
 			continue
 		}
 		lan.Endpoints = append(lan.Endpoints, "wss://"+net.JoinHostPort(h, port)+LANPath)
 	}
+	l.lock.Lock()
+	same := l.info.TLSPin == lan.TLSPin && strings.Join(l.info.Endpoints, " ") == strings.Join(lan.Endpoints, " ")
+	l.info = lan
+	l.lock.Unlock()
+	if same {
+		return nil
+	}
 	return WriteJSONAtomic(filepath.Join(l.cfg.StateDir, LANFile), lan)
+}
+
+// privateAddresses lists the host's private IPv4 addresses: where devices
+// on the same network reach it when no host name was configured.
+func privateAddresses() []string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ip := n.IP.To4(); ip != nil && ip.IsPrivate() {
+			out = append(out, ip.String())
+		}
+	}
+	return out
 }
 
 // Start begins serving in the background.
@@ -120,6 +178,24 @@ func (l *LANServer) Start() error {
 			slog.Warn("link LAN connector stopped", "error", err)
 		}
 	}()
+	if len(l.cfg.Hosts) == 0 {
+		// The host's addresses follow its network; devices learn the
+		// current ones from the next hello on either path.
+		go func() {
+			t := time.NewTicker(lanHostsRefresh)
+			defer t.Stop()
+			for {
+				select {
+				case <-l.stop:
+					return
+				case <-t.C:
+					if err := l.publish(); err != nil {
+						slog.Warn("link LAN endpoints not published", "error", err)
+					}
+				}
+			}
+		}()
+	}
 	return nil
 }
 
@@ -133,6 +209,7 @@ func (l *LANServer) Addr() string {
 
 // Shutdown stops the listener and waits for connections.
 func (l *LANServer) Shutdown(ctx context.Context) error {
+	l.once.Do(func() { close(l.stop) })
 	err := l.srv.Shutdown(ctx)
 	done := make(chan struct{})
 	go func() { l.wg.Wait(); close(done) }()
@@ -188,13 +265,14 @@ func (l *LANServer) serveWS(w http.ResponseWriter, r *http.Request) {
 	if err := ws.WriteJSON(lanControl{Type: "authenticated", Principal: &pr}); err != nil {
 		return
 	}
-	_ = ws.SetReadDeadline(time.Time{})
-	stream := &wsStream{ws: ws}
-	ws.SetPongHandler(func(string) error { _ = ws.SetReadDeadline(time.Now().Add(90 * time.Second)); return nil })
+	// Any frame or pong from the device keeps the connection.
+	_ = ws.SetReadDeadline(time.Now().Add(lanSilence))
+	stream := &wsStream{ws: ws, silence: lanSilence}
+	ws.SetPongHandler(func(string) error { _ = ws.SetReadDeadline(time.Now().Add(lanSilence)); return nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
-		t := time.NewTicker(25 * time.Second)
+		t := time.NewTicker(lanPingInterval)
 		defer t.Stop()
 		for {
 			select {
@@ -217,17 +295,28 @@ func (l *LANServer) serveWS(w http.ResponseWriter, r *http.Request) {
 type wsStream struct {
 	ws *websocket.Conn
 	mu sync.Mutex
+	// silence is how long the peer may stay silent; zero means forever.
+	silence time.Duration
+}
+
+func (s *wsStream) keepalive() {
+	if s.silence > 0 {
+		_ = s.ws.SetReadDeadline(time.Now().Add(s.silence))
+	} else {
+		_ = s.ws.SetReadDeadline(time.Time{})
+	}
 }
 
 func (s *wsStream) ReadFrame(ctx context.Context) ([]byte, error) {
 	if dl, ok := ctx.Deadline(); ok {
 		_ = s.ws.SetReadDeadline(dl)
-		defer s.ws.SetReadDeadline(time.Time{})
+		defer s.keepalive()
 	}
 	kind, b, err := s.ws.ReadMessage()
 	if err != nil {
 		return nil, err
 	}
+	s.keepalive()
 	if kind != websocket.TextMessage {
 		return nil, errors.New("link frames are text")
 	}

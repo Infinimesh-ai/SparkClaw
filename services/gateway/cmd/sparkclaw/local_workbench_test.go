@@ -85,7 +85,10 @@ func (b *unknownOutcomeDesktopBackend) RegisterClient(ctx context.Context, clien
 
 func desktopProvisioningFixture(t *testing.T, token string) config.Config {
 	t.Helper()
-	directory := t.TempDir()
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Chmod(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}

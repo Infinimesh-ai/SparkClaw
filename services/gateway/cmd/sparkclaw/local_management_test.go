@@ -49,7 +49,12 @@ func TestHostManagementSocketSurvivesAllUserRevocationsAndIsPrivate(t *testing.T
 		t.Fatal("revoked desktop registration must remain rejected")
 	}
 	const token = "independent-local-management-test-only-token"
-	managementRoot, err := os.MkdirTemp("", "sparkclaw-management-")
+	// Keep the socket path within the Unix length limit and free of symlink ancestors.
+	tmp, err := filepath.EvalSymlinks("/tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managementRoot, err := os.MkdirTemp(tmp, "sparkclaw-management-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +127,7 @@ func TestProvisioningRejectsNonPrivateFilesAndSymlinkDirectories(t *testing.T) {
 	if err := os.Chmod(cfg.Gateway.DesktopClientFile, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(t.TempDir(), "linked-runtime")
+	link := filepath.Join(filepath.Dir(cfg.Gateway.DesktopClientFile), "linked-runtime")
 	if err := os.Symlink(filepath.Dir(cfg.Gateway.DesktopClientFile), link); err != nil {
 		t.Fatal(err)
 	}

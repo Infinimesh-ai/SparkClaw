@@ -9,7 +9,11 @@ var testIdentity = Identity{OwnerID: "owner", ClientID: "client", InstallationID
 
 func newTestBroker(t *testing.T) *Broker {
 	t.Helper()
-	b, err := NewBroker(filepath.Join(t.TempDir(), "control"))
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := NewBroker(filepath.Join(parent, "control"))
 	if err != nil {
 		t.Fatal(err)
 	}

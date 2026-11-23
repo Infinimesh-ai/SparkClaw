@@ -88,7 +88,7 @@ func (s *MemoryStore) backfillConversationSyncLocked() {
 	}
 }
 
-func (s *MemoryStore) SessionChanges(ctx context.Context, ownerID string, cursor int64, limit int) ([]app.SessionChange, error) {
+func (s *MemoryStore) SessionChanges(ctx context.Context, ownerID, deviceID string, cursor int64, limit int) ([]app.SessionChange, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -99,13 +99,13 @@ func (s *MemoryStore) SessionChanges(ctx context.Context, ownerID string, cursor
 	defer s.mu.RUnlock()
 	out := make([]app.SessionChange, 0)
 	for _, session := range s.sessions {
-		if session.Hidden || session.OwnerID != ownerID || session.Revision <= cursor {
+		if session.Hidden || session.OwnerID != ownerID || !deviceSelected(deviceID, session.OriginDeviceID) || session.Revision <= cursor {
 			continue
 		}
 		out = append(out, app.SessionChange{Session: session})
 	}
 	for _, tomb := range s.sessionTombstones {
-		if tomb.Session.OwnerID != ownerID || tomb.Session.Revision <= cursor {
+		if tomb.Session.OwnerID != ownerID || !deviceSelected(deviceID, tomb.Session.OriginDeviceID) || tomb.Session.Revision <= cursor {
 			continue
 		}
 		out = append(out, tomb)
@@ -123,6 +123,10 @@ func (s *MemoryStore) SessionChanges(ctx context.Context, ownerID string, cursor
 		out = out[:limit]
 	}
 	return out, nil
+}
+
+func deviceSelected(filter, origin string) bool {
+	return filter == AllDevices || filter == origin
 }
 
 func (s *MemoryStore) SessionHeader(ctx context.Context, id string) (app.Session, bool, error) {
@@ -216,13 +220,24 @@ func (s *MemoryStore) FindMessageByClientID(ctx context.Context, sessionID, clie
 
 // FileStore delegates reads to the in-memory state and persists writes.
 
-func (s *FileStore) SessionChanges(ctx context.Context, ownerID string, cursor int64, limit int) ([]app.SessionChange, error) {
+func (s *FileStore) SessionChanges(ctx context.Context, ownerID, deviceID string, cursor int64, limit int) ([]app.SessionChange, error) {
 	ctx, release, err := s.admitMigrated(ctx, OperationConversationSyncChanges, 1)
 	if err != nil {
 		return nil, err
 	}
 	defer release()
-	return s.inner.SessionChanges(ctx, ownerID, cursor, limit)
+	return s.inner.SessionChanges(ctx, ownerID, deviceID, cursor, limit)
+}
+
+func (s *FileStore) CreateDeviceSession(ctx context.Context, title, ownerID, workspaceRoot, deviceID string) (app.Session, error) {
+	ctx, release, err := s.admitMigrated(ctx, OperationConversationSyncCreate, fileAdmissionCapacity)
+	if err != nil {
+		return app.Session{}, err
+	}
+	defer release()
+	return runFileCommand(s, ctx, OperationConversationSyncCreate, func(ctx context.Context) (app.Session, error) {
+		return s.inner.CreateDeviceSession(ctx, title, ownerID, workspaceRoot, deviceID)
+	})
 }
 
 func (s *FileStore) SessionHeader(ctx context.Context, id string) (app.Session, bool, error) {

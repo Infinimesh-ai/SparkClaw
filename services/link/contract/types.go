@@ -54,7 +54,15 @@ type SyncChangesResult struct {
 	Sessions []SessionHeader `json:"sessions"`
 	Cursor   int64           `json:"cursor"`
 	More     bool            `json:"more,omitempty"`
+	// Scope names which conversations the feed covers. A client whose cache
+	// was built under another scope clears it once and syncs again from
+	// cursor 0 (design 4.4).
+	Scope string `json:"scope,omitempty"`
 }
+
+// ConversationScopeDevice: each device sees only the conversations created
+// on it (design 4.4).
+const ConversationScopeDevice = "device"
 
 // SessionCreateParams creates a conversation. ClientRequestID makes it
 // idempotent.

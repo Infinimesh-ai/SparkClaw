@@ -22,7 +22,7 @@ func TestPostgresMigrationManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql", "0003_validate_legacy_chat_keys.sql", "0004_connector_repository.sql", "0005_approval_repository.sql", "0006_browser_state_read_defaults.sql", "0007_bounded_agent_history.sql", "0008_email_provider_settings.sql", "0009_model_call_latest_by_lane.sql", "0010_approval_arguments_immutable.sql", "0011_drop_model_call_fallback.sql", "0012_email_management.sql", "0013_email_bytewise_sort.sql", "0014_email_classification.sql", "0015_email_timeline_failures.sql", "0016_email_render_preview.sql", "0017_email_sync_refresh_requests.sql", "0018_workbench_drafts.sql", "0019_client_deletion.sql", "0020_conversation_context.sql", "0021_medicine_box.sql", "0022_approval_inputs.sql", "0023_conversation_sync.sql"}
+	wantNames := []string{"0001_core.sql", "0002_reconcile_current.sql", "0003_validate_legacy_chat_keys.sql", "0004_connector_repository.sql", "0005_approval_repository.sql", "0006_browser_state_read_defaults.sql", "0007_bounded_agent_history.sql", "0008_email_provider_settings.sql", "0009_model_call_latest_by_lane.sql", "0010_approval_arguments_immutable.sql", "0011_drop_model_call_fallback.sql", "0012_email_management.sql", "0013_email_bytewise_sort.sql", "0014_email_classification.sql", "0015_email_timeline_failures.sql", "0016_email_render_preview.sql", "0017_email_sync_refresh_requests.sql", "0018_workbench_drafts.sql", "0019_client_deletion.sql", "0020_conversation_context.sql", "0021_medicine_box.sql", "0022_approval_inputs.sql", "0023_conversation_sync.sql", "0024_device_conversations.sql"}
 	if len(migrations) != len(wantNames) {
 		t.Fatalf("migration count = %d, want %d", len(migrations), len(wantNames))
 	}
@@ -132,7 +132,9 @@ INSERT INTO external_chat_messages (
   'legacy-message-evolved', 'target-session', 'target-binding', 'weixin', 'outbound',
   'assistant', 'target-native', 'target content', 'delivered', 'text', 'target reply', 7
 );
-INSERT INTO sessions (id, title) VALUES ('browser-session', 'browser migration');
+-- An MCP session, which 0024 keeps, so the browser normalization of the
+-- earlier migrations stays observable after the legacy conversations go.
+INSERT INTO sessions (id, title, source, hidden) VALUES ('browser-session', 'browser migration', 'mcp', true);
 INSERT INTO agent_runs (id, session_id, state, model_lane, risk_level)
 VALUES ('browser-run', 'browser-session', 'waiting', 'fast', 'read');
 INSERT INTO browser_login_blocks (id, session_id, run_id, schema_version, version, status, resume_tool, resume_args)

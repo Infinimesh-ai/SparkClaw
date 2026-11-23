@@ -230,6 +230,9 @@ type requestPrincipal struct {
 	OwnerID       string
 	ActorID       string
 	ClientID      string
+	// DeviceID is set for link-layer devices, which see only the
+	// conversations created on them (design 4.4).
+	DeviceID      string
 	Authenticated bool
 }
 

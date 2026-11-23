@@ -237,6 +237,31 @@ test("cutover clears old local conversations once and keeps the welcome draft", 
   store.close();
 });
 
+test("a device-scoped feed clears the cache once and syncs again from the start", async () => {
+  const f = await fixture();
+  const shared = f.backend.createSession("Seen before the scope");
+  await f.conversations.sync();
+  assert.equal(f.store.list(scope).length, 1);
+  f.store.saveDraft(scope, "", "unsent welcome text", [], 0);
+  // The backend now answers only this device's conversations.
+  f.backend.deleteSession(shared.id);
+  f.backend.sessions.delete(shared.id);
+  const own = f.backend.createSession("Created on this desktop");
+  f.backend.scope = "device";
+  const before = f.backend.calls.filter(c => c.op === "sync.changes").length;
+  await f.conversations.sync();
+  const calls = f.backend.calls.filter(c => c.op === "sync.changes").slice(before);
+  assert.ok(calls[0].params.cursor > 0 && calls[1].params.cursor === 0, "the feed is read again from cursor 0");
+  assert.deepEqual(f.store.list(scope).map(c => c.title), ["Created on this desktop"]);
+  assert.ok(f.store.linkConversationByRemote(scope, own.id));
+  assert.equal(f.store.draft(scope, "").content, "unsent welcome text", "the welcome draft is kept");
+  const again = f.backend.calls.filter(c => c.op === "sync.changes").length;
+  await f.conversations.sync();
+  assert.ok(f.backend.calls.filter(c => c.op === "sync.changes").slice(again).every(c => c.params.cursor > 0), "the cache is cleared only once");
+  assert.equal(f.store.list(scope).length, 1);
+  f.store.close();
+});
+
 test("a path switch during a run subscribes again and the stream continues", async () => {
   const f = await fixture();
   f.conversations.start();

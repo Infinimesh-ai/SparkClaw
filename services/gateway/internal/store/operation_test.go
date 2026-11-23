@@ -662,6 +662,7 @@ func TestMigratedOperationSpecsAreFiniteAndComplete(t *testing.T) {
 		OperationConversationSyncPage:        {ID: OperationConversationSyncPage, Repository: "ConversationSyncRepository", Method: "ListMessagePage", Mode: operationRead, Timeout: timeoutRead},
 		OperationConversationSyncArchive:     {ID: OperationConversationSyncArchive, Repository: "ConversationSyncRepository", Method: "SetSessionArchived", Mode: operationWrite, Timeout: timeoutTransaction},
 		OperationConversationSyncFindClient:  {ID: OperationConversationSyncFindClient, Repository: "ConversationSyncRepository", Method: "FindMessageByClientID", Mode: operationRead, Timeout: timeoutRead},
+		OperationConversationSyncCreate:      {ID: OperationConversationSyncCreate, Repository: "ConversationSyncRepository", Method: "CreateDeviceSession", Mode: operationWrite, Timeout: timeoutTransaction},
 	}
 	if len(operationSpecs) != len(want) {
 		t.Fatalf("operation spec count = %d, want %d", len(operationSpecs), len(want))

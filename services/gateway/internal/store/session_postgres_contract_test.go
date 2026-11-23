@@ -105,7 +105,7 @@ func (t *fakeSessionPostgresTx) QueryRow(_ context.Context, sql string, argument
 		t.rowQueue = t.rowQueue[1:]
 		return row
 	}
-	if t.echoWrites && strings.Contains(sql, "INSERT INTO sessions") && len(arguments) == 8 {
+	if t.echoWrites && strings.Contains(sql, "INSERT INTO sessions") && len(arguments) == 9 {
 		return sessionPostgresRow(app.Session{
 			ID: arguments[0].(string), OwnerID: arguments[1].(string), WorkspaceRoot: arguments[2].(string),
 			Title: arguments[3].(string), Source: arguments[4].(string), Hidden: arguments[5].(bool),

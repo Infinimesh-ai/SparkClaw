@@ -222,13 +222,13 @@ func (s *Server) watchLinkChanges(rt *linkRuntime) {
 	t := time.NewTicker(500 * time.Millisecond)
 	defer t.Stop()
 	var lastCursor int64 = -1
-	var lastApprovals string
+	lastApprovals := map[string]string{}
 	// The starting cursor is taken before any device connects, so a change
 	// made right after connecting is still announced.
 	startCtx, cancelStart := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelStart()
 	for cursor := int64(0); ; {
-		page, err := s.store.SessionChanges(startCtx, rt.opts.OwnerID, cursor, 500)
+		page, err := s.store.SessionChanges(startCtx, rt.opts.OwnerID, store.AllDevices, cursor, 500)
 		if err != nil {
 			break
 		}
@@ -261,19 +261,31 @@ func (s *Server) watchLinkChanges(rt *linkRuntime) {
 		}
 		lastEvent = s.broadcastLinkDomainEvents(rt, lastEvent)
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		changes, err := s.store.SessionChanges(ctx, rt.opts.OwnerID, maxInt64(lastCursor, 0), 500)
+		// Each device hears only of its own conversations (design 4.4).
+		changes, err := s.store.SessionChanges(ctx, rt.opts.OwnerID, store.AllDevices, maxInt64(lastCursor, 0), 500)
 		if err == nil && len(changes) > 0 {
-			head := changes[len(changes)-1].Session.Revision
-			for len(changes) >= 200 {
-				more, err := s.store.SessionChanges(ctx, rt.opts.OwnerID, head, 500)
-				if err != nil || len(more) == 0 {
+			devices := map[string]bool{}
+			head := lastCursor
+			for len(changes) > 0 {
+				for _, c := range changes {
+					if c.Session.OriginDeviceID != "" {
+						devices[c.Session.OriginDeviceID] = true
+					}
+					head = c.Session.Revision
+				}
+				if len(changes) < 200 {
+					break
+				}
+				more, err := s.store.SessionChanges(ctx, rt.opts.OwnerID, store.AllDevices, head, 500)
+				if err != nil {
 					break
 				}
 				changes = more
-				head = more[len(more)-1].Session.Revision
 			}
 			if lastCursor >= 0 && head > lastCursor {
-				rt.service.Broadcast(rt.opts.OwnerID, contract.TopicSync, contract.SyncEvent{Cursor: head})
+				for device := range devices {
+					rt.service.BroadcastDevice(rt.opts.OwnerID, device, contract.TopicSync, contract.SyncEvent{Cursor: head})
+				}
 			}
 			if head > lastCursor {
 				lastCursor = head
@@ -282,21 +294,68 @@ func (s *Server) watchLinkChanges(rt *linkRuntime) {
 			lastCursor = 0
 		}
 		approvals, err := s.store.ListApprovals(ctx, app.ApprovalStatusPending)
-		cancel()
 		if err == nil {
-			ids := make([]string, 0, len(approvals))
-			for _, a := range approvals {
-				ids = append(ids, a.ID)
-			}
-			key := strings.Join(ids, ",")
-			if key != lastApprovals {
-				if lastApprovals != "" || key != "" {
-					rt.service.Broadcast(rt.opts.OwnerID, contract.TopicApproval, map[string]int{"pending": len(ids)})
+			current := s.linkPendingApprovalsByDevice(ctx, approvals)
+			for device, ids := range current {
+				if lastApprovals[device] != ids.key {
+					rt.service.BroadcastDevice(rt.opts.OwnerID, device, contract.TopicApproval, map[string]int{"pending": ids.count})
 				}
-				lastApprovals = key
+			}
+			for device := range lastApprovals {
+				if _, ok := current[device]; !ok {
+					rt.service.BroadcastDevice(rt.opts.OwnerID, device, contract.TopicApproval, map[string]int{"pending": 0})
+				}
+			}
+			next := make(map[string]string, len(current))
+			for device, ids := range current {
+				next[device] = ids.key
+			}
+			lastApprovals = next
+		}
+		cancel()
+	}
+}
+
+type linkDeviceApprovals struct {
+	key   string
+	count int
+}
+
+// linkPendingApprovalsByDevice groups pending approvals by the device that
+// owns their conversation. Approvals of conversations without a device are
+// decided in the host WebChat or their channel and reach no device.
+func (s *Server) linkPendingApprovalsByDevice(ctx context.Context, approvals []app.Approval) map[string]linkDeviceApprovals {
+	origins := map[string]string{}
+	out := map[string]linkDeviceApprovals{}
+	for _, a := range approvals {
+		sessionID := strings.TrimSpace(a.SessionID)
+		if sessionID == "" && strings.TrimSpace(a.RunID) != "" {
+			if run, found, err := s.store.GetRun(ctx, a.RunID); err == nil && found {
+				sessionID = run.SessionID
 			}
 		}
+		if sessionID == "" {
+			continue
+		}
+		device, seen := origins[sessionID]
+		if !seen {
+			if header, found, err := s.store.SessionHeader(ctx, sessionID); err == nil && found {
+				device = header.OriginDeviceID
+			}
+			origins[sessionID] = device
+		}
+		if device == "" {
+			continue
+		}
+		entry := out[device]
+		if entry.key != "" {
+			entry.key += ","
+		}
+		entry.key += a.ID
+		entry.count++
+		out[device] = entry
 	}
+	return out
 }
 
 func maxInt64(a, b int64) int64 {

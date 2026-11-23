@@ -82,6 +82,18 @@ func (s *Server) sessionForPrincipal(ctx context.Context, principal requestPrinc
 	if strings.TrimSpace(principal.ClientID) != "" && sessionOwnerID(session) != principal.OwnerID {
 		return app.Session{}, false, nil
 	}
+	if principal.DeviceID != "" {
+		// A link device sees only the conversations created on it; any
+		// other conversation reads as missing (design 4.4).
+		header, found, err := s.store.SessionHeader(ctx, session.ID)
+		if err != nil || !found {
+			return app.Session{}, false, err
+		}
+		if header.OriginDeviceID != principal.DeviceID {
+			return app.Session{}, false, nil
+		}
+		session.OriginDeviceID = header.OriginDeviceID
+	}
 	return session, true, nil
 }
 

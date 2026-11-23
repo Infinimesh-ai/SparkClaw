@@ -20,6 +20,7 @@ import (
 
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/link"
+	"github.com/Chiiz0/SparkClaw/services/gateway/internal/store"
 	"github.com/Chiiz0/SparkClaw/services/link/consoleapi"
 	"github.com/Chiiz0/SparkClaw/services/link/contract"
 	"github.com/Chiiz0/SparkClaw/services/link/linkclient"
@@ -296,9 +297,11 @@ func TestLinkWatchProjectionAndFeatures(t *testing.T) {
 	}
 }
 
-func TestLinkTwoDevicesShareConversations(t *testing.T) {
+// Each device sees only the conversations created on it; the host WebChat
+// sees them all (design 4.4).
+func TestLinkEachDeviceSeesOnlyItsOwnConversations(t *testing.T) {
 	b := newLinkTestBackend(t)
-	phone, _, prec, _ := newLinkTestDevice(t, b, contract.ClassPhone, contract.Conditions{Screen: contract.ScreenSmall})
+	phone, _, prec, pevents := newLinkTestDevice(t, b, contract.ClassPhone, contract.Conditions{Screen: contract.ScreenSmall})
 	desk, _, drec, devents := newLinkTestDevice(t, b, contract.ClassDesktop, contract.Conditions{Screen: contract.ScreenLarge, Attachments: true})
 	writeLinkDirectory(t, b.stateDir, prec, drec)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -310,50 +313,98 @@ func TestLinkTwoDevicesShareConversations(t *testing.T) {
 	if phone.WaitReady(ctx) != nil || desk.WaitReady(ctx) != nil {
 		t.Fatal("not ready")
 	}
-	var h contract.SessionHeader
-	if err := phone.Request(ctx, contract.OpSessionCreate, contract.SessionCreateParams{Title: "Shared", ClientRequestID: "c"}, &h); err != nil {
+	host, err := b.server.store.CreateSessionWithScope(ctx, "Host", b.server.link.opts.OwnerID, "", "webchat", false)
+	if err != nil {
 		t.Fatal(err)
 	}
-	// The desktop learns of the change through a sync event and the cursor.
-	gotSync := false
-	deadline := time.After(10 * time.Second)
-	for !gotSync {
-		select {
-		case f := <-devents:
-			gotSync = f.Topic == contract.TopicSync
-		case <-deadline:
-			t.Fatal("no sync event on the second device")
+	var h contract.SessionHeader
+	if err := phone.Request(ctx, contract.OpSessionCreate, contract.SessionCreateParams{Title: "Phone", ClientRequestID: "c"}, &h); err != nil {
+		t.Fatal(err)
+	}
+	// Only the phone hears of its conversation.
+	waitForTopic := func(events chan contract.Frame, topic string, d time.Duration) bool {
+		deadline := time.After(d)
+		for {
+			select {
+			case f := <-events:
+				if f.Topic == topic {
+					return true
+				}
+			case <-deadline:
+				return false
+			}
 		}
 	}
-	var changes contract.SyncChangesResult
-	if err := desk.Request(ctx, contract.OpSyncChanges, contract.SyncChangesParams{}, &changes); err != nil {
-		t.Fatal(err)
+	if !waitForTopic(pevents, contract.TopicSync, 10*time.Second) {
+		t.Fatal("no sync event on the phone")
 	}
-	seen := false
-	for _, s := range changes.Sessions {
-		seen = seen || s.ID == h.ID
+	if waitForTopic(devents, contract.TopicSync, 1500*time.Millisecond) {
+		t.Fatal("the desktop heard of the phone's conversation")
 	}
-	if !seen {
-		t.Fatal("desktop does not see the phone's conversation")
+	sessionsOf := func(c *linkclient.Client, cursor int64) contract.SyncChangesResult {
+		t.Helper()
+		var out contract.SyncChangesResult
+		if err := c.Request(ctx, contract.OpSyncChanges, contract.SyncChangesParams{Cursor: cursor}, &out); err != nil {
+			t.Fatal(err)
+		}
+		if out.Scope != contract.ConversationScopeDevice {
+			t.Fatalf("scope %q", out.Scope)
+		}
+		return out
 	}
-	var archived contract.SessionHeader
-	if err := desk.Request(ctx, contract.OpSessionArchive, contract.SessionArchiveParams{SessionID: h.ID, Archived: true}, &archived); err != nil || !archived.Archived {
-		t.Fatal(err)
+	phoneFeed := sessionsOf(phone, 0)
+	if len(phoneFeed.Sessions) != 1 || phoneFeed.Sessions[0].ID != h.ID {
+		t.Fatalf("phone sees %+v", phoneFeed.Sessions)
+	}
+	if deskFeed := sessionsOf(desk, 0); len(deskFeed.Sessions) != 0 {
+		t.Fatalf("desktop sees %+v", deskFeed.Sessions)
+	}
+	// Another device's conversation, or the host's, reads as missing.
+	for _, id := range []string{h.ID, host.ID} {
+		c := desk
+		if id == host.ID {
+			c = phone
+		}
+		for op, params := range map[string]any{
+			contract.OpSessionMessages: contract.SessionMessagesParams{SessionID: id},
+			contract.OpSessionRename:   contract.SessionRenameParams{SessionID: id, Title: "x"},
+			contract.OpSessionArchive:  contract.SessionArchiveParams{SessionID: id, Archived: true},
+			contract.OpRunStatus:       contract.RunRef{SessionID: id},
+		} {
+			if err := c.Request(ctx, op, params, nil); contract.AsError(err).Code != contract.CodeNotFound {
+				t.Fatalf("%s on a foreign conversation: %v", op, err)
+			}
+		}
 	}
 	var del map[string]any
+	if err := desk.Request(ctx, contract.OpSessionDelete, contract.SessionRef{SessionID: h.ID}, &del); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := b.server.store.GetSession(ctx, h.ID); !ok {
+		t.Fatal("the desktop deleted the phone's conversation")
+	}
+	// The host WebChat sees every conversation.
+	all, err := b.server.store.SessionChanges(ctx, b.server.link.opts.OwnerID, store.AllDevices, 0, 100)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("host sees %+v %v", all, err)
+	}
+	var archived contract.SessionHeader
+	if err := phone.Request(ctx, contract.OpSessionArchive, contract.SessionArchiveParams{SessionID: h.ID, Archived: true}, &archived); err != nil || !archived.Archived {
+		t.Fatal(err)
+	}
 	if err := phone.Request(ctx, contract.OpSessionDelete, contract.SessionRef{SessionID: h.ID}, &del); err != nil {
 		t.Fatal(err)
 	}
-	var after contract.SyncChangesResult
-	if err := desk.Request(ctx, contract.OpSyncChanges, contract.SyncChangesParams{Cursor: changes.Cursor}, &after); err != nil {
-		t.Fatal(err)
-	}
+	after := sessionsOf(phone, phoneFeed.Cursor)
 	deleted := false
 	for _, s := range after.Sessions {
 		deleted = deleted || (s.ID == h.ID && s.Deleted)
 	}
 	if !deleted {
 		t.Fatalf("no tombstone %+v", after)
+	}
+	if deskFeed := sessionsOf(desk, 0); len(deskFeed.Sessions) != 0 {
+		t.Fatalf("desktop sees another device's tombstone %+v", deskFeed.Sessions)
 	}
 }
 

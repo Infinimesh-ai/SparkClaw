@@ -11,14 +11,23 @@ import (
 )
 
 func (s *MemoryStore) CreateSession(ctx context.Context, title string) (app.Session, error) {
-	return s.createSession(ctx, OperationSessionCreate, title, app.DefaultOwnerID, "", "webchat", false)
+	return s.createSession(ctx, OperationSessionCreate, title, app.DefaultOwnerID, "", "webchat", false, "")
 }
 
 func (s *MemoryStore) CreateSessionWithScope(ctx context.Context, title, ownerID, workspaceRoot, source string, hidden bool) (app.Session, error) {
-	return s.createSession(ctx, OperationSessionCreateWithScope, title, ownerID, workspaceRoot, source, hidden)
+	return s.createSession(ctx, OperationSessionCreateWithScope, title, ownerID, workspaceRoot, source, hidden, "")
 }
 
-func (s *MemoryStore) createSession(ctx context.Context, operation StoreOperation, title, ownerID, workspaceRoot, source string, hidden bool) (app.Session, error) {
+// CreateDeviceSession creates a visible WebChat conversation owned by a link
+// device (design 4.4).
+func (s *MemoryStore) CreateDeviceSession(ctx context.Context, title, ownerID, workspaceRoot, deviceID string) (app.Session, error) {
+	if err := validDeviceOrigin(deviceID); err != nil {
+		return app.Session{}, storeError(ctx, OperationConversationSyncCreate, StoreErrorInvalid, err)
+	}
+	return s.createSession(ctx, OperationConversationSyncCreate, title, ownerID, workspaceRoot, "webchat", false, deviceID)
+}
+
+func (s *MemoryStore) createSession(ctx context.Context, operation StoreOperation, title, ownerID, workspaceRoot, source string, hidden bool, originDeviceID string) (app.Session, error) {
 	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(operation, ctx); err != nil {
@@ -36,6 +45,7 @@ func (s *MemoryStore) createSession(ctx context.Context, operation StoreOperatio
 	if _, exists := s.sessions[session.ID]; exists {
 		return app.Session{}, storeError(ctx, operation, StoreErrorConflict, errors.New("session ID already exists"))
 	}
+	session.OriginDeviceID = originDeviceID
 	s.sessionWriteHighWater[session.ID] = session.UpdatedAt
 	s.bumpSessionRevisionLocked(&session)
 	delete(s.sessionTombstones, session.ID)
@@ -258,7 +268,7 @@ func (s *MemoryStore) deleteSession(ctx context.Context, id string, mcpInvocatio
 	delete(s.workbenchDrafts, workbenchDraftKey(session.OwnerID, id))
 	delete(s.sessions, id)
 	s.sessionRevision++
-	s.sessionTombstones[id] = app.SessionChange{Session: app.Session{ID: id, OwnerID: session.OwnerID, Revision: s.sessionRevision}, Deleted: true, DeletedAt: normalizeSessionTime(s.sessionNow())}
+	s.sessionTombstones[id] = app.SessionChange{Session: app.Session{ID: id, OwnerID: session.OwnerID, OriginDeviceID: session.OriginDeviceID, Revision: s.sessionRevision}, Deleted: true, DeletedAt: normalizeSessionTime(s.sessionNow())}
 	delete(s.messages, id)
 	delete(s.toolCallIDsBySession, id)
 	delete(s.episodeIDsBySession, id)

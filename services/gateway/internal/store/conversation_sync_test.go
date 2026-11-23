@@ -34,7 +34,7 @@ func TestConversationSyncFeedPagingAndTombstones(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			owner := "owner-sync-" + strings.ToLower(app.NewID("o"))
-			start, err := s.SessionChanges(ctx, owner, 0, 100)
+			start, err := s.SessionChanges(ctx, owner, AllDevices, 0, 100)
 			if err != nil || len(start) != 0 {
 				t.Fatalf("fresh owner changes %v %v", start, err)
 			}
@@ -55,7 +55,7 @@ func TestConversationSyncFeedPagingAndTombstones(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			changes, err := s.SessionChanges(ctx, owner, 0, 100)
+			changes, err := s.SessionChanges(ctx, owner, AllDevices, 0, 100)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -93,7 +93,7 @@ func TestConversationSyncFeedPagingAndTombstones(t *testing.T) {
 			if _, err := s.DeleteSession(ctx, a.ID); err != nil {
 				t.Fatal(err)
 			}
-			after, err := s.SessionChanges(ctx, owner, cursor, 100)
+			after, err := s.SessionChanges(ctx, owner, AllDevices, cursor, 100)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -106,11 +106,97 @@ func TestConversationSyncFeedPagingAndTombstones(t *testing.T) {
 			if _, ok, _ := s.GetSession(ctx, a.ID); ok {
 				t.Fatal("deleted session still readable")
 			}
-			others, _ := s.SessionChanges(ctx, owner+"-other", 0, 100)
+			others, _ := s.SessionChanges(ctx, owner+"-other", AllDevices, 0, 100)
 			if len(others) != 0 {
 				t.Fatal("owner isolation broken")
 			}
 		})
+	}
+}
+
+func TestConversationSyncDeviceScope(t *testing.T) {
+	for name, s := range conversationSyncBackends(t) {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			owner := "owner-device-" + strings.ToLower(app.NewID("o"))
+			for _, bad := range []string{"", AllDevices, " dev"} {
+				if _, err := s.CreateDeviceSession(ctx, "bad", owner, "", bad); StoreErrorCodeOf(err) != StoreErrorInvalid {
+					t.Fatalf("device %q: %v", bad, err)
+				}
+			}
+			a, err := s.CreateDeviceSession(ctx, "A", owner, "", "dev-a")
+			if err != nil || a.OriginDeviceID != "dev-a" {
+				t.Fatalf("create A %+v %v", a, err)
+			}
+			b, err := s.CreateDeviceSession(ctx, "B", owner, "", "dev-b")
+			if err != nil {
+				t.Fatal(err)
+			}
+			host, err := s.CreateSessionWithScope(ctx, "host", owner, "", "webchat", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids := func(changes []app.SessionChange) []string {
+				out := []string{}
+				for _, c := range changes {
+					out = append(out, c.Session.ID)
+				}
+				return out
+			}
+			if got, _ := s.SessionChanges(ctx, owner, "dev-a", 0, 100); len(got) != 1 || got[0].Session.ID != a.ID || got[0].Session.OriginDeviceID != "dev-a" {
+				t.Fatalf("dev-a sees %v", ids(got))
+			}
+			if got, _ := s.SessionChanges(ctx, owner, "dev-b", 0, 100); len(got) != 1 || got[0].Session.ID != b.ID {
+				t.Fatalf("dev-b sees %v", ids(got))
+			}
+			if got, _ := s.SessionChanges(ctx, owner, AllDevices, 0, 100); len(got) != 3 || got[2].Session.ID != host.ID || got[2].Session.OriginDeviceID != "" {
+				t.Fatalf("all devices see %v", ids(got))
+			}
+			if _, err := s.UpdateSessionTitle(ctx, a.ID, "renamed"); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.SetSessionArchived(ctx, a.ID, true); err != nil {
+				t.Fatal(err)
+			}
+			header, ok, err := s.SessionHeader(ctx, a.ID)
+			if err != nil || !ok || header.OriginDeviceID != "dev-a" || header.Title != "renamed" {
+				t.Fatalf("header after rename %+v %v", header, err)
+			}
+			if _, err := s.DeleteSession(ctx, a.ID); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := s.SessionChanges(ctx, owner, "dev-a", 0, 100)
+			if len(got) != 1 || !got[0].Deleted || got[0].Session.ID != a.ID || got[0].Session.OriginDeviceID != "dev-a" {
+				t.Fatalf("dev-a tombstone %+v", got)
+			}
+			if got, _ := s.SessionChanges(ctx, owner, "dev-b", 0, 100); len(got) != 1 || got[0].Deleted {
+				t.Fatalf("dev-b sees another device's tombstone %+v", got)
+			}
+		})
+	}
+}
+
+func TestFileStoreKeepsDeviceOrigin(t *testing.T) {
+	path := t.TempDir() + "/state.json"
+	fs, err := NewFileStoreWithOptions(FileStoreOptions{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	sess, err := fs.CreateDeviceSession(ctx, "phone", app.DefaultOwnerID, "", "dev-phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewFileStoreWithOptions(FileStoreOptions{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, ok, err := reopened.SessionHeader(ctx, sess.ID)
+	if err != nil || !ok || header.OriginDeviceID != "dev-phone" {
+		t.Fatalf("reopened header %+v %v", header, err)
+	}
+	if got, _ := reopened.SessionChanges(ctx, app.DefaultOwnerID, "dev-phone", 0, 10); len(got) != 1 {
+		t.Fatalf("reopened device feed %+v", got)
 	}
 }
 

@@ -66,11 +66,13 @@ In the current clients the pull profile still opens one connection while the app
 
 ### Core
 
+Every conversation operation acts only on the calling device's own conversations, the ones it created with `session.create` ([design 4.4](client-link-layer-design.md)). Another device's conversation, or one created by the host WebChat or a message channel, answers `not_found`; `session.delete` on it answers `deleted: true` and removes nothing.
+
 | Operation | Params → result | Notes |
 |---|---|---|
 | `ping` | — → `{time}` | Liveness |
 | `device.describe` | — → `{principal, features, domains, backend}` | |
-| `sync.changes` | `{cursor, limit}` → `{sessions[], cursor, more}` | Headers with `revision > cursor`, ordered by revision. A tombstone has `deleted: true` |
+| `sync.changes` | `{cursor, limit}` → `{sessions[], cursor, more, scope}` | This device's headers with `revision > cursor`, ordered by revision. A tombstone has `deleted: true`. Revisions are shared by all devices, so the ones a device sees have gaps. `scope` is `device`; a client whose cache was built under another scope, or without one, clears its conversation cache once and reads again from cursor 0 |
 | `session.create` | `{title, client_request_id}` → header | Idempotent by `client_request_id` |
 | `session.rename` | `{session_id, title}` → header | |
 | `session.archive` | `{session_id, archived}` → header | |
@@ -81,7 +83,7 @@ In the current clients the pull profile still opens one connection while the app
 | `run.unsubscribe` | `{session_id}` → `{ok}` | duplex only |
 | `run.status` | `{session_id}` → RunStatus | `state`: `idle`, `running`, `approval_pending`, `completed`, `failed`, `cancelled` or `blocked`. Also carries `preview`, `progress`, `final_message`, `pending_approvals` and `seq`, the last run event the snapshot includes. A finished run is answered from the stored conversation |
 | `run.cancel` | `{session_id, run_id?}` → RunStatus | |
-| `approval.list` | `{session_id?, pending?}` → `{approvals[]}` | |
+| `approval.list` | `{session_id?, pending?}` → `{approvals[]}` | Only approvals raised in this device's conversations; `approval.resolve` accepts only those |
 | `approval.resolve` | `{approval_id, decision: approve\|reject, inputs?, idempotency_key}` → `{approval}` | |
 
 ### Objects (device condition `attachments`)
@@ -148,8 +150,8 @@ For a watch the backend trims the data it returns:
 | Topic | Data |
 |---|---|
 | `run` | `{session_id, run_id, seq, kind: state\|delta\|progress\|final, text?, status?}`. `seq` increases by one per event of a conversation, across runs; one subscription receives them in order. A gap means events were lost: read `run.status` again |
-| `sync` | `{cursor}`: a conversation changed; call `sync.changes` |
-| `approval` | `{pending}`: the set of pending approvals changed |
+| `sync` | `{cursor}`: one of this device's conversations changed; call `sync.changes` |
+| `approval` | `{pending}`: the set of pending approvals in this device's conversations changed |
 | `domain` | `{domains[]}`: a business domain's state changed (for example `settings`, `mail`, `medicine`); read it again |
 | `device` | `{state: "revoked"}`: sent right before the backend closes the connection |
 

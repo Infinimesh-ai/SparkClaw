@@ -122,10 +122,18 @@ type SessionRepository interface {
 // ConversationSyncRepository serves the link layer's backend-authoritative
 // conversation sync (docs/client-link-layer-design.md section 4): a change
 // feed by session revision, paging by message sequence and archive state.
+// AllDevices selects the conversations of every origin in SessionChanges.
+// Device IDs are never "*".
+const AllDevices = "*"
+
 type ConversationSyncRepository interface {
 	// SessionChanges returns the owner's sessions (and deletion tombstones)
-	// whose revision is greater than cursor, ordered by revision.
-	SessionChanges(ctx context.Context, ownerID string, cursor int64, limit int) ([]app.SessionChange, error)
+	// created by deviceID whose revision is greater than cursor, ordered by
+	// revision. AllDevices returns those of every origin (design 4.4).
+	SessionChanges(ctx context.Context, ownerID, deviceID string, cursor int64, limit int) ([]app.SessionChange, error)
+	// CreateDeviceSession creates a conversation owned by the link device
+	// deviceID. Ownership never changes afterwards.
+	CreateDeviceSession(ctx context.Context, title, ownerID, workspaceRoot, deviceID string) (app.Session, error)
 	// SessionHeader returns a session with its sync fields.
 	SessionHeader(ctx context.Context, id string) (app.Session, bool, error)
 	// ListMessagePage returns up to limit messages, oldest first, with

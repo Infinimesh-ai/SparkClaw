@@ -94,7 +94,7 @@ export function fakeBackend() {
         case "sync.changes": {
           const changed = [...sessions.values()].filter(s => s.revision > params.cursor).sort((a, b) => a.revision - b.revision);
           const limit = params.limit || 100, page = changed.slice(0, limit);
-          return { sessions: page.map(header), cursor: page.at(-1)?.revision ?? params.cursor, more: changed.length > limit };
+          return { sessions: page.map(header), cursor: page.at(-1)?.revision ?? params.cursor, more: changed.length > limit, ...(backend.scope ? { scope: backend.scope } : {}) };
         }
         case "session.create": { const s = backend.createSession(params.title); return header(s); }
         case "session.rename": { const s = sessions.get(params.session_id); s.title = params.title; touch(s); return header(s); }

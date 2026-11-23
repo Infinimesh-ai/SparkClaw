@@ -504,6 +504,17 @@ func (s *Service) Broadcast(ownerID, topic string, data any) {
 	}
 }
 
+// BroadcastDevice emits an event on the open duplex connections of one
+// device of the owner.
+func (s *Service) BroadcastDevice(ownerID, deviceID, topic string, data any) {
+	for _, c := range s.Connections("") {
+		if c.Principal.OwnerID != ownerID || c.Principal.DeviceID != deviceID || c.Principal.Profile == contract.ProfilePull {
+			continue
+		}
+		_ = c.Emit("", topic, data)
+	}
+}
+
 // DecodeParams is a convenience for handlers.
 func DecodeParams[T any](req *Request) (T, error) {
 	var v T

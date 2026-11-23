@@ -93,14 +93,23 @@ func (s *PostgresStore) validateSessionState(ctx context.Context) error {
 }
 
 func (s *PostgresStore) CreateSession(ctx context.Context, title string) (app.Session, error) {
-	return s.createPostgresSession(ctx, OperationSessionCreate, title, app.DefaultOwnerID, "", "webchat", false)
+	return s.createPostgresSession(ctx, OperationSessionCreate, title, app.DefaultOwnerID, "", "webchat", false, "")
 }
 
 func (s *PostgresStore) CreateSessionWithScope(ctx context.Context, title, ownerID, workspaceRoot, source string, hidden bool) (app.Session, error) {
-	return s.createPostgresSession(ctx, OperationSessionCreateWithScope, title, ownerID, workspaceRoot, source, hidden)
+	return s.createPostgresSession(ctx, OperationSessionCreateWithScope, title, ownerID, workspaceRoot, source, hidden, "")
 }
 
-func (s *PostgresStore) createPostgresSession(ctx context.Context, operation StoreOperation, title, ownerID, workspaceRoot, source string, hidden bool) (app.Session, error) {
+// CreateDeviceSession creates a visible WebChat conversation owned by a link
+// device (design 4.4).
+func (s *PostgresStore) CreateDeviceSession(ctx context.Context, title, ownerID, workspaceRoot, deviceID string) (app.Session, error) {
+	if err := validDeviceOrigin(deviceID); err != nil {
+		return app.Session{}, storeError(ctx, OperationConversationSyncCreate, StoreErrorInvalid, err)
+	}
+	return s.createPostgresSession(ctx, OperationConversationSyncCreate, title, ownerID, workspaceRoot, "webchat", false, deviceID)
+}
+
+func (s *PostgresStore) createPostgresSession(ctx context.Context, operation StoreOperation, title, ownerID, workspaceRoot, source string, hidden bool, originDeviceID string) (app.Session, error) {
 	ctx, cancel := operationContext(ctx, operation, s.operationTimeouts)
 	defer cancel()
 	if err := operationContextError(operation, ctx); err != nil {
@@ -129,11 +138,11 @@ func (s *PostgresStore) createPostgresSession(ctx context.Context, operation Sto
 		return finishPostgresSessionStatement(ctx, operation, candidate, session, transaction, release, err)
 	}
 	stored, err := scanSession(transaction.QueryRow(ctx, `
-		INSERT INTO sessions (id,owner_id,workspace_root,title,source,hidden,created_at,updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		INSERT INTO sessions (id,owner_id,workspace_root,title,source,hidden,created_at,updated_at,origin_device_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		RETURNING id,owner_id,workspace_root,title,source,hidden,created_at,updated_at
 	`, candidate.ID, candidate.OwnerID, candidate.WorkspaceRoot, candidate.Title, candidate.Source,
-		candidate.Hidden, candidate.CreatedAt, candidate.UpdatedAt))
+		candidate.Hidden, candidate.CreatedAt, candidate.UpdatedAt, originDeviceID))
 	if err != nil {
 		return finishPostgresSessionStatement(ctx, operation, candidate, session, transaction, release, err)
 	}
@@ -150,8 +159,10 @@ func (s *PostgresStore) createPostgresSession(ctx context.Context, operation Sto
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		*release = false
+		candidate.OriginDeviceID = originDeviceID
 		return candidate, storeError(ctx, operation, StoreErrorUnknownOutcome, errors.Join(err, session.Terminate(ctx)))
 	}
+	candidate.OriginDeviceID = originDeviceID
 	return candidate, nil
 }
 

@@ -103,11 +103,14 @@ func (s *Server) linkSyncChanges(ctx context.Context, req *link.Request) (any, e
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
-	changes, err := s.store.SessionChanges(ctx, req.Principal.OwnerID, p.Cursor, limit+1)
+	if req.Principal.DeviceID == "" || req.Principal.DeviceID == store.AllDevices {
+		return nil, link.Errorf(contract.CodeUnauthorized, "a device identity is required")
+	}
+	changes, err := s.store.SessionChanges(ctx, req.Principal.OwnerID, req.Principal.DeviceID, p.Cursor, limit+1)
 	if err != nil {
 		return nil, linkStoreError(err)
 	}
-	out := contract.SyncChangesResult{Cursor: p.Cursor, Sessions: []contract.SessionHeader{}}
+	out := contract.SyncChangesResult{Cursor: p.Cursor, Sessions: []contract.SessionHeader{}, Scope: contract.ConversationScopeDevice}
 	if len(changes) > limit {
 		changes = changes[:limit]
 		out.More = true
@@ -159,7 +162,7 @@ func (s *Server) linkSessionCreate(ctx context.Context, req *link.Request) (any,
 			workspace = profile.WorkspaceRoot
 		}
 		title := strings.TrimSpace(p.Title)
-		sess, err := s.store.CreateSessionWithScope(ctx, title, req.Principal.OwnerID, workspace, "webchat", false)
+		sess, err := s.store.CreateDeviceSession(ctx, title, req.Principal.OwnerID, workspace, req.Principal.DeviceID)
 		if err != nil {
 			return nil, linkStoreError(err)
 		}

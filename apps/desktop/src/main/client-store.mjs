@@ -1086,8 +1086,25 @@ export class ClientStore {
   // once per installation, before the first backend sync, and keeps only the
   // welcome draft, re-keyed to the joined identity without its local files.
   linkCutover(scope) {
-    const key = scopeKey(scope);
     if (this.db.prepare("SELECT 1 FROM metadata WHERE key='link_cutover'").get()) return false;
+    this.#clearLinkCache(scope, "link_cutover", new Date().toISOString());
+    return true;
+  }
+
+  // The backend names the scope of its conversation feed (design 4.4). A
+  // cache built under another scope, or before the backend named one, holds
+  // conversations this device no longer sees: it is cleared once, the same
+  // way as the cutover, and the caller syncs again from cursor 0.
+  linkScopeCutover(scope, conversationScope) {
+    if (typeof conversationScope !== "string" || !conversationScope) return false;
+    const row = this.db.prepare("SELECT value FROM metadata WHERE key='link_conversation_scope'").get();
+    if (row?.value === conversationScope) return false;
+    this.#clearLinkCache(scope, "link_conversation_scope", conversationScope);
+    return true;
+  }
+
+  #clearLinkCache(scope, markerKey, markerValue) {
+    const key = scopeKey(scope);
     const files = this.db.prepare("SELECT id FROM files").all();
     this.#transaction(() => {
       const welcome = this.db.prepare("SELECT content,revision FROM drafts WHERE conversation_id='' AND content<>'' ORDER BY revision DESC LIMIT 1").get();
@@ -1096,10 +1113,9 @@ export class ClientStore {
         "link_conversations", "message_files", "tasks", "messages", "files", "recording_applications", "event_projection", "drafts", "conversations"]) this.db.exec(`DELETE FROM ${table}`);
       if (welcome) this.db.prepare("INSERT INTO drafts VALUES(?,'',?,'[]',?)").run(key, welcome.content, welcome.revision);
       this.db.exec("DELETE FROM metadata WHERE key LIKE 'browser_%' OR key LIKE 'execution_cancel:%' OR key LIKE 'link_cursor:%'");
-      this.db.prepare("INSERT INTO metadata VALUES('link_cutover',?)").run(new Date().toISOString());
+      this.db.prepare("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(markerKey, markerValue);
     });
     for (const file of files) if (UUID.test(file.id)) fs.rmSync(path.join(this.filesRoot, file.id), { force: true });
-    return true;
   }
 
   // A joined link device uses the installation identity the backend derives

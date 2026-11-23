@@ -236,7 +236,7 @@ func linkRequestID(deviceID, clientMessageID string) string {
 }
 
 func linkRequestPrincipal(req *link.Request) requestPrincipal {
-	return requestPrincipal{OwnerID: req.Principal.OwnerID, ActorID: req.Principal.OwnerID, ClientID: req.Principal.ClientID, Authenticated: true}
+	return requestPrincipal{OwnerID: req.Principal.OwnerID, ActorID: req.Principal.OwnerID, ClientID: req.Principal.ClientID, DeviceID: req.Principal.DeviceID, Authenticated: true}
 }
 
 // linkConversationError maps shared conversation and execution errors to

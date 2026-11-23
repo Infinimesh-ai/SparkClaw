@@ -28,7 +28,7 @@ var migratedFileAdmissions = map[string]string{
 	"GetConnectorSetting": "admitMigrated", "ListConnectorSettings": "admitMigrated", "ListAllConnectorSettings": "admitMigrated",
 	"UpdateConnectorSetting": "admitMigrated", "CreateNotificationBinding": "admitMigrated", "GetNotificationBinding": "admitMigrated",
 	"ListNotificationBindings": "admitMigrated", "UpdateNotificationBinding": "admitMigrated",
-	"CreateSession": "admitMigrated", "CreateSessionWithScope": "admitMigrated",
+	"CreateSession": "admitMigrated", "CreateSessionWithScope": "admitMigrated", "CreateDeviceSession": "admitMigrated",
 	"ListSessions": "admitMigrated", "GetSession": "admitMigrated",
 	"UpdateSessionTitle": "admitMigrated", "DeleteSession": "admitMigrated",
 	"SessionChanges": "admitMigrated", "SessionHeader": "admitMigrated", "ListMessagePage": "admitMigrated",

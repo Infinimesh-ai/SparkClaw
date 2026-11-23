@@ -620,6 +620,9 @@ type Session struct {
 	LastSeq  int64  `json:"last_seq,omitempty"`
 	Preview  string `json:"preview,omitempty"`
 	Archived bool   `json:"archived,omitempty"`
+	// OriginDeviceID is the link device that created the conversation; empty
+	// for the host WebChat and the message channels (design 4.4).
+	OriginDeviceID string `json:"origin_device_id,omitempty"`
 }
 
 // SessionChange is one entry of the conversation change feed: a current

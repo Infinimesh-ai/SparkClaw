@@ -118,7 +118,9 @@ func TestPostgresConversationContextMigrationPreservesOriginalAndRollsBack(t *te
 	if err := runPostgresMigrationsWith(t.Context(), pool, prior, postgresMigrationHooks{}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(t.Context(), `INSERT INTO sessions (id,title) VALUES ('original-session','original title');
+	// An MCP session, which 0024 keeps, so the original message is still there
+	// after every migration has run.
+	if _, err := pool.Exec(t.Context(), `INSERT INTO sessions (id,title,source,hidden) VALUES ('original-session','original title','mcp',true);
 		INSERT INTO messages (id,session_id,role,content,attachments) VALUES ('original-message','original-session','user','original text','[{"name":"original.txt"}]');
 		ALTER TABLE messages ADD COLUMN files_unavailable TEXT NOT NULL DEFAULT 'conflicting-existing-data'`); err != nil {
 		t.Fatal(err)

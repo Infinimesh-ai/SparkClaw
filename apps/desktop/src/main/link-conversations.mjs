@@ -138,6 +138,13 @@ export class LinkConversations {
     const stale = new Set();
     for (let page = 0; page < 1000; page++) {
       const result = await this.#request("sync.changes", { cursor, limit: 100 });
+      if (this.store.linkScopeCutover(scope, result.scope)) {
+        // The feed now covers only this device's conversations (design
+        // 4.4): the cleared cache is filled again from the start.
+        this.#forgetConversations();
+        cursor = 0; changed = true; stale.clear();
+        continue;
+      }
       for (const header of result.sessions || []) {
         const applied = this.store.applyLinkHeader(scope, header);
         changed = true;
@@ -149,6 +156,15 @@ export class LinkConversations {
     }
     if (changed) this.onChange();
     await Promise.allSettled([...stale].map(id => this.refreshMessages(scope, id)));
+  }
+
+  #forgetConversations() {
+    this.live.clear();
+    this.approvalCache.clear();
+    this.decisions.clear();
+    this.refreshed.clear();
+    this.subscribed.clear();
+    this.watching = [];
   }
 
   // Fetches what the cache lacks: the latest page for an uncached

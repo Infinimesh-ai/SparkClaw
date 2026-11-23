@@ -113,6 +113,7 @@ const (
 	OperationConversationSyncPage        StoreOperation = "conversation_sync.message_page"
 	OperationConversationSyncArchive     StoreOperation = "conversation_sync.set_archived"
 	OperationConversationSyncFindClient  StoreOperation = "conversation_sync.find_client_message"
+	OperationConversationSyncCreate      StoreOperation = "conversation_sync.create_device_session"
 	OperationRunFeedbackSave             StoreOperation = "run_feedback.save"
 	OperationRunFeedbackList             StoreOperation = "run_feedback.list"
 	OperationRunSave                     StoreOperation = "run.save"
@@ -474,6 +475,10 @@ var operationSpecs = map[StoreOperation]operationSpec{
 	OperationConversationSyncFindClient: {
 		ID: OperationConversationSyncFindClient, Repository: "ConversationSyncRepository",
 		Method: "FindMessageByClientID", Mode: operationRead, Timeout: timeoutRead,
+	},
+	OperationConversationSyncCreate: {
+		ID: OperationConversationSyncCreate, Repository: "ConversationSyncRepository",
+		Method: "CreateDeviceSession", Mode: operationWrite, Timeout: timeoutTransaction,
 	},
 	OperationConversationCountVisible: {
 		ID: OperationConversationCountVisible, Repository: "ConversationRepository",

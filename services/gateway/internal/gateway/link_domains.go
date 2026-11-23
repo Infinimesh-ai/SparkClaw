@@ -260,7 +260,7 @@ func (s *Server) linkProjection(ctx context.Context, req *link.Request, requestT
 	if len(payload) == 0 || string(payload) == "null" {
 		payload = json.RawMessage(`{}`)
 	}
-	response := s.bridge.PhoneProjection(ctx, requestType, app.NewID("proj"), req.Principal.ClientID, req.Principal.OwnerID, req.Principal.OwnerID, payload, time.Now().UTC())
+	response := s.bridge.PhoneProjection(ctx, requestType, app.NewID("proj"), req.Principal.ClientID, req.Principal.OwnerID, req.Principal.OwnerID, req.Principal.DeviceID, payload, time.Now().UTC())
 	if response.Error != nil {
 		return nil, &contract.Error{Code: contract.CodeInvalidRequest, Message: response.Error.Message, Retryable: response.Error.Retryable}
 	}

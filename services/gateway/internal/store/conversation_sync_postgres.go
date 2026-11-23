@@ -11,11 +11,11 @@ import (
 	"github.com/Chiiz0/SparkClaw/services/gateway/internal/app"
 )
 
-const syncSessionColumns = `id, owner_id, workspace_root, title, source, hidden, created_at, updated_at, revision, last_seq, preview, archived`
+const syncSessionColumns = `id, owner_id, workspace_root, title, source, hidden, created_at, updated_at, revision, last_seq, preview, archived, origin_device_id`
 
 func scanSyncSession(row scanner) (app.Session, error) {
 	var session app.Session
-	err := row.Scan(&session.ID, &session.OwnerID, &session.WorkspaceRoot, &session.Title, &session.Source, &session.Hidden, &session.CreatedAt, &session.UpdatedAt, &session.Revision, &session.LastSeq, &session.Preview, &session.Archived)
+	err := row.Scan(&session.ID, &session.OwnerID, &session.WorkspaceRoot, &session.Title, &session.Source, &session.Hidden, &session.CreatedAt, &session.UpdatedAt, &session.Revision, &session.LastSeq, &session.Preview, &session.Archived, &session.OriginDeviceID)
 	session.CreatedAt = session.CreatedAt.UTC()
 	session.UpdatedAt = session.UpdatedAt.UTC()
 	return session, err
@@ -45,7 +45,7 @@ func (m messageWithExtra) Scan(dest ...any) error {
 	return m.row.Scan(append(dest, m.seq, m.client)...)
 }
 
-func (s *PostgresStore) SessionChanges(ctx context.Context, ownerID string, cursor int64, limit int) ([]app.SessionChange, error) {
+func (s *PostgresStore) SessionChanges(ctx context.Context, ownerID, deviceID string, cursor int64, limit int) ([]app.SessionChange, error) {
 	ctx, cancel := operationContext(ctx, OperationConversationSyncChanges, s.operationTimeouts)
 	defer cancel()
 	if limit <= 0 || limit > 500 {
@@ -53,12 +53,12 @@ func (s *PostgresStore) SessionChanges(ctx context.Context, ownerID string, curs
 	}
 	rows, err := s.sessionPostgres.Query(ctx, `
 		SELECT `+syncSessionColumns+`, false AS deleted, NULL::timestamptz AS deleted_at FROM sessions
-		 WHERE owner_id = $1 AND hidden = false AND revision > $2
+		 WHERE owner_id = $1 AND ($4 = '*' OR origin_device_id = $4) AND hidden = false AND revision > $2
 		UNION ALL
-		SELECT session_id, owner_id, '', '', '', false, deleted_at, deleted_at, revision, 0, '', false, true, deleted_at FROM session_tombstones
-		 WHERE owner_id = $1 AND revision > $2
+		SELECT session_id, owner_id, '', '', '', false, deleted_at, deleted_at, revision, 0, '', false, origin_device_id, true, deleted_at FROM session_tombstones
+		 WHERE owner_id = $1 AND ($4 = '*' OR origin_device_id = $4) AND revision > $2
 		ORDER BY 9
-		LIMIT $3`, ownerID, cursor, limit)
+		LIMIT $3`, ownerID, cursor, limit, deviceID)
 	if err != nil {
 		return nil, classifyConversationPostgresError(OperationConversationSyncChanges, ctx, err)
 	}
@@ -68,7 +68,7 @@ func (s *PostgresStore) SessionChanges(ctx context.Context, ownerID string, curs
 		var change app.SessionChange
 		var deletedAt *time.Time
 		sc := change.Session
-		if err := rows.Scan(&sc.ID, &sc.OwnerID, &sc.WorkspaceRoot, &sc.Title, &sc.Source, &sc.Hidden, &sc.CreatedAt, &sc.UpdatedAt, &sc.Revision, &sc.LastSeq, &sc.Preview, &sc.Archived, &change.Deleted, &deletedAt); err != nil {
+		if err := rows.Scan(&sc.ID, &sc.OwnerID, &sc.WorkspaceRoot, &sc.Title, &sc.Source, &sc.Hidden, &sc.CreatedAt, &sc.UpdatedAt, &sc.Revision, &sc.LastSeq, &sc.Preview, &sc.Archived, &sc.OriginDeviceID, &change.Deleted, &deletedAt); err != nil {
 			return nil, classifyConversationPostgresError(OperationConversationSyncChanges, ctx, err)
 		}
 		sc.CreatedAt = sc.CreatedAt.UTC()

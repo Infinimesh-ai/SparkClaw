@@ -68,11 +68,13 @@
 
 ### 核心
 
+所有会话操作都只作用于调用方设备自己的会话，即它用 `session.create` 创建的会话（[设计 4.4](client-link-layer-design.md)）。访问其他设备的会话，或由宿主 WebChat、消息渠道创建的会话，返回 `not_found`；对这类会话调用 `session.delete` 返回 `deleted: true`，但不删除任何内容。
+
 | 操作 | 参数 → 结果 | 说明 |
 |---|---|---|
 | `ping` | — → `{time}` | 存活检测 |
 | `device.describe` | — → `{principal, features, domains, backend}` | |
-| `sync.changes` | `{cursor, limit}` → `{sessions[], cursor, more}` | 返回 `revision > cursor` 的会话头，按 revision 排序；删除标记为 `deleted: true` |
+| `sync.changes` | `{cursor, limit}` → `{sessions[], cursor, more, scope}` | 返回本设备 `revision > cursor` 的会话头，按 revision 排序；删除标记为 `deleted: true`。revision 由所有设备共用，所以一台设备看到的 revision 有空档。`scope` 为 `device`；缓存不是在这个范围下建立（或建立时没有范围）的客户端清空一次会话缓存，从游标 0 重新读取 |
 | `session.create` | `{title, client_request_id}` → 会话头 | 按 `client_request_id` 幂等 |
 | `session.rename` | `{session_id, title}` → 会话头 | |
 | `session.archive` | `{session_id, archived}` → 会话头 | |
@@ -83,7 +85,7 @@
 | `run.unsubscribe` | `{session_id}` → `{ok}` | 仅 duplex |
 | `run.status` | `{session_id}` → RunStatus | `state` 取 idle、running、approval_pending、completed、failed、cancelled 或 blocked；另带 `preview`、`progress`、`final_message`、`pending_approvals`，以及 `seq`：快照包含的最后一个运行事件。已结束的运行从已存会话中回答 |
 | `run.cancel` | `{session_id, run_id?}` → RunStatus | |
-| `approval.list` | `{session_id?, pending?}` → `{approvals[]}` | |
+| `approval.list` | `{session_id?, pending?}` → `{approvals[]}` | 只返回本设备会话里产生的审批；`approval.resolve` 也只接受这些审批 |
 | `approval.resolve` | `{approval_id, decision: approve\|reject, inputs?, idempotency_key}` → `{approval}` | |
 
 ### 对象（需要设备条件 `attachments`）
@@ -152,8 +154,8 @@
 | 主题 | 数据 |
 |---|---|
 | `run` | `{session_id, run_id, seq, kind: state\|delta\|progress\|final, text?, status?}`。`seq` 在一个会话的所有运行中逐一递增，一个订阅按顺序收到。出现缺口说明有事件丢失，应重新读取 `run.status` |
-| `sync` | `{cursor}`：有会话发生变化，客户端应调用 `sync.changes` |
-| `approval` | `{pending}`：待处理的审批有变化 |
+| `sync` | `{cursor}`：本设备的某个会话发生变化，客户端应调用 `sync.changes` |
+| `approval` | `{pending}`：本设备会话里待处理的审批有变化 |
 | `domain` | `{domains[]}`：某个业务域的状态有变化（例如 `settings`、`mail`、`medicine`），应重新读取 |
 | `device` | `{state: "revoked"}`：后端随后会关闭连接 |
 

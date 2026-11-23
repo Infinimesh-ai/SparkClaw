@@ -2,15 +2,15 @@
 
 > Language: English | [简体中文](../zh-cn/docs/client-link-layer-design.md)
 
-Date: 2026-11-19. Status: implemented (section 9). The code survey is based on `dfc49969`.
+Date: 2026-11-19, revised 2026-11-23. Status: implemented (section 9); per-device conversations (4.4) were implemented on 2026-11-23 and are not deployed. The code survey is based on `dfc49969`.
 
 This document covers only how the desktop, phone and watch clients communicate with the backend. Domains, device binding and access-credential issuance are in [Self-hosted console design](self-hosted-console-design.md). The two documents are maintained separately.
 
-This document supersedes the boundary in sections 1 and 2 of [Client and backend architecture R3](client-backend-architecture-design.md) that conversations belong to each client locally.
+This document supersedes the boundary in sections 1 and 2 of [Client and backend architecture R3](client-backend-architecture-design.md) that conversations are stored locally on each client. Storage moves to the backend; each client still shows only the conversations created on it (4.4).
 
 ## 0. Premises
 
-The user confirmed these premises on 2026-11-19.
+The user confirmed premises 1 to 10 on 2026-11-19 and premises 11 and 12 on 2026-11-23.
 
 1. **Production has one connection method.** The official console has domains. A domain is the isolation boundary for devices and trust. The three clients bind to a domain with a SparkClaw access credential issued by the console (scanned or pasted), the backend joins the same domain, and the clients then talk to the backend through the link layer. This is the only way to join.
 2. **The console only binds devices, pairs them and issues credentials.** Messaging, conversation sync, approvals and all other business traffic use the link layer (LAN or ISCP Relay) and never pass through the console.
@@ -22,12 +22,14 @@ The user confirmed these premises on 2026-11-19.
 8. **No client works while the backend is offline.** When the backend is unreachable, any operation from any client fails at once with a clear error. Nothing is queued locally and no client executes on the backend's behalf (3.12).
 9. **One backend serves one person.** Multi-user use is out of scope for now.
 10. **Control of the SparkX built-in browser stays as it is.** It is a capability of the desktop client itself and is outside this refactor (3.12).
+11. **Each of the three clients shows only its own conversations.** The backend being the single source of truth does not mean the three clients show the same conversations. The desktop, phone and watch each see the conversations created on that device. The host WebChat and the message channels such as WeChat see all of them (4.4).
+12. **The watch gets its own conversation cache.** It is not designed yet (4.4).
 
 ## 1. Conclusions
 
 1. What was dropped was not the ISCP Bridge architecture but its credential source at the time. The Bridge code is still in the repository and maintained. Phones left it because the reference Trust Root could only issue one-hour `text` Grants, could not renew them, and needed each phone written into `peers[]` by hand. All three are credential problems.
 2. The Bridge's process boundary is what is missing today: ISCP terminates in a separate process, and the Gateway knows only a narrow, transport-neutral interface. The node-issuer path moved ISCP into the Gateway process, and the coupling follows from that.
-3. The design is: **the Bridge's process boundary with the console's domain-model credentials.** Devices and the backend join the same domain, and the console issues and renews their Grants. A backend-authoritative conversation sync layer sits on top.
+3. The design is: **the Bridge's process boundary with the console's domain-model credentials.** Devices and the backend join the same domain, and the console issues and renews their Grants. A backend-authoritative conversation sync layer sits on top. It stores every conversation and shows each client only its own.
 4. The console's Grants last days and support automatic renewal. "One hour, no renewal" was a limit of the reference implementation, not of the console model. The node issuer is a separate issuance scheme built to work around that limit. It differs from the console model and is retired at the end.
 
 ## 2. Problems today
@@ -40,7 +42,7 @@ The user confirmed these premises on 2026-11-19.
 | Transport negotiation is used as business authorization | `execution_authorization.go` decides tool and file permissions from `NegotiatedOperations` | Permissions depend on what the client version negotiated |
 | The operation table is compared exactly | `compatibleV2Operations` in `negotiation.go` | A new operation stops older clients from connecting unless it is added as a separate extension flag |
 | Clients branch on transport everywhere | Desktop main process `main.mjs` and `desktop-auth.mjs`; about 15 `iscp` branches in webchat `LocalWorkbench.tsx` | LAN and remote are two code paths with different behavior |
-| Two conversation models coexist | Host WebChat conversations live in the Gateway `sessions`/`messages` tables; desktop and phone conversations live on the device and send history with each `execution.submit` | The clients cannot share conversations; the remote interface has no operation to list conversations or read messages |
+| Two conversation models coexist | Host WebChat conversations live in the Gateway `sessions`/`messages` tables; desktop and phone conversations live on the device and send history with each `execution.submit` | The backend does not hold desktop and phone conversations, and the host WebChat cannot see them; the remote interface has no operation to list conversations or read messages |
 | The phone client library depends on backend business code | `mobile/sparkclawmobile` compiles `internal/toolhub` | The library cannot build for 32-bit, so the watch cannot use it (3.8) |
 
 ## 3. Target structure
@@ -132,7 +134,7 @@ Each client has a `LinkClient` with the same interface: connect, request, subscr
 - **Phone**: the gomobile library moves from passing raw operation names through to a typed sync interface.
 - **Watch**: also uses the link layer (LAN and ISCP Relay), in the pull profile; see 3.7 and 3.8.
 
-**The host WebChat stays.** The web client on the backend host keeps using the Gateway's local interface directly, with an unchanged interface. It reads and writes the same conversation tables, so it follows the data model changes in section 4 and sees the same conversations as the three clients.
+**The host WebChat stays.** The web client on the backend host keeps using the Gateway's local interface directly, with an unchanged interface. It reads and writes the same conversation tables, so it follows the data model changes in section 4. It sees every conversation, including those of the three clients (4.4).
 
 The Go implementation of `LinkClient` is a standalone module that depends only on the ISCP packages and the link contract. It does not import Gateway internal packages.
 
@@ -166,7 +168,7 @@ Findings from the local repositories and a real device on 2026-11-19.
 |---|---|---|---|---|
 | Desktop SparkX | Electron plus a Go helper process | LAN HTTPS, or ISCP through the helper | SQLite; the device is the source of truth for conversations | Becomes a cache; the largest piece of work |
 | Phone JingSi Android | Java 11, minimum Android 9 | Two paths: the gomobile library over the node issuer; a LAN mode that is cleartext HTTP, unauthenticated, with a hand-typed IP and one implicit conversation | The remote path keeps `chat.json` and sends up to 31 history messages per turn; the LAN path keeps only a cursor | The LAN mode is replaced by the authenticated LAN connector; local conversations become a cache |
-| Watch JingSi Watch | OPPO Watch, Kotlin, minimum Android 8.1, pure JVM | Only demo mode works. The console interfaces defined in the code have no callers and real pairing is not implemented | Room: offline event queue, approvals, status. No conversation cache | New pairing and a new link module, in the pull profile |
+| Watch JingSi Watch | OPPO Watch, Kotlin, minimum Android 8.1, pure JVM | Only demo mode works. The console interfaces defined in the code have no callers and real pairing is not implemented | Room: offline event queue, approvals, status. No conversation cache | New pairing and a new link module, in the pull profile. Gets its own conversation cache, not yet designed (4.4) |
 | iOS JingSi | Swift | Has ISCP connection code and a console API client; not examined in depth | Not examined | A fourth client implementation |
 
 The watch is a 32-bit device. The real device (OPPO OWW261) reports `armeabi-v7a`, has only a 32-bit runtime, runs Android 11 and has about 1.8 GB of memory.
@@ -229,13 +231,14 @@ The console side is described in [Self-hosted console design](self-hosted-consol
 
 ## 4. Conversation sync
 
-The backend is the single source of truth and all three clients are caches. The approach is to promote the conversation interface the host WebChat already has into the only interface, and add paging and a change cursor. The current desktop and phone model, in which history travels with every request, is retired.
+The backend is the single source of truth and every client is a cache of its own conversations. Being the single source of truth means the backend holds every conversation; it does not mean every client shows every conversation. Each of the three clients sees only the conversations created on it, and the host WebChat sees all of them (4.4). The approach is to promote the conversation interface the host WebChat already has into the only interface, and add paging and a change cursor. The current desktop and phone model, in which history travels with every request, is retired.
 
 ### 4.1 Data model changes
 
 | Table | Added | Purpose |
 |---|---|---|
-| `sessions` | `revision` (monotonic), `last_seq`, `preview`, `archived`, `deleted_at` | Change cursor, list display, archive synced across clients, deletion tombstone |
+| `sessions` | `revision` (monotonic), `last_seq`, `preview`, `archived`, `deleted_at` | Change cursor, list display, archive synced between a client and the host WebChat, deletion tombstone |
+| `sessions`, `session_tombstones` | `origin_device_id` (empty for conversations not created by a client) | The device a conversation belongs to (4.4) |
 | `messages` | `seq` (monotonic within a conversation), `client_message_id` | Paging by sequence number, idempotent send |
 
 There is no separate change-log table. "Changes since a cursor" are the conversations whose `revision` is greater than the cursor, ordered by `revision`. State size depends only on the number of conversations and does not grow with time.
@@ -251,14 +254,62 @@ There is no separate change-log table. "Changes since a cursor" are the conversa
 | `run.status` / `run.cancel` | Query and cancel |
 | `approval.list` / `approval.resolve` | Approvals |
 
+Every operation here acts only on the calling device's own conversations (4.4).
+
 ### 4.3 Behavior
 
 - **Cache.** A client stores conversation headers and the message pages it has read. It shows the cache at start and then aligns with `sync.changes`.
 - **Lazy loading.** Messages are fetched only when a conversation is opened, and only the latest page.
 - **Streaming output.** The preview of a run in progress exists only in memory and has no `seq`. On completion it becomes one final message. After a disconnect, subscribing again returns the current snapshot.
-- **Several clients online.** All subscribers of a conversation receive the same events. Only one message runs in a conversation at a time; a send from a second device gets a conflict.
+- **Client and host WebChat at once.** A client's conversation can also be open in the host WebChat. Both receive the same events. Only one message runs in a conversation at a time; a second send gets `busy`.
 - **Backend unreachable.** A send fails at once and is not queued (3.12).
 - **Device projection.** The device record carries the device class. For the watch the backend returns trimmed plain text and fewer items, and gives only file names for attachments.
+
+### 4.4 Each client shows its own conversations (2026-11-23)
+
+Storage stays as in 4.1: every conversation, with its attachments, is kept on the backend. What changes is who sees it.
+
+**Ownership**
+
+- When the backend creates a conversation while serving a link-layer request (`session.create`, including the phone's default conversation), it records the calling device's ID from the Principal in `origin_device_id`.
+- Conversations created by the host WebChat, WeChat, Telegram, MCP access, schedules and other backend channels have an empty `origin_device_id`.
+- Ownership never changes. Renaming, archiving, a message sent into the conversation from the host WebChat, and the output of its runs leave it as it is.
+
+**Who sees what**
+
+| Surface | Sees |
+|---|---|
+| Desktop, phone, watch (link layer) | Only the conversations whose `origin_device_id` is its own device ID |
+| Host WebChat | Every conversation of the owner, with or without a device |
+| WeChat, Telegram and other channels | Unchanged: they keep reaching the owner's conversations as they do today |
+
+**Enforced by the backend, not the client**
+
+- The device check sits at the Gateway's link entry point. `sync.changes` returns only the device's own conversations and tombstones. `session.messages`, `session.rename`, `session.archive`, `session.delete`, `message.send`, `run.subscribe`, `run.status`, `run.cancel` and attachment reads and uploads accept only the device's own conversations.
+- Another device's conversation, or one without a device, answers `not_found`, the same as a conversation that does not exist. A client cannot tell it apart from a missing one.
+- `approval.list` returns only approvals raised in the device's own conversations, and `approval.resolve` accepts only those. Approvals from conversations without a device are decided in the host WebChat or in the channel that started them.
+- Conversation and run events go only to the connections of the conversation's device and to the host WebChat. Events that are not about a conversation, such as device notifications and settings, keep their current scope.
+- Device notifications (already kept per device) and device projection (4.3) do not change. The host WebChat keeps its local interface; nothing in it changes.
+
+**Cursor**
+
+`revision` stays one sequence for the owner. A device's `sync.changes` skips the rows of other devices, so the revisions one device sees have gaps. A cursor still only moves forward, and no per-device sequence is needed. The index becomes `(owner_id, origin_device_id, revision)` on both tables.
+
+**Cutover**
+
+- Existing conversations have no device, and there is no reliable record of which device created them. Following premise 7, migration `0024_device_conversations` deletes all of them with the same closure as an owner's deletion: messages, runs, approvals, attachments, reminders, linked channel chats, and the memories learned from their runs. Only the MCP binding sessions stay, because they are binding state, not conversation history. The tombstones of the deleted conversations are dropped too.
+- The caches on the desktop and phone hold conversations that are now deleted or belong to other devices. Every `sync.changes` result carries `scope: "device"`. A client whose cache was built without that scope clears its conversation cache once and syncs again from cursor 0. Cached attachments of the cleared conversations are dropped with them. The scope travels in the feed rather than in hello, so the pull profile gets it the same way.
+- The phone's default conversation is created with a new `client_request_id`, so it never replays a conversation deleted at cutover.
+- The link contract and the clients change in the same release. An older client keeps working against the new backend, but it sees only its own conversations, and its cache keeps showing other devices' conversations until it is updated.
+
+**Leaving and joining again**
+
+- When a device is revoked, its conversations stay on the backend and remain in the host WebChat. No other device inherits them.
+- Joining again creates a new device key and device ID (console adapter), so the device starts with an empty list. Its earlier conversations stay in the host WebChat.
+
+**Watch**
+
+The watch gets its own conversation cache; that design is still open. Until then the watch follows the same rule: it sees only the conversations created on the watch. It keeps one conversation ID; when the backend answers `not_found`, it creates a new conversation, so the cutover needs no change on the watch.
 
 ## 5. Where the 159 existing operations go
 
@@ -280,6 +331,7 @@ There is no separate change-log table. "Changes since a cursor" are the conversa
 | P2b | Watch gains real pairing and the link module (pull profile). LAN first, then remote | Watch needs a new version |
 | P3 | Desktop: `LinkClient`, cache and sync engine, unchanged interface | Desktop needs a new version; its old local conversations are cleared |
 | P4 | Business domains move one by one; the in-Gateway ISCP responder, the operation table and `workbench_iscp_*` are deleted; the node issuer is retired | Old client versions stop working |
+| P5 | Per-device conversations (4.4): `origin_device_id` migration that also deletes the existing conversations, device checks at the link entry point, filtered events and approvals, `scope` in `sync.changes`, and the cache reset on desktop and phone | Desktop and phone need a new version and clear their conversation cache once; every existing conversation is deleted |
 
 The self-hosted console's schedule is in its own document. P1 integration can start once its phase C1 is complete.
 
@@ -292,6 +344,8 @@ The old Bridge `agent.*.v1` entry is still used by JingSi and by LocalMind's MCP
 - **Most of the work is in P3 and P4.** The desktop's local store becomes a cache, and about 11,000 lines of adapter code move.
 - **Cutover deletes old local conversations on each client.** This cannot be undone and must be stated in the release notes.
 - **Backend storage grows.** Conversation text and attachments are kept on the backend, so quotas and retention are needed.
+- **A conversation cannot follow the user to another client.** It stays on the device that created it. When that device is lost or revoked, its conversations can be read only in the host WebChat.
+- **Approvals from channel conversations are not shown on the three clients.** A run started from WeChat or a schedule is approved in the host WebChat or in that channel (4.4).
 
 ## 8. Out of scope
 
@@ -313,6 +367,7 @@ The old Bridge `agent.*.v1` entry is still used by JingSi and by LocalMind's MCP
 | Workbench retirement (2026-11-20) | Implemented, not deployed. Every business domain is a typed domain method calling the business functions directly ([migration](workbench-retirement-migration.md)); `link_domain_bridge.go`, the domain adapters, their receipt journal, the operation table and the `iscpworkbench` and `iscpobjects` packages are deleted |
 
 | Automatic path switching (2026-11-20) | Implemented, not deployed. `LinkClient.NetworkChanged`, path verification, the LAN connector in hello and the tighter LAN keepalive (3.6); wired into the desktop helper, the phone and the watch. The interface of the three clients is unchanged |
+| P5 per-device conversations (2026-11-23) | Implemented, not deployed. Migration `0024_device_conversations` (`origin_device_id`, fixed ownership, deletion of the existing conversations); `CreateDeviceSession` and the device filter of `SessionChanges` in the three stores; the device check in `sessionForPrincipal`, which every link conversation operation and the phone projection use; per-device `sync` and `approval` events; `scope` in `sync.changes`; the cache reset in the desktop `ClientStore` and the phone `LinkModel.Cache`. The watch is unchanged |
 
 **Deployment**
 

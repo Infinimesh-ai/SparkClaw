@@ -26,6 +26,9 @@ const (
 type Principal struct {
 	OwnerID string
 	ActorID string
+	// DeviceID limits a link device's projections to the conversations
+	// created on it (design 4.4). Empty for Bridge peers.
+	DeviceID string
 }
 
 type AgentRuntime interface {

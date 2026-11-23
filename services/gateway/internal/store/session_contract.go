@@ -82,6 +82,15 @@ func nextSessionTime(now time.Time, floors ...time.Time) time.Time {
 	return next
 }
 
+// validDeviceOrigin checks the device ID a link conversation is created
+// for: present, without surrounding space and never the AllDevices filter.
+func validDeviceOrigin(deviceID string) error {
+	if deviceID == "" || deviceID == AllDevices || strings.TrimSpace(deviceID) != deviceID {
+		return errors.New("a device conversation needs a valid device ID")
+	}
+	return nil
+}
+
 func sessionsEqual(left, right app.Session) bool {
 	return left.ID == right.ID && left.OwnerID == right.OwnerID && left.WorkspaceRoot == right.WorkspaceRoot &&
 		left.Title == right.Title && left.Source == right.Source && left.Hidden == right.Hidden &&

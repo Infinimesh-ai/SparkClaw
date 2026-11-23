@@ -92,11 +92,37 @@ func (a *GatewayAdapter) visibleSessionIDs(ctx context.Context, principal Princi
 	}
 	visible := map[string]struct{}{}
 	for _, session := range listed {
-		if ownerIDForSession(session) == principal.OwnerID && !session.Hidden {
-			visible[session.ID] = struct{}{}
+		if ownerIDForSession(session) != principal.OwnerID || session.Hidden {
+			continue
 		}
+		if principal.DeviceID != "" {
+			owned, err := a.sessionOwnedByDevice(ctx, session.ID, principal.DeviceID)
+			if err != nil {
+				return nil, err
+			}
+			if !owned {
+				continue
+			}
+		}
+		visible[session.ID] = struct{}{}
 	}
 	return visible, nil
+}
+
+// sessionOwnedByDevice reports whether a link device created the session.
+// A repository without sync headers has no device conversations.
+func (a *GatewayAdapter) sessionOwnedByDevice(ctx context.Context, sessionID, deviceID string) (bool, error) {
+	headers, ok := a.store.(interface {
+		SessionHeader(context.Context, string) (app.Session, bool, error)
+	})
+	if !ok {
+		return false, nil
+	}
+	header, found, err := headers.SessionHeader(ctx, sessionID)
+	if err != nil || !found {
+		return false, err
+	}
+	return header.OriginDeviceID == deviceID, nil
 }
 
 func (a *GatewayAdapter) listActivities(ctx context.Context, req Request, principal Principal, now time.Time) Response {
